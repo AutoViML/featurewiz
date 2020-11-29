@@ -6,11 +6,28 @@ Featurewiz is a new python library for selecting the best features in your data 
 (featurewiz logo created using Wix)
 <p>Two methods are used in this version of featurewiz:<br>
 
-1. SULOV -> SULOV means Searching for Uncorrelated List of Variables. The SULOV method is explained in this chart below<br>
+1. SULOV -> SULOV means Searching for Uncorrelated List of Variables. The SULOV method is explained in this chart below. THIS METHOD IS KNOWN AS SULOV METHOD in memory of my mom, SULOCHANA SESHADRI. Additionally, SULOV can also mean:  “Searching for Uncorrelated List Of Variables”
+
+Here is a simple way of explaining how it works:
+<ul>
+<li>Find all the pairs of highly correlated variables exceeding a correlation threshold (say absolute(0.7)).
+<li>Then find their MIS score (Mutual Information Score) to the target variable. MIS is a non-parametric scoring method. So its suitable for all kinds of variables and target.
+<li>Now take each pair of correlated variables, then knock off the one with the lower MIS score.
+<li>What’s left is the ones with the highest Information scores and least correlation with each other.
+</ul>
+
 
 ![sulov](SULOV.jpg)
 
-2. Recursive XGBoost: Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, we use XGBoost to repeatedly find best features among the remaining variables after SULOV. The Recursive XGBoost method is explained in this chart below <br>
+2. Recursive XGBoost: Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, we use XGBoost to repeatedly find best features among the remaining variables after SULOV. The Recursive XGBoost method is explained in this chart below.
+Once have done SULOV method, now select the best variables using XGBoost feature important but apply it recursively to smaller and smaller sets of data in your data set. This is how it works:
+<ul>
+<li>Select all variables in data set and the full data split into train and valid sets.
+<li>Find top X features (could be 10) on train using valid for early stopping (to prevent over-fitting)
+<li>Then take next set of vars and find top X
+<li>Do this 5 times. Combine all selected features and de-duplicate them.
+</ul>
+
 
 ![xgboost](xgboost.jpg)
 
