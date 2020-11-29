@@ -1,5 +1,8 @@
 README.md
 setup.py
+featurewiz/__init__.py
+featurewiz/__version__.py
+featurewiz/featurewiz.py
 featurewiz.egg-info/PKG-INFO
 featurewiz.egg-info/SOURCES.txt
 featurewiz.egg-info/dependency_links.txt

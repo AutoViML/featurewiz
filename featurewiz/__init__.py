@@ -7,6 +7,7 @@
 ################################################################################
 # Version
 from .__version__ import __version__
+from .featurewiz import featurewiz
 
 if __name__ == "__main__":
     version_number = __version__

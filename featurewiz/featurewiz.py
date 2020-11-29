@@ -505,8 +505,8 @@ def remove_variables_using_fast_correlation(df, numvars, modeltype, target,
     empty_df = upper_tri[abs(upper_tri)>corr_limit]
     ### if none of the variables are highly correlated, you can skip this whole drawing
     if empty_df.isnull().all().all():
-        print('    No highly correlated variables in data set...')
-        return
+        print('    No highly correlated variables in data set to remove. All selected...')
+        return numvars
     #### It's important to find the highly correlated features first #############
     lower_tri = correlation_dataframe.where(np.tril(np.ones(correlation_dataframe.shape),
                                   k=-1).astype(np.bool))

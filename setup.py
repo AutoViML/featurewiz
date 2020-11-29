@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import setuptools
 
 with open("README.md", "r", encoding="utf-8") as fh:
@@ -5,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="featurewiz",
-    version="0.0.4",
+    version="0.0.5",
     author="Ram Seshadri",
     author_email="rsesha2001@yahoo.com",
     description="Select Best Features from your data set - any size - now with XGBoost!",
