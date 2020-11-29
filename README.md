@@ -9,24 +9,24 @@ Featurewiz is a new python library for selecting the best features in your data 
 1. SULOV -> SULOV means Searching for Uncorrelated List of Variables. The SULOV method is explained in this chart below. THIS METHOD IS KNOWN AS SULOV METHOD in memory of my mom, SULOCHANA SESHADRI. Additionally, SULOV can also mean:  “Searching for Uncorrelated List Of Variables”
 
 Here is a simple way of explaining how it works:
-<ul>
+<ol>
 <li>Find all the pairs of highly correlated variables exceeding a correlation threshold (say absolute(0.7)).
 <li>Then find their MIS score (Mutual Information Score) to the target variable. MIS is a non-parametric scoring method. So its suitable for all kinds of variables and target.
 <li>Now take each pair of correlated variables, then knock off the one with the lower MIS score.
 <li>What’s left is the ones with the highest Information scores and least correlation with each other.
-</ul>
+</ol>
 
 
 ![sulov](SULOV.jpg)
 
 2. Recursive XGBoost: Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, we use XGBoost to repeatedly find best features among the remaining variables after SULOV. The Recursive XGBoost method is explained in this chart below.
 Once have done SULOV method, now select the best variables using XGBoost feature important but apply it recursively to smaller and smaller sets of data in your data set. This is how it works:
-<ul>
+<ol>
 <li>Select all variables in data set and the full data split into train and valid sets.
 <li>Find top X features (could be 10) on train using valid for early stopping (to prevent over-fitting)
 <li>Then take next set of vars and find top X
 <li>Do this 5 times. Combine all selected features and de-duplicate them.
-</ul>
+</ol>
 
 
 ![xgboost](xgboost.jpg)
@@ -44,7 +44,6 @@ or
 <li><a href="#background">Background</a></li>
 <li><a href="#install">Install</a></li>
 <li><a href="#usage">Usage</a></li>
-<li><a href="#tips-for-using-auto_viml">Tips for using Auto_ViML</a></li>
 <li><a href="#api">API</a></li>
 <li><a href="#maintainers">Maintainers</a></li>
 <li><a href="#contributing">Contributing</a></li>
@@ -61,9 +60,9 @@ In most cases, featurewiz builds models with 20%-99% fewer features than your or
 <p>
 featurewiz is every Data Scientist's feature wizard that will:<ol>
 <li><b>Automatically pre-process data</b>: you can send in your entire dataframe as is and featurewiz will classify and change/label encode categorical variables changes to help XGBoost processing. That way, you don't have to preprocess your data before using featurewiz<br>
-<li><b>Assists you with variable classification</b>: featurewiz classifies variables automatically. This is very helpful when you have hundreds if not thousands of variables since it can readily identify which of those are numeric vs categorical vs NLP text vs date-time variables and so on.<br>
-<li><b>Performs feature reduction automatically</b>. When you have small data sets and you know your domain well, it is easy to perhaps do EDA and identify which variables are important. But when you have a very large data set with hundreds if not thousands of variables, selecting the best features from your model can mean the difference between a bloated and highly complex model or a simple model with the fewest and most information-rich features. featurewiz uses XGBoost repeatedly to perform feature selection. You must try it on your large data sets and compare!<br>
-<li><b>Produces SULOV method graphically using networkx library so you can see which variables are highly correlated to which ones and which of those have high or low mutual information scores automatically</b>. Just set verbose = 2 <br>
+<li><b>Assist you with variable classification</b>: featurewiz classifies variables automatically. This is very helpful when you have hundreds if not thousands of variables since it can readily identify which of those are numeric vs categorical vs NLP text vs date-time variables and so on.<br>
+<li><b>Perform feature reduction automatically</b>. When you have small data sets and you know your domain well, it is easy to perhaps do EDA and identify which variables are important. But when you have a very large data set with hundreds if not thousands of variables, selecting the best features from your model can mean the difference between a bloated and highly complex model or a simple model with the fewest and most information-rich features. featurewiz uses XGBoost repeatedly to perform feature selection. You must try it on your large data sets and compare!<br>
+<li><b>Explain SULOV method graphically using networkx library so you can see which variables are highly correlated to which ones and which of those have high or low mutual information scores automatically</b>. Just set verbose = 2 to see the graph. <br>
 </ol>
 featurewiz is built using xgboost, numpy, pandas and matplotlib. It should run on most Python 3 Anaconda installations. You won't have to import any special
 libraries other than "XGBoost" and "networkx" library. We use "networkx" library for interpretability. <br>But if you don't have these libraries, featurewiz will install those for you automatically.
