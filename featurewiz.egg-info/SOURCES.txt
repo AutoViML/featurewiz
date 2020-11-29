@@ -1,10 +1,12 @@
 CONTRIBUTING.md
 LICENSE
 README.md
-featurewiz.py
 featurewiz_logo.jpg
 requirements.txt
 setup.py
+featurewiz/__init__.py
+featurewiz/__version__.py
+featurewiz/featurewiz.py
 featurewiz.egg-info/PKG-INFO
 featurewiz.egg-info/SOURCES.txt
 featurewiz.egg-info/dependency_links.txt
