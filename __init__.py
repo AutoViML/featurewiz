@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 ################################################################################
-#     featurewiz v0.0.1
+#     featurewiz - fast feature selection using one line of code
 #     Python v3.6+
 #     Created by Ram Seshadri
 #     Licensed under Apache License v2
