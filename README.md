@@ -13,8 +13,10 @@ Featurewiz is a new python library for selecting the best features in your data 
 <code>Use $ pip install featurewiz --upgrade --ignore-installed</code><br>
 or
 <code>pip install git+https://github.com/AutoViML/featurewiz.git </code><br>
-![banner](SULOV.jpg)
-![banner](xgboost.jpg)
+
+![sulov](SULOV.jpg)
+
+![xgboost](xgboost.jpg)
 
 ## Table of Contents
 <ul>
