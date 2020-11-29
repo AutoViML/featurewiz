@@ -2,8 +2,6 @@
 
 ![banner](featurewiz_logo.jpg)
 
-[![Python Versions]
-
 Featurewiz is a new python library for selecting the best features in your data set fast!
 (featurewiz logo created using Wix)
 <p>Two methods are used in this version of featurewiz:<br>
