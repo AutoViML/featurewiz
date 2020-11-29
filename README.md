@@ -6,13 +6,15 @@ Featurewiz is a new python library for selecting the best features in your data 
 (featurewiz logo created using Wix)
 <p>Two methods are used in this version of featurewiz:<br>
 1. SULOV -> SULOV means Searching for Uncorrelated List of Variables. The SULOV method is explained in this chart below<br>
-2. Recursive XGBoost: Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, we use XGBoost to repeatedly find best features among the remaining variables after SULOV.<br>
+2. Recursive XGBoost: Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, we use XGBoost to repeatedly find best features among the remaining variables after SULOV. The Recursive XGBoost method is explained in this chart below <br>
 3. Most variables are included: It automatically detects  types of variables in your data set and converts them to numeric except date-time, NLP and large-text variables.<br>
 4. Feature Engineering: You can add as many variables as you want and as the last step before modeling, you can perform feature selection with featurewiz
 <p>To upgrade to the best, most stable and full-featured version always do the following: <br>
 <code>Use $ pip install featurewiz --upgrade --ignore-installed</code><br>
 or
 <code>pip install git+https://github.com/AutoViML/featurewiz.git </code><br>
+![SULOV](SULOV.jpg)
+![xgboost](xgboost.jpg)
 
 ## Table of Contents
 <ul>
@@ -29,15 +31,15 @@ or
 ## Background
 
 Watch this video [video](https://www.youtube.com/embed/ZiNutwPcAU0)<br>
- 
-<p>featurewiz was designed for selecting High Performance variables with the fewest steps. 
+
+<p>featurewiz was designed for selecting High Performance variables with the fewest steps.
 
 In most cases, featurewiz builds models with 20%-99% fewer features than your original data set with nearly the same or slightly lower performance (this is based on my trials. Your experience may vary).<br>
 <p>
 featurewiz is every Data Scientist's feature wizard that will:<ol>
 <li><b>Automatically pre-process data</b>: you can send in your entire dataframe as is and featurewiz will classify and change/label encode categorical variables changes to help XGBoost processing. That way, you don't have to preprocess your data before using featurewiz<br>
 <li><b>Assists you with variable classification</b>: featurewiz classifies variables automatically. This is very helpful when you have hundreds if not thousands of variables since it can readily identify which of those are numeric vs categorical vs NLP text vs date-time variables and so on.<br>
-<li><b>Performs feature reduction automatically</b>. When you have small data sets and you know your domain well, it is easy to perhaps do EDA and identify which variables are important. But when you have a very large data set with hundreds if not thousands of variables, selecting the best features from your model can mean the difference between a bloated and highly complex model or a simple model with the fewest and most information-rich features. featurewiz ViML uses XGBoost repeatedly to perform feature selection. You must try it on your large data sets and compare!<br>
+<li><b>Performs feature reduction automatically</b>. When you have small data sets and you know your domain well, it is easy to perhaps do EDA and identify which variables are important. But when you have a very large data set with hundreds if not thousands of variables, selecting the best features from your model can mean the difference between a bloated and highly complex model or a simple model with the fewest and most information-rich features. featurewiz uses XGBoost repeatedly to perform feature selection. You must try it on your large data sets and compare!<br>
 <li><b>Produces SULOV method graphically using networkx library so you can see which variables are highly correlated to which ones and which of those have high or low mutual information scores automatically</b>. Just set verbose = 2 <br>
 </ol>
 featurewiz is built using xgboost, numpy, pandas and matplotlib. It should run on most Python 3 Anaconda installations. You won't have to import any special
@@ -64,12 +66,12 @@ pip install git+https://github.com/AutoViML/featurewiz.git
 To install from source:
 
 ```
-cd <AutoVIML_Destination>
+cd <featurewiz_Destination>
 git clone git@github.com:AutoViML/featurewiz.git
 # or download and unzip https://github.com/AutoViML/featurewiz/archive/master.zip
 conda create -n <your_env_name> python=3.7 anaconda
 conda activate <your_env_name> # ON WINDOWS: `source activate <your_env_name>`
-cd Auto_ViML
+cd featurewiz
 pip install -r requirements.txt
 ```
 
