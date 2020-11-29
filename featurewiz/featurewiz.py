@@ -23,7 +23,7 @@
 ###############     A L L   R I G H T S  R E S E R V E D         ################
 #################################################################################
 ##### This project is not an official Google project. It is not supported by ####
-##### Google and Google specifically disclaims all warranties as to its quality,# 
+##### Google and Google specifically disclaims all warranties as to its quality,#
 ##### merchantability, or fitness for a particular purpose.  ####################
 #################################################################################
 import pandas as pd
@@ -506,7 +506,7 @@ def remove_variables_using_fast_correlation(df, numvars, modeltype, target,
     ### if none of the variables are highly correlated, you can skip this whole drawing
     if empty_df.isnull().all().all():
         print('    No highly correlated variables in data set...')
-        return 
+        return
     #### It's important to find the highly correlated features first #############
     lower_tri = correlation_dataframe.where(np.tril(np.ones(correlation_dataframe.shape),
                                   k=-1).astype(np.bool))
@@ -556,7 +556,7 @@ def remove_variables_using_fast_correlation(df, numvars, modeltype, target,
             print('    SULOV Method crashing due to memory error, trying alternative simpler method...')
             #### Dropping highly correlated Features fast using simple linear correlation ###
             removed_cols = remove_highly_correlated_vars_fast(train[numvars],corr_limit)
-            final_list = left_subtract(numvars, removed_cols)            
+            final_list = left_subtract(numvars, removed_cols)
         if len(removed_cols) > 0:
             print('    Removing (%d) highly correlated variables:' %(len(removed_cols)))
             if len(removed_cols) <= 30:
@@ -1076,12 +1076,4 @@ def find_remove_duplicates(values):
             output.append(value)
             seen.add(value)
     return output
-################################################################################
-module_type = 'Running' if  __name__ == "__main__" else 'Imported'
-version_number = '0.0.1'
-print("""Imported featurewiz version: %s. Call using:
-             features = featurewiz(dataname, target, corr_limit=0.70,
-                            verbose=2)
-            """ %version_number)
-print("To remove previous versions, perform 'pip uninstall featurewiz'")
 ################################################################################
