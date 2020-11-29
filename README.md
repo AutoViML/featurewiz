@@ -5,18 +5,22 @@
 Featurewiz is a new python library for selecting the best features in your data set fast!
 (featurewiz logo created using Wix)
 <p>Two methods are used in this version of featurewiz:<br>
+
 1. SULOV -> SULOV means Searching for Uncorrelated List of Variables. The SULOV method is explained in this chart below<br>
+
+![sulov](SULOV.jpg)
+
 2. Recursive XGBoost: Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, we use XGBoost to repeatedly find best features among the remaining variables after SULOV. The Recursive XGBoost method is explained in this chart below <br>
+
+![xgboost](xgboost.jpg)
+
 3. Most variables are included: It automatically detects  types of variables in your data set and converts them to numeric except date-time, NLP and large-text variables.<br>
+
 4. Feature Engineering: You can add as many variables as you want and as the last step before modeling, you can perform feature selection with featurewiz
 <p>To upgrade to the best, most stable and full-featured version always do the following: <br>
 <code>Use $ pip install featurewiz --upgrade --ignore-installed</code><br>
 or
 <code>pip install git+https://github.com/AutoViML/featurewiz.git </code><br>
-
-![sulov](SULOV.jpg)
-
-![xgboost](xgboost.jpg)
 
 ## Table of Contents
 <ul>
