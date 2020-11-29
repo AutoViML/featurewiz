@@ -112,8 +112,9 @@ features = featurewiz(
     dataname,
     target,
     corr_limit=0.7,
-    verbose=0,
-)
+    verbose=2,
+    sep=",",
+    header=0)
 ```
 
 Finally, it returns the list of variables selected.

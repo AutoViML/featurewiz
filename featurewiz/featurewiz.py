@@ -373,29 +373,27 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0):
             for code in codex:
                 try:
                     dfte = pd.read_csv(dataname,sep=sep,index_col=None,encoding=code)
-                    print('Codex %s chosen to read CSV file' %code)
-                    break
+                    print('Encoder %s chosen to read CSV file' %code)
+                    print('Shape of your Data Set loaded: %s' %(dfte.shape,))
+                    return dfte
                 except:
                     print('Encoding codex %s does not work for this file' %code)
                     continue
         elif dataname.endswith(('xlsx','xls','txt')):
             #### It's very important to get header rows in Excel since people put headers anywhere in Excel#
             dfte = pd.read_excel(dataname,header=header)
+            print('Shape of your Data Set loaded: %s' %(dfte.shape,))
+            return dfte
         else:
             print('File not able to be loaded')
             return
     if isinstance(dataname,pd.DataFrame):
         #### this means they have given a dataframe name to use directly in processing #####
         dfte = copy.deepcopy(dataname)
+        return dfte
     else:
         print('Dataname input must be a filename with path to that file or a Dataframe')
         return
-    try:
-        print('Shape of your Data Set loaded: %s' %(dfte.shape,))
-    except:
-        print('None of the decoders work on opening this file. Returning...')
-        return
-    return dfte
 ##################################################################################
 # Removes duplicates from a list to return unique values - USED ONLYONCE
 def find_remove_duplicates(values):
@@ -756,14 +754,14 @@ def convert_all_object_columns_to_numeric(train, test=""):
 ###################################################################################
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
 from sklearn.feature_selection import SelectKBest
-def featurewiz(data, target, corr_limit=0.7, verbose=0):
+def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0):
     """
     This is a fast utility that uses XGB to find top features. You
     It returns a list of important features.
     Since it is XGB, you dont have to restrict the input to just numeric vars.
     You can send in all kinds of vars and it will take care of transforming it. Sweet!
     """
-    train = copy.deepcopy(data)
+    train = load_file_dataframe(dataname, sep, header, verbose)
     start_time = time.time()
     #### If there are more than 30 categorical variables in a data set, it is worth reducing features.
     ####  Otherwise. XGBoost is pretty good at finding the best features whether cat or numeric !
@@ -931,7 +929,7 @@ def featurewiz(data, target, corr_limit=0.7, verbose=0):
                         eval_set = [(X_train.values,y_train.values),(X_cv.values,y_cv.values)]
                     else:
                         eval_set = [(X_train,y_train),(X_cv,y_cv)]
-                    if multi_label and modeltype.endswith('Classification'):
+                    if multi_label:
                         model_xgb.fit(X_train,y_train)
                     else:
                         model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,eval_set=eval_set,
@@ -944,9 +942,10 @@ def featurewiz(data, target, corr_limit=0.7, verbose=0):
                         print('Error: GPU exists but it is not turned on. Using CPU for predictions...')
                         if multi_label:
                             new_xgb.estimator.set_params(**cpu_params)
+                            new_xgb.fit(X_train,y_train)
                         else:
                             new_xgb.set_params(**cpu_params)
-                    new_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,eval_set=eval_set,
+                            new_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,eval_set=eval_set,
                                         eval_metric=eval_metric,verbose=False)
                 #### This is where you collect the feature importances from each run ############
                 if multi_label:
@@ -980,7 +979,7 @@ def featurewiz(data, target, corr_limit=0.7, verbose=0):
                     eval_set = [(X_train,y_train),(X_cv,y_cv)]
                 ########## Try training the model now #####################
                 try:
-                    if multi_label and modeltype.endswith('Classification'):
+                    if multi_label:
                         model_xgb.fit(X_train,y_train)
                     else:
                         model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,
@@ -993,9 +992,10 @@ def featurewiz(data, target, corr_limit=0.7, verbose=0):
                         print('Error: GPU exists but it is not turned on. Using CPU for predictions...')
                         if multi_label:
                             new_xgb.estimator.set_params(**cpu_params)
+                            new_xgb.fit(X_train,y_train)
                         else:
                             new_xgb.set_params(**cpu_params)
-                    new_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,
+                            new_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,
                                   eval_set=eval_set,eval_metric=eval_metric,verbose=False)
                 ### doing this for multi-label is a little different for single label #########
                 if multi_label:

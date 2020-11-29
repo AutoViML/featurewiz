@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: featurewiz
-Version: 0.0.5
+Version: 0.0.6
 Summary: Select Best Features from your data set - any size - now with XGBoost!
 Home-page: https://github.com/AutoViML/featurewiz
 Author: Ram Seshadri
@@ -120,8 +120,9 @@ Description: # featurewiz
             dataname,
             target,
             corr_limit=0.7,
-            verbose=0,
-        )
+            verbose=2,
+            sep=",",
+            header=0)
         ```
         
         Finally, it returns the list of variables selected.
