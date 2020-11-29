@@ -28,6 +28,8 @@ or
 
 ## Background
 View this video [video]().<br>
+<iframe width="560" height="315" src="https://www.youtube.com/embed/ZiNutwPcAU0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+
 <p>featurewiz was designed for selecting High Performance variables with the fewest steps. 
 
 In most cases, featurewiz builds models with 20%-99% fewer features than your original data set with nearly the same or slightly lower performance (this is based on my trials. Your experience may vary).<br>
