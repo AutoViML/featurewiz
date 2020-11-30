@@ -80,7 +80,7 @@ To install from PyPi:
 ```
 conda create -n <your_env_name> python=3.7 anaconda
 conda activate <your_env_name> # ON WINDOWS: `source activate <your_env_name>`
-pip install autoviml
+pip install featurewiz
 or
 pip install git+https://github.com/AutoViML/featurewiz.git
 ```
@@ -119,7 +119,7 @@ features = featurewiz(
 
 Finally, it returns the list of variables selected.
 
-This list is ready for you to now to do further modeling.
+This list of selected features is ready for you to now to do further modeling.
 
 featurewiz works on any Multi-Class, Multi-Label Data Set. So you can have as many target labels as you want.
 You don't have to tell featurwiz whether it is a Regression or Classification problem. It will decide that automatically.
