@@ -621,7 +621,7 @@ def remove_variables_using_fast_correlation(df, numvars, modeltype, target,
                                 font_color='black')
         else:
             nx.draw_networkx_labels(gf, pos=pos_higher,
-                                labels = dict(zip(nodelist,[x+' (selected)' if x in selected else x for x in nodelist])),
+                                labels = dict(zip(nodelist,[x+' (selected)' if x in selected+' (removed)' else x for x in nodelist])),
                                 font_color='black')
         plt.box(True)
         plt.title("""In SULOV, we repeatedly remove features with lower mutual info scores among highly correlated pairs (see figure),
