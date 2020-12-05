@@ -7,7 +7,7 @@
 ################################################################################
 # Version
 from .__version__ import __version__
-from .featurewiz import featurewiz
+from .featurewiz import featurewiz, convert_all_object_columns_to_numeric
 
 if __name__ == "__main__":
     version_number = __version__

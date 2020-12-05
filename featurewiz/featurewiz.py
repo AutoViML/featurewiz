@@ -13,13 +13,13 @@
 #See the License for the specific language governing permissions and
 #limitations under the License.
 #################################################################################
-####  C O D E  C A N  B E  RE-U S E D  W I T H   C I T A T I O N   B E L O W ####
+####  C O D E  C A N  B E  RE-FACTORED  W I T H   C I T A T I O N   B E L O W ###
 #################################################################################
-###############              F E A T U R E   W I Z                ###############
+###############           F E A T U R E   W I Z A R D          ##################
 ################  featurewiz library developed by Ram Seshadri  #################
-#### THIS METHOD IS KNOWN AS SULOV METHOD in HONOR OF my mom, SULOCHANA #########
-#####       SULOV means Searching for Uncorrelated List Of Variables  ###########
-###############                  v 0.0.1                         ################
+##### featurewiz utilizes the SULOV METHOD named in memory of my mom, SULOCHANA #
+#####  SULOV also means Searching for Uncorrelated List Of Variables (:-)  ######
+###############                  v 0.0.7                         ################
 ###############     A L L   R I G H T S  R E S E R V E D         ################
 #################################################################################
 ##### This project is not an official Google project. It is not supported by ####
@@ -725,7 +725,7 @@ def convert_a_mixed_object_column_to_numeric(x, col_dict=''):
         return x, convert_dict
     else:
         x = convert_a_column_to_numeric(x, col_dict)
-    return x
+        return x, ''
 ######################################################################################
 def convert_all_object_columns_to_numeric(train, test=""):
     """
@@ -735,12 +735,9 @@ def convert_all_object_columns_to_numeric(train, test=""):
     #######################################################################################
     """
     train = copy.deepcopy(train)
-    if object in train.dtypes.values:
-        lis=[]
-        for row,column in train.dtypes.iteritems():
-            if column == object:
-                lis.append(row)
-        #print('%d string variables identified' %len(lis))
+    lis = []
+    lis = train.select_dtypes('object').columns.tolist() + train.select_dtypes('category').columns.tolist()
+    if not (len(lis)==0):
         for everycol in lis:
             #print('    Converting %s to numeric' %everycol)
             try:
