@@ -1074,3 +1074,257 @@ def find_remove_duplicates(values):
             seen.add(value)
     return output
 ################################################################################
+def add_date_time_features(smalldf, startTime, endTime, splitter_date_string="/",splitter_hour_string=":"):
+    """
+    If you have start date time stamp and end date time stamp, this module will create additional features for such fields.
+    You must provide a start date time stamp field and if you have an end date time stamp field, you must use it.
+    Otherwise, you are better off using the create_date_time_features module which is also in this library.
+    You must provide the following:
+    smalldf: Dataframe containing your date time fields
+    startTime: this is hopefully a string field which converts to a date time stamp easily. Make sure it is a string.
+    endTime: this also must be a string field which converts to a date time stamp easily. Make sure it is a string.
+    splitter_date_string: usually there is a string such as '/' or '.' between day/month/year etc. Default is assumed / here.
+    splitter_hour_string: usually there is a string such as ':' or '.' between hour:min:sec etc. Default is assumed : here.
+    """
+    smalldf = smalldf.copy()
+    add_cols = []
+    start_date = 'processing'+startTime+'_start_date'
+    smalldf[start_date] = smalldf[startTime].map(lambda x: x.split(" ")[0])
+    add_cols.append(start_date)
+    try:
+        start_time = 'processing'+startTime+'_start_time'
+        smalldf[start_time] = smalldf[startTime].map(lambda x: x.split(" ")[1])
+        add_cols.append(start_time)
+    except:
+        ### there is no hour-minutes part of this date time stamp field. You can just skip it if it is not there
+        pass
+    end_date = 'processing'+endTime+'_end_date'
+    smalldf[end_date] = smalldf[endTime].map(lambda x: x.split(" ")[0])
+    add_cols.append(end_date)
+    try:
+        end_time = 'processing'+endTime+'_end_time'
+        smalldf[end_time] = smalldf[endTime].map(lambda x: x.split(" ")[1])
+        add_cols.append(end_time)
+    except:
+        ### there is no hour-minutes part of this date time stamp field. You can just skip it if it is not there
+        pass
+    view_days = 'processing'+startTime+'_elapsed_days'
+    smalldf[view_days] = (pd.to_datetime(smalldf[end_date]) - pd.to_datetime(smalldf[start_date])).values.astype(int)
+    add_cols.append(view_days)
+    try:
+        view_time = 'processing'+startTime+'_elapsed_time'
+        smalldf[view_time] = (pd.to_datetime(smalldf[end_time]) - pd.to_datetime(smalldf[start_time])).astype('timedelta64[s]').values
+        add_cols.append(view_time)
+    except:
+        ### In some date time fields this gives an error so skip it in that case
+        pass
+    #### The reason we chose endTime here is that startTime is usually taken care of by another library. So better to do this alone.
+    year = 'processing'+endTime+'_end_year'
+    smalldf[year] = smalldf[end_date].map(lambda x: str(x).split(splitter_date_string)[0]).values
+    add_cols.append(year)
+    #### The reason we chose endTime here is that startTime is usually taken care of by another library. So better to do this alone.
+    month = 'processing'+endTime+'_end_month'
+    smalldf[month] = smalldf[end_date].map(lambda x: str(x).split(splitter_date_string)[1]).values
+    add_cols.append(month)
+    try:
+        #### The reason we chose endTime here is that startTime is usually taken care of by another library. So better to do this alone.
+        daynum = 'processing'+endTime+'_end_day_number'
+        smalldf[daynum] = smalldf[end_date].map(lambda x: str(x).split(splitter_date_string)[2]).values
+        add_cols.append(daynum)
+    except:
+        ### In some date time fields the day number is not there. If not, just skip it ####
+        pass
+    #### In some date time fields, the hour and minute is not there, so skip it in that case if it errors!
+    try:
+        start_hour = 'processing'+startTime+'_start_hour'
+        smalldf[start_hour] = smalldf[start_time].map(lambda x: str(x).split(splitter_hour_string)[0]).values
+        add_cols.append(start_hour)
+        start_min = 'processing'+startTime+'_start_hour'
+        smalldf[start_min] = smalldf[start_time].map(lambda x: str(x).split(splitter_hour_string)[1]).values
+        add_cols.append(start_min)
+    except:
+        ### If it errors, skip it
+        pass
+    #### Check if there is a weekday and weekends in date time columns using endTime only
+    weekday_num = 'processing'+endTime+'_end_weekday_number'
+    smalldf[weekday_num] = pd.to_datetime(smalldf[end_date]).dt.weekday.values
+    add_cols.append(weekday_num)
+    weekend = 'processing'+endTime+'_end_weekend_flag'
+    smalldf[weekend] = smalldf[weekday_num].map(lambda x: 1 if x in[5,6] else 0)
+    add_cols.append(weekend)
+    #### If everything works well, there should be 13 new columns added by module. All the best!
+    print('%d columns added using start date=%s and end date=%s processing...' %(len(add_cols),startTime,endTime))
+    return smalldf
+###########################################################################
+def split_one_field_into_many(df, field, splitter, filler, new_names_list, add_count_field=False):
+    """
+    This little function takes any data frame field (string variables only) and splits
+    it into as many fields as you want in the new_names_list.
+    You can also specify what string to split on using the splitter argument.
+    You can also fill Null values that occur due to your splitting by specifying a filler.
+    if no new_names_list is given, then we use the name of the field itself to split.
+    add_count_field: False (default). If True, it will count the number of items in
+        the "field" column before the split. This may be needed in nested dictionary fields.
+    """
+    import warnings
+    warnings.filterwarnings("ignore")
+    df = df.copy()
+    ### First print the maximum number of things in that field
+    max_things = df[field].map(lambda x: len(x.split(splitter))).max()
+    if len(new_names_list) == 0:
+        print('    Max. columns created by splitting %s field is %d.' %(
+                            field,max_things))
+    else:
+        if not max_things == len(new_names_list):
+            print('    Max. columns created by splitting %s field is %d but you have given %d variable names only. Selecting first %d' %(
+                        field,max_things,len(new_names_list),len(new_names_list)))
+    ### This creates a new field that counts the number of things that are in that field.
+    if add_count_field:
+        num_products_viewed = 'count_things_in_'+field
+        df[num_products_viewed] = df[field].map(lambda x: len(x.split(";"))).values
+    ### Clean up the field such that it has the right number of split chars otherwise add to it
+    df[field] = df[field].map(lambda x: x+splitter*(max_things-len(x.split(";"))) if len(x.split(";")) < max_things else x)
+    ###### Now you create new fields by split the one large field ########
+    if new_names_list == '':
+        new_names_list = [field+'_'+str(i) for i in range(1,max_things+1)]
+    try:
+        for i in range(len(new_names_list)):
+            df[field].fillna(filler, inplace=True)
+            df.loc[df[field] == splitter, field] = filler
+            df[new_names_list[i]] = df[field].map(lambda x: x.split(splitter)[i]
+                                          if splitter in x else x)
+    except:
+        ### Check if the column is a string column. If not, give an error message.
+        print('Cannot split the column. Getting an error. Check the column again')
+        return df
+    return df, new_names_list
+###########################################################################
+def add_aggregate_primitive_features(dft, agg_types, id_column, ignore_variables=[]):
+    """
+    ###   Modify Dataframe by adding computational primitive Features using Feature Tools ####
+    ###   What are aggregate primitives? they are to "mean""median","mode","min","max", etc. features
+    ### Inputs:
+    ###   df: Just sent in the data frame df that you want features added to
+    ###   agg_types: list of computational types: 'mean','median','count', 'max', 'min', 'sum', etc.
+    ###         One caveat: these agg_types must be found in the agg_func of numpy or pandas groupby statement.
+    ###         for example: numpy has 'median','prod','sum','std','var', etc. - they will work!
+    ###   idcolumn: this is to create an index for the dataframe since FT runs on index variable. You can leave it empty string.
+    ###   ignore_variables: list of variables to ignore among numeric variables in data since they may be ID variables.
+    """
+    import copy
+    ### Make sure the list of functions they send in are acceptable functions. If not, the aggregate will blow up!
+    func_set = {'count','sum','mean','mad','median','min','max','mode','abs','prod','std','var','sem','skew','kurt','quantile','cumsum','cumprod','cummax','cummin'}
+    agg_types = list(set(agg_types).intersection(func_set))
+    ### If the ignore_variables list is empty, make sure you add the id_column to it so it can be dropped from aggregation.
+    if len(ignore_variables) == 0:
+        ignore_variables = [id_column]
+    ### Select only integer and float variables to do this aggregation on. Be very careful if there are too many vars.
+    ### This will take time to run in that case.
+    dft_index = copy.deepcopy(dft[id_column])
+    dft_cont = copy.deepcopy(dft.select_dtypes('number').drop(ignore_variables,axis=1))
+    dft_cont[id_column] = dft_index
+    try:
+        dft_full = dft_cont.groupby(id_column).agg(agg_types)
+    except:
+        ### if for some reason, the groupby blows up, then just return the dataframe as is - no changes!
+        return dft
+    cols = [x+'_'+y+'_by_'+id_column for (x,y) in dft_full.columns]
+    dft_full.columns = cols
+    ###  Not every column has useful values. If it is full of just the same value, remove it
+    _, list_unique_col_ids = np.unique(dft_full, axis = 1, return_index=True)
+    dft_full = dft_full.iloc[:, list_unique_col_ids]
+    return dft_full
+################################################################################################################################
+import copy
+##############################################################
+def create_ts_features(df, tscol):
+    """
+    This takes in input a dataframe and a date variable.
+    It then creates time series features using the pandas .dt.weekday kind of syntax.
+    It also returns the data frame of added features with each variable as an integer variable.
+    """
+    df = copy.deepcopy(df)
+    dt_adds = []
+    try:
+        df[tscol+'_hour'] = df[tscol].dt.hour.astype(int)
+        df[tscol+'_minute'] = df[tscol].dt.minute.astype(int)
+        dt_adds.append(tscol+'_hour')
+        dt_adds.append(tscol+'_minute')
+    except:
+        print('    Error in creating hour-second derived features. Continuing...')
+    try:
+        df[tscol+'_dayofweek'] = df[tscol].dt.dayofweek.astype(int)
+        dt_adds.append(tscol+'_dayofweek')
+        df[tscol+'_quarter'] = df[tscol].dt.quarter.astype(int)
+        dt_adds.append(tscol+'_quarter')
+        df[tscol+'_month'] = df[tscol].dt.month.astype(int)
+        dt_adds.append(tscol+'_month')
+        df[tscol+'_year'] = df[tscol].dt.year.astype(int)
+        dt_adds.append(tscol+'_year')
+        today = date.today()
+        df[tscol+'_age_in_years'] = today.year - df[tscol].dt.year.astype(int)
+        dt_adds.append(tscol+'_age_in_years')
+        df[tscol+'_dayofyear'] = df[tscol].dt.dayofyear.astype(int)
+        dt_adds.append(tscol+'_dayofyear')
+        df[tscol+'_dayofmonth'] = df[tscol].dt.day.astype(int)
+        dt_adds.append(tscol+'_dayofmonth')
+        df[tscol+'_weekofyear'] = df[tscol].dt.weekofyear.astype(int)
+        dt_adds.append(tscol+'_weekofyear')
+        weekends = (df[tscol+'_dayofweek'] == 5) | (df[tscol+'_dayofweek'] == 6)
+        df[tscol+'_weekend'] = 0
+        df.loc[weekends, tscol+'_weekend'] = 1
+        df[tscol+'_weekend'] = df[tscol+'_weekend'].astype(int)
+        dt_adds.append(tscol+'_weekend')
+    except:
+        print('    Error in creating date time derived features. Continuing...')
+    df = df[dt_adds].fillna(0).astype(int)
+    return df
+################################################################
+from dateutil.relativedelta import relativedelta
+from datetime import date
+##### This is a little utility that computes age from year ####
+def compute_age(year_string):
+    today = date.today()
+    age = relativedelta(today, year_string)
+    return age.years
+#################################################################
+def create_time_series_features(dtf, ts_column):
+    """
+    This creates between 8 and 10 date time features for each date variable. The number of features
+    depends on whether it is just a year variable or a year+month+day and whether it has hours and mins+secs.
+    So this can create all these features using just the date time column that you send in.
+    It returns the entire dataframe with added variables as output.
+    """
+    dtf = copy.deepcopy(dtf)
+    #### If for some reason ts_column is just a number, make sure it is a string so it does not blow up and concatenated
+    if not isinstance(ts_column,str):
+        ts_column = str(ts_column)
+    try:
+        ### In some extreme cases, date time vars are not processed yet and hence we must fill missing values here!
+        if dtf[ts_column].isnull().sum() > 0:
+            missing_flag = True
+            new_missing_col = ts_column + '_Missing_Flag'
+            dtf[new_missing_col] = 0
+            dtf.loc[dtf[ts_column].isnull(),new_missing_col]=1
+            dtf[ts_column] = dtf[ts_column].fillna(method='ffill')
+        if dtf[ts_column].dtype in [np.float64,np.float32,np.float16]:
+            dtf[ts_column] = dtf[ts_column].astype(int)
+        ### if we have already found that it was a date time var, then leave it as it is. Thats good enough!
+        date_items = dtf[ts_column].apply(str).apply(len).values
+        #### In some extreme cases,
+        if all(date_items[0] == item for item in date_items):
+            if date_items[0] == 4:
+                ### If it is just a year variable alone, you should leave it as just a year!
+                age_col = ts_column+'_age_in_years'
+                dtf[age_col] = dtf[ts_column].map(lambda x: pd.to_datetime(x,format='%Y')).apply(compute_age).values
+                return dtf[[ts_column,age_col]]
+            else:
+                ### if it is not a year alone, then convert it into a date time variable
+                dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
+        else:
+            dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
+        dtf = create_ts_features(dtf,ts_column)
+    except:
+        print('Error in Processing %s column for date time features. Continuing...' %ts_column)
+    return dtf
+######################################################################################
