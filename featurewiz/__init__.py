@@ -11,12 +11,12 @@ from .featurewiz import featurewiz, convert_all_object_columns_to_numeric
 
 if __name__ == "__main__":
     version_number = __version__
-    print("""Running featurewiz version: %s. Call using:
+    print("""Running featurewiz version: %s. Call by using:
                  features = featurewiz(dataname, target, corr_limit=0.70,
                                 verbose=2, sep=',', header=0)""" %version_number)
 else:
     version_number = __version__
-    print("""Imported featurewiz version: %s. Call using:
+    print("""Imported featurewiz version: %s. Call by using:
                  features = featurewiz(dataname, target, corr_limit=0.70,
                                 verbose=2,  sep=',', header=0)""" %version_number)
 ################################################################################
