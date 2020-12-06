@@ -31,9 +31,10 @@ Once have done SULOV method, now select the best variables using XGBoost feature
 
 ![xgboost](xgboost.jpg)
 
-3. Most variables are included: It automatically detects  types of variables in your data set and converts them to numeric except date-time, NLP and large-text variables.<br>
+3. Classification of variables by type: It automatically detects the different types of variables in your data set and converts them to numeric except date-time, NLP and large-text variables. These variables must be properly encoded and transformed (or embedded) into numeric form by you if you want them included in featurewiz selection.<br>
 
-4. Feature Engineering: You can add as many variables as you want and as the last step before modeling, you can perform feature selection with featurewiz
+4. Best step after feature engineering: Featurewiz represents the next best step you can perform after doing some feature engineering on your own since you might have added some highly correlated or even wasteful features when you use some automated tools such as featuretools to perform feature engineering. With featurewiz as the last step before you do modeling, you can perform feature selection with featurewiz and the best and least number of features before doing more expensive training and inference.
+
 <p>To upgrade to the best, most stable and full-featured version always do the following: <br>
 <code>Use $ pip install featurewiz --upgrade --ignore-installed</code><br>
 or
@@ -52,7 +53,7 @@ or
 
 ## Background
 
-Watch this video [video](https://www.youtube.com/embed/ZiNutwPcAU0)<br>
+To learn more about how featurewiz works under the hood, watch this [video](https://www.youtube.com/embed/ZiNutwPcAU0)<br>
 
 <p>featurewiz was designed for selecting High Performance variables with the fewest steps.
 
