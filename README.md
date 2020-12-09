@@ -6,7 +6,7 @@ Featurewiz is a new python library for selecting the best features in your data 
 (featurewiz logo created using Wix)
 <p>Two methods are used in this version of featurewiz:<br>
 
-1. SULOV -> SULOV means Searching for Uncorrelated List of Variables. The SULOV method is explained in this chart below. THIS METHOD IS KNOWN AS SULOV METHOD in memory of my mom, SULOCHANA SESHADRI. Additionally, SULOV can also mean:  “Searching for Uncorrelated List Of Variables”
+1. SULOV -> SULOV means Searching for Uncorrelated List of Variables. The SULOV method is explained in this chart below. SULOV stands for:  “Searching for Uncorrelated List Of Variables”
 
 Here is a simple way of explaining how it works:
 <ol>
