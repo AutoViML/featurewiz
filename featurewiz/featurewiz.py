@@ -17,7 +17,7 @@
 #################################################################################
 ###############           F E A T U R E   W I Z A R D          ##################
 ################  featurewiz library developed by Ram Seshadri  #################
-##### featurewiz utilizes the SULOV METHOD named in memory of my mom.      ######
+# featurewiz utilizes SULOV METHOD which is a fast method for feature selection #
 #####  SULOV also means Searching for Uncorrelated List Of Variables (:-)  ######
 ###############                  v 0.0.7                         ################
 ###############     A L L   R I G H T S  R E S E R V E D         ################
@@ -458,7 +458,7 @@ def return_dictionary_list(lst_of_tuples):
 def remove_variables_using_fast_correlation(df, numvars, modeltype, target,
                                 corr_limit = 0.70,verbose=0):
     """
-    #####          THIS METHOD IS KNOWN AS SULOV METHOD in HONOR OF my mother    #############
+    ##########################################################################################
     #####              SULOV stands for Searching Uncorrelated List Of Variables  ############
     This highly efficient method removes variables that are highly correlated using a series of
     pair-wise correlation knockout rounds. It is extremely fast and hence can work on thousands
