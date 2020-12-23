@@ -375,6 +375,9 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0):
                     dfte = pd.read_csv(dataname,sep=sep,index_col=None,encoding=code)
                     print('Encoder %s chosen to read CSV file' %code)
                     print('Shape of your Data Set loaded: %s' %(dfte.shape,))
+                    if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
+                        print('You have duplicate column names in your data set. Removing duplicate columns now...')
+                        dfte = dfte[list(dfte.columns[~dfte.columns.duplicated(keep='first')])]
                     return dfte
                 except:
                     print('Encoding codex %s does not work for this file' %code)
@@ -390,6 +393,10 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0):
     if isinstance(dataname,pd.DataFrame):
         #### this means they have given a dataframe name to use directly in processing #####
         dfte = copy.deepcopy(dataname)
+        print('Shape of your Data Set loaded: %s' %(dfte.shape,))
+        if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
+            print('You have duplicate column names in your data set. Removing duplicate columns now...')
+            dfte = dfte[list(dfte.columns[~dfte.columns.duplicated(keep='first')])]
         return dfte
     else:
         print('Dataname input must be a filename with path to that file or a Dataframe')
@@ -529,6 +536,9 @@ def remove_variables_using_fast_correlation(df, numvars, modeltype, target,
             fs = SelectKBest(score_func=sel_function, k=max_feats)
         try:
             fs.fit(df[corr_list].astype(np.float16), df[target])
+        except:
+            fs.fit(df[corr_list].astype(np.float32), df[target])
+        try:
             mutual_info = dict(zip(corr_list,fs.scores_))
             #### The first variable in list has the highest correlation to the target variable ###
             sorted_by_mutual_info =[key for (key,val) in sorted(mutual_info.items(), key=lambda kv: kv[1],reverse=True)]
@@ -626,9 +636,9 @@ def remove_variables_using_fast_correlation(df, numvars, modeltype, target,
         plt.box(True)
         plt.title("""In SULOV, we repeatedly remove features with lower mutual info scores among highly correlated pairs (see figure),
                     SULOV selects the feature with higher mutual info score related to target when choosing between a pair. """, fontsize=10)
-        plt.suptitle('How SULOV Method of Removing Highly Correlated Features in a Data Set works', fontsize=20,y=1.03)
-        red_patch = mpatches.Patch(color='blue', label='Bigger size of circle denotes higher mutual info score with target')
-        blue_patch = mpatches.Patch(color='lightblue', label='Thicker line width denotes higher correlation between two variables')
+        plt.suptitle('How SULOV Method Works by Removing Highly Correlated Features', fontsize=20,y=1.03)
+        red_patch = mpatches.Patch(color='blue', label='Bigger circle denotes higher mutual info score with target')
+        blue_patch = mpatches.Patch(color='lightblue', label='Thicker line denotes higher correlation between two variables')
         plt.legend(handles=[red_patch, blue_patch],loc='best')
         plt.show();
         #####    N E T W O R K     D I A G R A M    C O M P L E T E   #################
@@ -751,31 +761,108 @@ def convert_all_object_columns_to_numeric(train, test=""):
 ###################################################################################
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
 from sklearn.feature_selection import SelectKBest
-def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0):
+from .databunch import DataBunch
+from sklearn.model_selection import train_test_split
+def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
+                      test_data='', add_features='', cat_encoders='', **kwargs):
     """
     This is a fast utility that uses XGB to find top features. You
     It returns a list of important features.
     Since it is XGB, you dont have to restrict the input to just numeric vars.
     You can send in all kinds of vars and it will take care of transforming it. Sweet!
+    #####           Featurewiz arguments           #############################
+    Inputs:
+        dataname: dataname is the name of the training data you want to transform or select.
+            dataname could be a datapath+filename or a dataframe. featurewiz will detect whether
+            your input is a filename or a dataframe and load it automatically.
+        target: name of the target variable in the data set.
+        corr_limit: if you want to set your own threshold for removing variables as
+            highly correlated, then give it here. The default is 0.7 which means variables less
+            than -0.7 and greater than 0.7 in pearson's correlation will be candidates for removal.
+        verbose: This has 3 possible states:
+            0 limited output. Great for running this silently and getting fast results.
+            1 more verbiage. Great for knowing how results were and making changes to flags in input.
+            2 SULOV charts and output. Great for finding out what happens under the hood for SULOV method.
+        test_data: If you want to transform test data in the same way you are transforming dataname, you can.
+            test_data could be the name of a datapath+filename or a dataframe. featurewiz will detect whether
+                your input is a filename or a dataframe and load it automatically. Default is empty string.
+        add_features: You have three kinds of feature engineering and you can use only one of three kinds.
+            'interactions': This will generate interaction features such as x1*x2, x2*x3, etc. if x1,x2 are features.
+            'groupby': This will generate Group By Features using the numeric to group by categorical features
+            'frequency': This will generate frequency based encoding for numeric features. Default is empty string.
+            Be very careful in generating too many features when you have very large number of features already!
+        cat_encoders: You have many kinds of category encoders. You can pick one or many of following. Default is empty string.
+                ['HashingEncoder', 'SumEncoder', 'PolynomialEncoder', 'BackwardDifferenceEncoder',
+                'OneHotEncoder', 'HelmertEncoder', 'OrdinalEncoder', 'CountEncoder', 'BaseNEncoder',
+                'TargetEncoder', 'CatBoostEncoder', 'WOEEncoder', 'JamesSteinEncoder']
+        ############       C A V E A T !  C A U T I O N !   W A R N I N G ! #######################################
+        In general: Be very careful with featurewiz. Don't use it mindlessly to generate un-interpretable features!
+    ########           Featurewiz Output           #############################
+    Output: Tuple
+    Featurewiz can output either a list of features or one dataframe or two depending on what you send in.
+        1. features: featurewiz will return just a list of important features in your data if you send in just a dataset.
+        2. trainm: modified train dataframe is the dataframe that is modified with engineered and selected features from dataname.
+        3. testm: modified test dataframe is the dataframe that is modified with engineered and selected features from test_data
     """
+    ### set all the defaults here ##############################################
+    dataname = copy.deepcopy(dataname)
+    max_nums = 30
+    max_cats = 15
+    RANDOM_SEED = 42
+    ############################################################################
+    cat_encoders_list = ['HashingEncoder', 'SumEncoder', 'PolynomialEncoder', 'BackwardDifferenceEncoder',
+            'OneHotEncoder', 'HelmertEncoder', 'OrdinalEncoder', 'CountEncoder', 'BaseNEncoder','JamesSteinEncoder',
+                'TargetEncoder', 'CatBoostEncoder', 'WOEEncoder', 'GLMMEncoder']
+
+    feature_generators = ['interactions', 'groupby', 'target']
+    feature_gen = ''
+    if add_features:
+        if isinstance(add_features, str):
+            feature_gen = add_features
+        elif isinstance(add_features, list):
+            feature_gen = add_features[0]
+    else:
+        print('Skipping feature generation since no add_features input...')
+    feature_type = ''
+    if cat_encoders:
+        if isinstance(cat_encoders, str):
+            feature_type = cat_encoders
+        elif isinstance(cat_encoders, list):
+            feature_type = cat_encoders[0]
+    else:
+        print('Skipping category encoding since no category encoders specified in input...')
+    ##################    L O A D     D A T A N A M E   ########################
     train = load_file_dataframe(dataname, sep, header, verbose)
-    start_time = time.time()
+    train_index = train.index
+    if isinstance(test_data, str):
+        if test_data != '':  ### if test data is not an empty string, then load it as a file
+            test = load_file_dataframe(test_data, sep, header, verbose)
+            test_index = test.index
+        else:
+            test = None ### set test as None so that it can be skipped processing
+    elif isinstance(test_data, pd.DataFrame): ### If it is a dataframe, simply copy it to test
+        test = copy.deepcopy(test_data)
+        test_index = test.index
+    else:
+        test = None ### If it is none of the above, set test as None
+    #############    X G B O O S T     F E A T U R E    S E L E C T I O N ######
     #### If there are more than 30 categorical variables in a data set, it is worth reducing features.
     ####  Otherwise. XGBoost is pretty good at finding the best features whether cat or numeric !
+    start_time = time.time()
     n_splits = 5
     max_depth = 8
-    max_cats = 5
-    ######################   I M P O R T A N T ####################################
+    ######################   I M P O R T A N T    D E F A U L T S ##############
     subsample =  0.7
     col_sub_sample = 0.7
     test_size = 0.2
     seed = 1
     early_stopping = 5
     ####### All the default parameters are set up now #########
-    kf = KFold(n_splits=n_splits, random_state=33)
+    kf = KFold(n_splits=n_splits)
+    #########     G P U     P R O C E S S I N G      B E G I N S    ############
     ###### This is where we set the CPU and GPU parameters for XGBoost
     GPU_exists = check_if_GPU_exists()
-    #####   Set the Scoring Parameters here based on each model and preferences of user ##############
+    #####   Set the Scoring Parameters here based on each model and preferences of user ###
     cpu_params = {}
     param = {}
     cpu_params['nthread'] = -1
@@ -803,7 +890,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0):
     else:
         param = copy.deepcopy(cpu_params)
         print('    Running XGBoost using CPU parameters')
-    ###############################################################################
+    #############   D E T E C T  SINGLE OR MULTI-LABEL PROBLEM #################
     if isinstance(target, str):
         target = [target]
         multi_label = False
@@ -812,12 +899,19 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0):
             multi_label = False
         else:
             multi_label = True
+    ########     C L A S S I F Y    V A R I A B L E S ##########################
     ###### Now we detect the various types of variables to see how to convert them to numeric
     features_dict = classify_features(train, target)
     cols_to_remove = features_dict['cols_delete'] + features_dict['IDcols'] + features_dict['discrete_string_vars']+features_dict['date_vars']
     preds = [x for x in list(train) if x not in target+cols_to_remove]
     numvars = train[preds].select_dtypes(include = 'number').columns.tolist()
+    if len(numvars) > max_nums:
+        if feature_gen:
+            print('    Warning: Too many extra features will be generated by feature generation. This may take time...')
     catvars = left_subtract(preds, numvars)
+    if len(catvars) > max_cats:
+        if feature_type:
+            print('    Warning: Too many extra features will be generated by category encoding. This may take time...')
     rem_vars = copy.deepcopy(catvars)
     ########## Now we need to select the right model to run repeatedly ####
     if target is None or len(target) == 0:
@@ -826,6 +920,53 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0):
     else:
         modeltype = analyze_problem_type(train, target)
         cols_list = left_subtract(list(train),target)
+    ######    F E A T U R E    E N G G    U S I N G    D A T A B U N C H  ###################
+    if feature_gen or feature_type:
+        print('Starting feature engineering...this will take time...')
+        if test is None:
+            X_train, X_test, y_train, y_test = train_test_split(train[preds],
+                                                            train[target],
+                                                            test_size=0.2,
+                                                            random_state=RANDOM_SEED)
+        else:
+            X_train = train[preds]
+            if multi_label:
+                y_train = train[target]
+            else:
+                y_train = train[target[0]]
+            X_test = test[preds]
+        X_train_index = X_train.index
+        X_test_index = X_test.index
+        data_tuple = DataBunch(X_train=X_train,
+                    y_train=y_train,
+                    X_test=X_test, # be sure to specify X_test, because the encoder needs all dataset to work.
+                    cat_features = catvars,
+                    clean_and_encod_data=True,
+                    cat_encoder_names=[np.where(feature_type in cat_encoders_list,feature_type,'OrdinalEncoder').tolist()], # Encoders list for Generator cat encodet features
+                    clean_nan=True, # fillnan
+                    num_generator_features=np.where(feature_gen=='interactions',True, False).tolist(), # Generate interaction Num Features
+                    group_generator_features=np.where(feature_gen=='groupby',True, False).tolist(), # Generate groupby Features
+                    target_enc_cat_features=np.where(feature_gen=='target',True, False).tolist(),# Generate frequency features
+                    normalization=False,
+                    random_state=RANDOM_SEED)
+        #### Now you can process the tuple this way #########
+        data1 = data_tuple.X_train.join(y_train) ### data_tuple does not have a y_train, remember!
+        if test is None:
+            ### Since you have done a train_test_split using randomized split, you need to put it back again.
+            data2 = data_tuple.X_test.join(y_test)
+            train = data1.append(data2)
+            train = train.reindex(train_index)
+        else:
+            try:
+                test = data_tuple.X_test.join(y_test)
+            except:
+                test = copy.deepcopy(data_tuple.X_test)
+            test = test.reindex(test_index)
+            train = copy.deepcopy(data1)
+        print('    Completed feature engineering. Shape of data = %s' %(train.shape,))
+        preds = [x for x in list(train) if x not in target]
+        numvars = train[preds].select_dtypes(include = 'number').columns.tolist()
+        catvars = left_subtract(preds, numvars)
     ######################   I M P O R T A N T ##############################################
     ###### This top_num decides how many top_n features XGB selects in each iteration.
     ####  There a total of 5 iterations. Hence 5x10 means maximum 50 features will be selected.
@@ -1011,11 +1152,18 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0):
         important_features = copy.deepcopy(preds)
         return important_features
     important_features = list(OrderedDict.fromkeys(important_features))
-    print('Found %d important features' %len(important_features))
-    print('    Time taken (in seconds) = %0.0f' %(time.time()-start_time))
     numvars = [x for x in numvars if x in important_features]
     important_cats = [x for x in important_cats if x in important_features]
-    return important_features
+    print('    Time taken (in seconds) = %0.0f' %(time.time()-start_time))
+    if feature_gen or feature_type:
+        print(f'Returning dataframe containing {len(important_features)} features after feature engineering and selection.')
+        if test is None:
+            return train[important_features+target]
+        else:
+            return train[important_features+target], test[important_features]
+    else:
+        print('Returning names of %d important features in dataset.' %len(important_features))
+        return important_features
 ################################################################################
 def remove_highly_correlated_vars_fast(df, corr_limit=0.70):
     """
@@ -1046,7 +1194,7 @@ def check_if_GPU_exists():
                 GPU_exists = True
                 print('%s available' %dev_list[i].device_type)
     except:
-        print('')
+        pass
     if not GPU_exists:
         try:
             os.environ['NVIDIA_VISIBLE_DEVICES']

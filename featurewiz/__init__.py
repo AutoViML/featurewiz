@@ -14,10 +14,12 @@ if __name__ == "__main__":
     version_number = __version__
     print("""Running featurewiz version: %s. Call by using:
                  features = featurewiz(dataname, target, corr_limit=0.70,
-                                verbose=2, sep=',', header=0)""" %version_number)
+                                verbose=2, sep=',', header=0,
+                                add_features='', cat_encoders='')""" %version_number)
 else:
     version_number = __version__
     print("""Imported featurewiz version: %s. Call by using:
                  features = featurewiz(dataname, target, corr_limit=0.70,
-                                verbose=2,  sep=',', header=0)""" %version_number)
+                                verbose=2,  sep=',', header=0,
+                                add_features='', cat_encoders='')""" %version_number)
 ################################################################################
