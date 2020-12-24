@@ -88,7 +88,7 @@ def classify_features(dfte, depVar, verbose=0):
     if len(IDcols+cols_delete+discrete_string_vars) == 0:
         print('        No variables removed since no ID or low-information variables found in data set')
     else:
-        print('        %d variables removed since they were ID or low-information variables'
+        print('        %d variable(s) removed since they were ID or low-information variables'
                                 %len(IDcols+cols_delete+discrete_string_vars))
         if verbose >= 1:
             print('    List of variables removed: %s' %(IDcols+cols_delete+discrete_string_vars))
@@ -346,7 +346,7 @@ def classify_columns(df_preds, verbose=0):
     len_sum_all_cols = reduce(add,[len(v) for v in sum_all_cols.values()])
     if len_sum_all_cols == orig_cols_total:
         print('    %d Predictors classified...' %orig_cols_total)
-        print('        This does not include the Target column(s)')
+        #print('        This does not include the Target column(s)')
     else:
         print('No of columns classified %d does not match %d total cols. Continuing...' %(
                    len_sum_all_cols, orig_cols_total))
@@ -447,7 +447,7 @@ def analyze_problem_type(train, target, verbose=0) :
             model_class = 'Multi_Classification'
     ########### print this for the start of next step ###########
     if verbose <= 1:
-        print('''################ %s %s Feature Selection Started #####################''' %(
+        print('''#### %s %s Feature Selection Started ####''' %(
                                 model_label,model_class))
     return model_class
 #####################################################################################
@@ -762,9 +762,10 @@ def convert_all_object_columns_to_numeric(train, test=""):
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
 from sklearn.feature_selection import SelectKBest
 from .databunch import DataBunch
+from .encoders import FrequencyEncoder
 from sklearn.model_selection import train_test_split
 def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
-                      test_data='', add_features='', cat_encoders='', **kwargs):
+                      test_data='', feature_engg='', category_encoders='', **kwargs):
     """
     This is a fast utility that uses XGB to find top features. You
     It returns a list of important features.
@@ -786,14 +787,17 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         test_data: If you want to transform test data in the same way you are transforming dataname, you can.
             test_data could be the name of a datapath+filename or a dataframe. featurewiz will detect whether
                 your input is a filename or a dataframe and load it automatically. Default is empty string.
-        add_features: You have three kinds of feature engineering and you can use only one of three kinds.
-            'interactions': This will generate interaction features such as x1*x2, x2*x3, etc. if x1,x2 are features.
-            'groupby': This will generate Group By Features using the numeric to group by categorical features
-            'frequency': This will generate frequency based encoding for numeric features. Default is empty string.
-            Be very careful in generating too many features when you have very large number of features already!
-        cat_encoders: You have many kinds of category encoders. You can pick one or many of following. Default is empty string.
+        feature_engg: You can let featurewiz select its best encoders for your data set by settning this flag
+            for adding feature engineering. There are three choices. You can choose one, two or all three.
+            'interactions': This will add interaction features to your data such as x1*x2, x2*x3, x1**2, x2**2, etc.
+            'groupby': This will generate Group By features to your numeric vars by grouping all categorical vars.
+            'target':  This will encode & transform all your categorical features using certain target encoders.
+            Default is empty string (which means no additional features)
+        category_encoders: Instead of above method, you can choose your own kind of category encoders from below.
+            Recommend you do not use more than two of these. Featurewiz will automatically select only two from your list.
+            Default is empty string (which means no encoding of your categorical features)
                 ['HashingEncoder', 'SumEncoder', 'PolynomialEncoder', 'BackwardDifferenceEncoder',
-                'OneHotEncoder', 'HelmertEncoder', 'OrdinalEncoder', 'CountEncoder', 'BaseNEncoder',
+                'OneHotEncoder', 'HelmertEncoder', 'OrdinalEncoder', 'FrequencyEncoder', 'BaseNEncoder',
                 'TargetEncoder', 'CatBoostEncoder', 'WOEEncoder', 'JamesSteinEncoder']
         ############       C A V E A T !  C A U T I O N !   W A R N I N G ! #######################################
         In general: Be very careful with featurewiz. Don't use it mindlessly to generate un-interpretable features!
@@ -811,24 +815,24 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     RANDOM_SEED = 42
     ############################################################################
     cat_encoders_list = ['HashingEncoder', 'SumEncoder', 'PolynomialEncoder', 'BackwardDifferenceEncoder',
-            'OneHotEncoder', 'HelmertEncoder', 'OrdinalEncoder', 'CountEncoder', 'BaseNEncoder','JamesSteinEncoder',
+            'OneHotEncoder', 'HelmertEncoder', 'OrdinalEncoder', 'FrequencyEncoder', 'BaseNEncoder','JamesSteinEncoder',
                 'TargetEncoder', 'CatBoostEncoder', 'WOEEncoder', 'GLMMEncoder']
 
     feature_generators = ['interactions', 'groupby', 'target']
     feature_gen = ''
-    if add_features:
-        if isinstance(add_features, str):
-            feature_gen = add_features
-        elif isinstance(add_features, list):
-            feature_gen = add_features[0]
+    if feature_engg:
+        if isinstance(feature_engg, str):
+            feature_gen = [feature_engg]
+        elif isinstance(feature_engg, list):
+            feature_gen = copy.deepcopy(feature_engg)
     else:
-        print('Skipping feature generation since no add_features input...')
+        print('Skipping feature engineering since no feature_engg input...')
     feature_type = ''
-    if cat_encoders:
-        if isinstance(cat_encoders, str):
-            feature_type = cat_encoders
-        elif isinstance(cat_encoders, list):
-            feature_type = cat_encoders[0]
+    if category_encoders:
+        if isinstance(category_encoders, str):
+            feature_type = category_encoders
+        elif isinstance(category_encoders, list):
+            feature_type = category_encoders[0]
     else:
         print('Skipping category encoding since no category encoders specified in input...')
     ##################    L O A D     D A T A N A M E   ########################
@@ -935,6 +939,10 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             else:
                 y_train = train[target[0]]
             X_test = test[preds]
+            try:
+                y_test = test[target]
+            except:
+                y_test = None
         X_train_index = X_train.index
         X_test_index = X_test.index
         data_tuple = DataBunch(X_train=X_train,
@@ -944,9 +952,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     clean_and_encod_data=True,
                     cat_encoder_names=[np.where(feature_type in cat_encoders_list,feature_type,'OrdinalEncoder').tolist()], # Encoders list for Generator cat encodet features
                     clean_nan=True, # fillnan
-                    num_generator_features=np.where(feature_gen=='interactions',True, False).tolist(), # Generate interaction Num Features
-                    group_generator_features=np.where(feature_gen=='groupby',True, False).tolist(), # Generate groupby Features
-                    target_enc_cat_features=np.where(feature_gen=='target',True, False).tolist(),# Generate frequency features
+                    num_generator_features=np.where('interactions' in feature_gen,True, False).tolist(), # Generate interaction Num Features
+                    group_generator_features=np.where('groupby' in feature_gen,True, False).tolist(), # Generate groupby Features
+                    target_enc_cat_features=np.where('target' in feature_gen,True, False).tolist(),# Generate target encoded features
                     normalization=False,
                     random_state=RANDOM_SEED)
         #### Now you can process the tuple this way #########
@@ -1160,7 +1168,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         if test is None:
             return train[important_features+target]
         else:
-            return train[important_features+target], test[important_features]
+            try:
+                test[target] ### see if target exists in this test data
+                return train[important_features+target], test[important_features+target]
+            except:
+                return train[important_features+target], test[important_features]
     else:
         print('Returning names of %d important features in dataset.' %len(important_features))
         return important_features
