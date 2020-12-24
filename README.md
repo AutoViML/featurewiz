@@ -150,11 +150,10 @@ You don't have to tell featurwiz whether it is a Regression or Classification pr
     for adding feature engineering. There are three choices. You can choose one, two or all three.
     - `interactions`: This will add interaction features to your data such as x1*x2, x2*x3, x1**2, x2**2, etc.
     - `groupby`: This will generate Group By features to your numeric vars by grouping all categorical vars.
-    - `target`:  This will encode and transform all your categorical features using certain target encoders.
+    - `target`:  This will encode and transform all your categorical features using certain target encoders.<br>
     Default is empty string (which means no additional features)
 - `category_encoders`: Instead of above method, you can choose your own kind of category encoders from the list below.
-    Recommend you do not use more than two of these. Featurewiz will automatically select only two from your list.<br>
-    Default is empty string (which means no encoding of your categorical features)<br> These descriptions are derived from the excellent <a href="https://contrib.scikit-learn.org/category_encoders/"> category_encoders</a> python library. Please check it out.
+    Recommend you do not use more than two of these. Featurewiz will automatically select only two from your list. Default is empty string (which means no encoding of your categorical features)<br> These descriptions are derived from the excellent <a href="https://contrib.scikit-learn.org/category_encoders/"> category_encoders</a> python library. Please check it out!
     - `HashingEncoder`: HashingEncoder is a multivariate hashing implementation with configurable dimensionality/precision. The advantage of this encoder is that it does not maintain a dictionary of observed categories. Consequently, the encoder does not grow in size and accepts new values during data scoring by design.
     - `SumEncoder`: SumEncoder is a Sum contrast coding for the encoding of categorical features.
     - `PolynomialEncoder`: PolynomialEncoder is a Polynomial contrast coding for the encoding of categorical features.
