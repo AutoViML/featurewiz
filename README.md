@@ -148,16 +148,29 @@ You don't have to tell featurwiz whether it is a Regression or Classification pr
         your input is a filename or a dataframe and load it automatically. Default is empty string.
 - `feature_engg`: You can let featurewiz select its best encoders for your data set by settning this flag
     for adding feature engineering. There are three choices. You can choose one, two or all three.
-    'interactions': This will add interaction features to your data such as x1*x2, x2*x3, x1**2, x2**2, etc.
-    'groupby': This will generate Group By features to your numeric vars by grouping all categorical vars.
-    'target':  This will encode and transform all your categorical features using certain target encoders.
+    - `interactions`: This will add interaction features to your data such as x1*x2, x2*x3, x1**2, x2**2, etc.
+    - `groupby`: This will generate Group By features to your numeric vars by grouping all categorical vars.
+    - `target`:  This will encode and transform all your categorical features using certain target encoders.
     Default is empty string (which means no additional features)
-- `category_encoders`: Instead of above method, you can choose your own kind of category encoders from the list below. These are derived from the excellent <a href="https://contrib.scikit-learn.org/category_encoders/"> category_encoders</a> python library.
+- `category_encoders`: Instead of above method, you can choose your own kind of category encoders from the list below.
     Recommend you do not use more than two of these. Featurewiz will automatically select only two from your list.<br>
-    Default is empty string (which means no encoding of your categorical features)<br>
-        ['HashingEncoder', 'SumEncoder', 'PolynomialEncoder', 'BackwardDifferenceEncoder',
-        'OneHotEncoder', 'HelmertEncoder', 'OrdinalEncoder', 'FrequencyEncoder', 'BaseNEncoder',
-        'TargetEncoder', 'CatBoostEncoder', 'WOEEncoder', 'JamesSteinEncoder']
+    Default is empty string (which means no encoding of your categorical features)<br> These descriptions are derived from the excellent <a href="https://contrib.scikit-learn.org/category_encoders/"> category_encoders</a> python library. Please check it out.
+    - `HashingEncoder`: HashingEncoder is a multivariate hashing implementation with configurable dimensionality/precision. The advantage of this encoder is that it does not maintain a dictionary of observed categories. Consequently, the encoder does not grow in size and accepts new values during data scoring by design.
+    - `SumEncoder`: SumEncoder is a Sum contrast coding for the encoding of categorical features.
+    - `PolynomialEncoder`: PolynomialEncoder is a Polynomial contrast coding for the encoding of categorical features.
+    - `BackwardDifferenceEncoder`: BackwardDifferenceEncoder is a Backward difference contrast coding for encoding categorical variables.
+    - `OneHotEncoder`: OneHotEncoder is the traditional Onehot (or dummy) coding for categorical features. It produces one feature per category, each being a binary.
+    - `HelmertEncoder`: HelmertEncoder uses the Helmert contrast coding for encoding categorical features.
+    - `OrdinalEncoder`: OrdinalEncoder uses Ordinal encoding to designate a single column of integers to represent the categories in your data. Integers however start in the same order in which the categories are found in your dataset. If you want to change the order, just sort the column and send it in for encoding.
+    - `FrequencyEncoder`: FrequencyEncoder is a count encoding technique for categorical features. For a given categorical feature, it replaces the names of the categories with the group counts of each category.
+    - `BaseNEncoder`: BaseNEncoder encodes the categories into arrays of their base-N representation. A base of 1 is equivalent to one-hot encoding (not really base-1, but useful), a base of 2 is equivalent to binary encoding. N=number of actual categories is equivalent to vanilla ordinal encoding.
+    - `TargetEncoder`: TargetEncoder performs Target encoding for categorical features. It supports following kinds of targets: binary and continuous. For multi-class targets it uses a PolynomialWrapper.
+    - `CatBoostEncoder`: CatBoostEncoder performs CatBoost coding for categorical features. It supports the following kinds of targets: binary and continuous. For polynomial target support, it uses a PolynomialWrapper. This is very similar to leave-one-out encoding, but calculates the values “on-the-fly”. Consequently, the values naturally vary during the training phase and it is not necessary to add random noise.
+    - `WOEEncoder`: WOEEncoder uses the Weight of Evidence technique for categorical features. It supports only one kind of target: binary. For polynomial target support, it uses a PolynomialWrapper. It cannot be used for Regression.
+    - `JamesSteinEncoder`: JamesSteinEncoder uses the James-Stein estimator. It supports 2 kinds of targets: binary and continuous. For polynomial target support, it uses PolynomialWrapper.
+    For feature value i, James-Stein estimator returns a weighted average of:
+    The mean target value for the observed feature value i.
+    The mean target value (regardless of the feature value).
 
 **Return values**
 If you don't want any feature_engg, then featurewiz will return just one thing:
