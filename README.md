@@ -123,14 +123,14 @@ from featurewiz import featurewiz
 Load a data set (any CSV or text file) into a Pandas dataframe and give it the name of the target(s) variable. If you have more than one target, it will handle multi-label targets too. Just give it a list of variables in that case. If you don't have a dataframe, you can simply enter the name and path of the file to load into featurewiz:
 
 ```
-featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",",
+output = featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",",
 header=0,test_data="", feature_engg="", category_encoders="")
 ```
 
-Output: is a Tuple which contains the list of features selected, the dataframe modified with new features and the test data modified.
-This list of selected features is ready for you to now to do further modeling.
+output: can be a list of selected features or a tuple with two dataframes: the input dataframe modified with new features and the test data modified.
 
-featurewiz works on any Multi-Class, Multi-Label Data Set. So you can have as many target labels as you want.
+Both the selected features and dataframes are ready for you to now to do further modeling.<br>
+featurewiz works on any Multi-Class, Multi-Label Data Set. So you can have as many target labels as you want.<br>
 You don't have to tell featurwiz whether it is a Regression or Classification problem. It will decide that automatically.
 
 ## API
