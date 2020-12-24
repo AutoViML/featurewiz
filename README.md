@@ -18,9 +18,6 @@ Here is a simple way of explaining how it works:
 
 
 2. Recursive XGBoost: Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, we use XGBoost to repeatedly find best features among the remaining variables after SULOV. The Recursive XGBoost method is explained in this chart below.
-
-![xgboost](xgboost.jpg)
-
 Here is how it works:
 <ol>
 <li>Select all variables in data set and the full data split into train and valid sets.
@@ -29,8 +26,9 @@ Here is how it works:
 <li>Do this 5 times. Combine all selected features and de-duplicate them.
 </ol>
 
+![xgboost](xgboost.jpg)
+
 3. <b>Performing Feature Engineering</b>: One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions like Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features was painstaking and left only to "experts". Now there is some good news.
-<br>
 featurewiz (https://lnkd.in/eGep5uG) now enables you to add hundreds of such features at the click of a code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go. Not only that, it will use SULOV method and Recursive XGBoost to sift through those variables and find only the least correlated and most important features among them. All in one step!.<br>
 
 4. <b>Building the simplest and most "interpretable" model</b>: Featurewiz represents the "next best" step you must perform after doing feature engineering  since you might have added some highly correlated or even useless features when you use automated feature engineering. featurewiz ensures you have the least number of features needed to build a high performing or equivalent model.
