@@ -25,6 +25,7 @@ setuptools.setup(
         "seaborn",
         "scikit-learn>=0.23.1",
         "networkx",
+        "category_encoders",
     ],
     classifiers=[
         "Programming Language :: Python :: 3",

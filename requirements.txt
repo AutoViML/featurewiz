@@ -6,3 +6,4 @@ matplotlib
 seaborn
 scikit-learn>=0.23.1
 networkx
+category_encoders
