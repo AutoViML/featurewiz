@@ -958,7 +958,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if settings.modeltype == 'Multi_Classification':
         ### you must put a Polynomial Wrapper on the cat_encoder in case the model is multi-class
         if final_cat_encoders:
-            final_cat_encoders = [PolynomialWrapper(x) for x in final_cat_encoders if x in target_encoders_names]
+            final_cat_encoders = [PolynomialWrapper(x) for x in final_cat_encoders if x in settings.target_encoders_names]
     elif settings.modeltype == 'Regression':
         if final_cat_encoders:
             if 'WOEEncoder' in final_cat_encoders:

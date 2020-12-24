@@ -109,14 +109,26 @@ class DataBunch(object):
             le = LabelEncoder()
             if self.check_data_format(y_train):
                 if settings.multi_label:
+                    ### if the model is mult-Label, don't transform it since it won't work
                     self.y_train_source = y_train
                 else:
-                    self.y_train_source =  le.fit_transform(y_train)
+                    if y_train.dtype == 'object' or str(y_train.dtype) == 'category':
+                        self.y_train_source =  le.fit_transform(y_train)
+                    else:
+                        if settings.modeltype == 'Multi_Classification':
+                            rare_class = find_rare_class(y_train)
+                            if rare_class != 0:
+                                ### if the rare class is not zero, then transform it using Label Encoder
+                                y_train =  le.fit_transform(y_train)
+                        self.y_train_source =  copy.deepcopy(y_train)
             else:
                 if settings.multi_label:
                     self.y_train_source = pd.DataFrame(y_train)
                 else:
-                    self.y_train_source = le.fit_transform(pd.DataFrame(y_train))
+                    if y_train.dtype == 'object' or str(y_train.dtype) == 'category':
+                        self.y_train_source = le.fit_transform(pd.DataFrame(y_train))
+                    else:
+                        self.y_train_source =  copy.deepcopy(y_train)
         else:
             print("No target data found!")
             return
@@ -270,7 +282,10 @@ class DataBunch(object):
                 encoder = self.target_encoders_names[cat_encoder_name][0](cols=self.cat_features, drop_invariant=True)
                 if settings.modeltype == 'Multi_Classification':
                     ### you must put a Polynomial Wrapper on the cat_encoder in case the model is multi-class
-                    encoder = PolynomialWrapper(encoder)
+                    if cat_encoder_name in ['WOEEncoder']:
+                        encoder = PolynomialWrapper(encoder)
+                ### All other encoders TargetEncoder CatBoostEncoder GLMMEncoder don't need
+                ### Polynomial Wrappers since they handle multi-class (label encoded) very well!
                 data_encodet = encoder.fit_transform(x_data, y_data)
                 data_encodet = data_encodet.add_prefix(cat_encoder_name + '_')
             else:
@@ -567,3 +582,13 @@ class DataBunch(object):
             print('New X_train shape: ', X_train.shape, '| X_test shape: ', X_test.shape)
 
         return (X_train, X_test)
+################################################################################
+def find_rare_class(series, verbose=0):
+    ######### Print the % count of each class in a Target variable  #####
+    """
+    Works on Multi Class too. Prints class percentages count of target variable.
+    It returns the name of the Rare class (the one with the minimum class member count).
+    This can also be helpful in using it as pos_label in Binary and Multi Class problems.
+    """
+    return series.value_counts().index[-1]
+#################################################################################
