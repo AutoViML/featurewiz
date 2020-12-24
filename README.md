@@ -123,7 +123,7 @@ from featurewiz import featurewiz
 Load a data set (any CSV or text file) into a Pandas dataframe and give it the name of the target(s) variable. If you have more than one target, it will handle multi-label targets too. Just give it a list of variables in that case. If you don't have a dataframe, you can simply enter the name and path of the file to load into featurewiz:
 
 ```
-featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,test_data="", feature_engg="", category_encoders="",
+featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,test_data="", feature_engg="", category_encoders="")
 ```
 
 Output: is a Tuple which contains the list of features selected, the dataframe modified with new features and the test data modified.
@@ -143,16 +143,16 @@ You don't have to tell featurwiz whether it is a Regression or Classification pr
   - `0` limited output. Great for running this silently and getting fast results.
   - `1` more verbiage. Great for knowing how results were and making changes to flags in input.
   - `2` SULOV charts and output. Great for finding out what happens under the hood for SULOV method.
-`test_data`: If you want to transform test data in the same way you are transforming dataname, you can.
+- `test_data`: If you want to transform test data in the same way you are transforming dataname, you can.
     test_data could be the name of a datapath+filename or a dataframe. featurewiz will detect whether
         your input is a filename or a dataframe and load it automatically. Default is empty string.
-`feature_engg`: You can let featurewiz select its best encoders for your data set by settning this flag
+- `feature_engg`: You can let featurewiz select its best encoders for your data set by settning this flag
     for adding feature engineering. There are three choices. You can choose one, two or all three.
     'interactions': This will add interaction features to your data such as x1*x2, x2*x3, x1**2, x2**2, etc.
     'groupby': This will generate Group By features to your numeric vars by grouping all categorical vars.
     'target':  This will encode and transform all your categorical features using certain target encoders.
     Default is empty string (which means no additional features)
-`category_encoders`: Instead of above method, you can choose your own kind of category encoders from below.
+- `category_encoders`: Instead of above method, you can choose your own kind of category encoders from the list below. These are derived from the excellent <a href="https://contrib.scikit-learn.org/category_encoders/"> category_encoders</b> python library.
     Recommend you do not use more than two of these. Featurewiz will automatically select only two from your list.
     Default is empty string (which means no encoding of your categorical features)
         ['HashingEncoder', 'SumEncoder', 'PolynomialEncoder', 'BackwardDifferenceEncoder',
@@ -162,9 +162,9 @@ You don't have to tell featurwiz whether it is a Regression or Classification pr
 **Return values**
 If you don't want any feature_engg, then featurewiz will return just one thing:
 - `features`: the fewest number of features in your model to make it perform well
-Otherwise, Featurewiz can output either one dataframe or two depending on what you send inside as input.
-    1. trainm: modified train dataframe is the dataframe that is modified with engineered and selected features from dataname.
-    2. testm: modified test dataframe is the dataframe that is modified with engineered and selected features from test_data
+- `dataframes`: Otherwise, Featurewiz can output either one dataframe or two depending on what you send inside as input.
+    1. `trainm`: modified train dataframe is the dataframe that is modified with engineered and selected features from dataname.
+    2. `testm`: modified test dataframe is the dataframe that is modified with engineered and selected features from test_data
 
 ## Maintainers
 
