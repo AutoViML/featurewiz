@@ -123,7 +123,8 @@ from featurewiz import featurewiz
 Load a data set (any CSV or text file) into a Pandas dataframe and give it the name of the target(s) variable. If you have more than one target, it will handle multi-label targets too. Just give it a list of variables in that case. If you don't have a dataframe, you can simply enter the name and path of the file to load into featurewiz:
 
 ```
-featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,test_data="", feature_engg="", category_encoders="")
+featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",",
+header=0,test_data="", feature_engg="", category_encoders="")
 ```
 
 Output: is a Tuple which contains the list of features selected, the dataframe modified with new features and the test data modified.
@@ -152,9 +153,9 @@ You don't have to tell featurwiz whether it is a Regression or Classification pr
     'groupby': This will generate Group By features to your numeric vars by grouping all categorical vars.
     'target':  This will encode and transform all your categorical features using certain target encoders.
     Default is empty string (which means no additional features)
-- `category_encoders`: Instead of above method, you can choose your own kind of category encoders from the list below. These are derived from the excellent <a href="https://contrib.scikit-learn.org/category_encoders/"> category_encoders</b> python library.
-    Recommend you do not use more than two of these. Featurewiz will automatically select only two from your list.
-    Default is empty string (which means no encoding of your categorical features)
+- `category_encoders`: Instead of above method, you can choose your own kind of category encoders from the list below. These are derived from the excellent <a href="https://contrib.scikit-learn.org/category_encoders/"> category_encoders</a> python library.
+    Recommend you do not use more than two of these. Featurewiz will automatically select only two from your list.<br>
+    Default is empty string (which means no encoding of your categorical features)<br>
         ['HashingEncoder', 'SumEncoder', 'PolynomialEncoder', 'BackwardDifferenceEncoder',
         'OneHotEncoder', 'HelmertEncoder', 'OrdinalEncoder', 'FrequencyEncoder', 'BaseNEncoder',
         'TargetEncoder', 'CatBoostEncoder', 'WOEEncoder', 'JamesSteinEncoder']
