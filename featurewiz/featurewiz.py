@@ -1129,13 +1129,13 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     ####  In that case, XGBoost blows up when gpu_predictor is used.
                     ####  This is to turn it back to cpu_predictor in case GPU errors!
                     if GPU_exists:
-                        print('Error: GPU exists but it is not turned on. Using CPU for predictions...')
+                        print('Warning: GPU exists but it is not turned on. Using CPU for predictions...')
                         if settings.multi_label:
-                            new_xgb.estimator.set_params(**cpu_params)
-                            new_xgb.fit(X_train,y_train)
+                            model_xgb.estimator.set_params(**cpu_params)
+                            model_xgb.fit(X_train,y_train)
                         else:
-                            new_xgb.set_params(**cpu_params)
-                            new_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,eval_set=eval_set,
+                            model_xgb.set_params(**cpu_params)
+                            model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,eval_set=eval_set,
                                         eval_metric=eval_metric,verbose=False)
                 #### This is where you collect the feature importances from each run ############
                 if settings.multi_label:
@@ -1179,13 +1179,13 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     ####  In that case, XGBoost blows up when gpu_predictor is used.
                     ####  This is to turn it back to cpu_predictor in case GPU errors!
                     if GPU_exists:
-                        print('Error: GPU exists but it is not turned on. Using CPU for predictions...')
+                        print('Warning: GPU exists but it is not turned on. Using CPU for predictions...')
                         if settings.multi_label:
-                            new_xgb.estimator.set_params(**cpu_params)
-                            new_xgb.fit(X_train,y_train)
+                            model_xgb.estimator.set_params(**cpu_params)
+                            model_xgb.fit(X_train,y_train)
                         else:
-                            new_xgb.set_params(**cpu_params)
-                            new_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,
+                            model_xgb.set_params(**cpu_params)
+                            model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,
                                   eval_set=eval_set,eval_metric=eval_metric,verbose=False)
                 ### doing this for multi-label is a little different for single label #########
                 if settings.multi_label:
