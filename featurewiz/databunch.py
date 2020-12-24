@@ -21,7 +21,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 ###############################################################################
-#####   This amazing Library was created by Alex Lekov: Many Thanks to Alex ###
+#####  This amazing Library was created by Alex Lekov: Many Thanks to Alex! ###
 #####                https://github.com/Alex-Lekov/AutoML_Alex              ###
 ###############################################################################
 import pandas as pd
@@ -33,7 +33,9 @@ from category_encoders import OneHotEncoder, HelmertEncoder, OrdinalEncoder, Cou
 from category_encoders import TargetEncoder, CatBoostEncoder, WOEEncoder, JamesSteinEncoder
 from category_encoders.glmm import GLMMEncoder
 from sklearn.preprocessing import LabelEncoder
+from category_encoders.wrapper import PolynomialWrapper
 from .encoders import FrequencyEncoder
+from . import settings
 
 import pdb
 # disable chained assignments
@@ -88,25 +90,8 @@ class DataBunch(object):
         self.cat_features = None
 
         # Encoders
-        self.cat_encoders_names = {
-                'HashingEncoder': [HashingEncoder,'https://contrib.scikit-learn.org/category_encoders/hashing.html'],
-                'SumEncoder': [SumEncoder,'https://contrib.scikit-learn.org/category_encoders/sum.html'],
-                'PolynomialEncoder': [PolynomialEncoder,'https://contrib.scikit-learn.org/category_encoders/polynomial.html'],
-                'BackwardDifferenceEncoder': [BackwardDifferenceEncoder,'https://contrib.scikit-learn.org/category_encoders/backward_difference.html'],
-                'OneHotEncoder': [OneHotEncoder,'https://contrib.scikit-learn.org/category_encoders/onehot.html'],
-                'HelmertEncoder': [HelmertEncoder,'https://contrib.scikit-learn.org/category_encoders/helmert.html'],
-                'OrdinalEncoder': [OrdinalEncoder,'https://contrib.scikit-learn.org/category_encoders/ordinal.html'],
-                'BaseNEncoder': [BaseNEncoder,'https://contrib.scikit-learn.org/category_encoders/basen.html'],
-                'FrequencyEncoder': [FrequencyEncoder,'https://github.com/Alex-Lekov/AutoML_Alex/blob/master/automl_alex/encoders.py'],
-                }
-
-        self.target_encoders_names = {
-                'TargetEncoder': [TargetEncoder,'https://contrib.scikit-learn.org/category_encoders/targetencoder.html'],
-                'CatBoostEncoder': [CatBoostEncoder,'https://contrib.scikit-learn.org/category_encoders/catboost.html'],
-                'WOEEncoder': [WOEEncoder,'https://contrib.scikit-learn.org/category_encoders/woe.html'],
-                'JamesSteinEncoder': [JamesSteinEncoder,'https://contrib.scikit-learn.org/category_encoders/jamesstein.html'],
-                'GLMMEncoder': [GLMMEncoder,'https://contrib.scikit-learn.org/category_encoders/glmm.html'],
-                }
+        self.cat_encoders_names = settings.cat_encoders_names
+        self.target_encoders_names = settings.target_encoders_names
 
 
         self.cat_encoder_names = cat_encoder_names
@@ -123,9 +108,15 @@ class DataBunch(object):
         if y_train is not None:
             le = LabelEncoder()
             if self.check_data_format(y_train):
-                self.y_train_source =  le.fit_transform(y_train)
+                if settings.multi_label:
+                    self.y_train_source = y_train
+                else:
+                    self.y_train_source =  le.fit_transform(y_train)
             else:
-                self.y_train_source = le.fit_transform(pd.DataFrame(y_train))
+                if settings.multi_label:
+                    self.y_train_source = pd.DataFrame(y_train)
+                else:
+                    self.y_train_source = le.fit_transform(pd.DataFrame(y_train))
         else:
             print("No target data found!")
             return
@@ -274,14 +265,19 @@ class DataBunch(object):
         """
 
         if isinstance(cat_encoder_name, str):
+            ### If it is the first time, it will perform fit_transform !
             if cat_encoder_name in self.target_encoders_names_list:
                 encoder = self.target_encoders_names[cat_encoder_name][0](cols=self.cat_features, drop_invariant=True)
+                if settings.modeltype == 'Multi_Classification':
+                    ### you must put a Polynomial Wrapper on the cat_encoder in case the model is multi-class
+                    encoder = PolynomialWrapper(encoder)
                 data_encodet = encoder.fit_transform(x_data, y_data)
                 data_encodet = data_encodet.add_prefix(cat_encoder_name + '_')
             else:
                 print(f"{cat_encoder_name} is not supported!")
                 return ('', '')
         else:
+            ### if it is already fit, then it will only do transform here !
             encoder = copy.deepcopy(cat_encoder_name)
             data_encodet = encoder.transform(x_data)
             data_encodet = data_encodet.add_prefix(str(cat_encoder_name).split("(")[0] + '_')
@@ -537,11 +533,16 @@ class DataBunch(object):
                     print(' + added ', addl_features, ' Group-by Encoded Features using JamesSteinEncoder')
 
         # Drop source cat features
-        data.drop(columns=encodet_features_names, inplace=True)
+        if not len(cat_encoder_names) == 0:
+            ### if there is no categorical encoding, then let the categorical_vars pass through.
+            ### If they have been transformed into Cat Encoded variables, then you can drop them!
+            data.drop(columns=encodet_features_names, inplace=True)
         data.replace([np.inf, -np.inf], np.nan, inplace=True)
         data.fillna(0, inplace=True)
         if test_data is not None:
-            test_data.drop(columns=encodet_features_names, inplace=True)
+            if not len(cat_encoder_names) == 0:
+                ### if there is no categorical encoding, then let the categorical_vars pass through.
+                test_data.drop(columns=encodet_features_names, inplace=True)
             test_data.replace([np.inf, -np.inf], np.nan, inplace=True)
             test_data.fillna(0, inplace=True)
 

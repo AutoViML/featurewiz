@@ -36,6 +36,16 @@ import xgboost as xgb
 from xgboost.sklearn import XGBClassifier
 from xgboost.sklearn import XGBRegressor
 from sklearn.model_selection import train_test_split
+###########   This is from category_encoders Library ################################################
+from category_encoders import HashingEncoder, SumEncoder, PolynomialEncoder, BackwardDifferenceEncoder
+from category_encoders import OneHotEncoder, HelmertEncoder, OrdinalEncoder, CountEncoder, BaseNEncoder
+from category_encoders import TargetEncoder, CatBoostEncoder, WOEEncoder, JamesSteinEncoder
+from category_encoders.glmm import GLMMEncoder
+from sklearn.preprocessing import LabelEncoder
+from category_encoders.wrapper import PolynomialWrapper
+from .encoders import FrequencyEncoder
+from . import settings
+settings.init()
 ################################################################################
 #### The warnings from Sklearn are so annoying that I have to shut it off #######
 import warnings
@@ -814,10 +824,10 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     max_cats = 15
     RANDOM_SEED = 42
     ############################################################################
-    cat_encoders_list = ['HashingEncoder', 'SumEncoder', 'PolynomialEncoder', 'BackwardDifferenceEncoder',
-            'OneHotEncoder', 'HelmertEncoder', 'OrdinalEncoder', 'FrequencyEncoder', 'BaseNEncoder','JamesSteinEncoder',
-                'TargetEncoder', 'CatBoostEncoder', 'WOEEncoder', 'GLMMEncoder']
-
+    cat_encoders_list = list(settings.cat_encoders_names.keys())
+    ######################################################################################
+    #####      MAKING FEATURE_TYPE AND FEATURE_GEN SELECTIONS HERE           #############
+    ######################################################################################
     feature_generators = ['interactions', 'groupby', 'target']
     feature_gen = ''
     if feature_engg:
@@ -830,9 +840,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     feature_type = ''
     if category_encoders:
         if isinstance(category_encoders, str):
-            feature_type = category_encoders
+            feature_type = [category_encoders]
         elif isinstance(category_encoders, list):
-            feature_type = category_encoders[0]
+            feature_type = category_encoders[:2] ### Only two will be allowed at a time
     else:
         print('Skipping category encoding since no category encoders specified in input...')
     ##################    L O A D     D A T A N A M E   ########################
@@ -894,17 +904,30 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     else:
         param = copy.deepcopy(cpu_params)
         print('    Running XGBoost using CPU parameters')
-    #############   D E T E C T  SINGLE OR MULTI-LABEL PROBLEM #################
+    #################################################################################
+    #############   D E T E C T  SINGLE OR MULTI-LABEL PROBLEM      #################
+    #################################################################################
     if isinstance(target, str):
         target = [target]
-        multi_label = False
+        settings.multi_label = False
     else:
         if len(target) <= 1:
-            multi_label = False
+            settings.multi_label = False
         else:
-            multi_label = True
-    ########     C L A S S I F Y    V A R I A B L E S ##########################
+            settings.multi_label = True
+    #### You need to make sure only Single Label problems are handled in target encoding!
+    if settings.multi_label:
+        print('Turning off Target encoding for multi-label problems like this data set...')
+        #### Since Feature Engineering module cannot handle Multi Label Targets,
+        ####   we will turnoff creating target_enc_cat_features to False
+        target_enc_cat_features = False
+    else:
+        ## If target is specified in feature_gen then use it to Generate target encoded features
+        target_enc_cat_features = 'target' in feature_gen
+    ######################################################################################
+    ########     C L A S S I F Y    V A R I A B L E S           ##########################
     ###### Now we detect the various types of variables to see how to convert them to numeric
+    ######################################################################################
     features_dict = classify_features(train, target)
     cols_to_remove = features_dict['cols_delete'] + features_dict['IDcols'] + features_dict['discrete_string_vars']+features_dict['date_vars']
     preds = [x for x in list(train) if x not in target+cols_to_remove]
@@ -920,11 +943,30 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ########## Now we need to select the right model to run repeatedly ####
     if target is None or len(target) == 0:
         cols_list = list(train)
-        modeltype = 'Clustering'
+        settings.modeltype = 'Clustering'
     else:
-        modeltype = analyze_problem_type(train, target)
+        settings.modeltype = analyze_problem_type(train, target)
         cols_list = left_subtract(list(train),target)
+    ######################################################################################
+    ######    B E F O R E    U S I N G    D A T A B U N C H  C H E C K ###################
+    ######################################################################################
+    ## Before using DataBunch check if certain encoders work with certain kind of data!
+    if feature_type:
+        final_cat_encoders = feature_type
+    else:
+        final_cat_encoders = []
+    if settings.modeltype == 'Multi_Classification':
+        ### you must put a Polynomial Wrapper on the cat_encoder in case the model is multi-class
+        if final_cat_encoders:
+            final_cat_encoders = [PolynomialWrapper(x) for x in final_cat_encoders if x in target_encoders_names]
+    elif settings.modeltype == 'Regression':
+        if final_cat_encoders:
+            if 'WOEEncoder' in final_cat_encoders:
+                print('Removing WOEEncoder from list of encoders since it cannot be used for this Regression problem.')
+            final_cat_encoders = [x for x in final_cat_encoders if x != 'WOEEncoder' ]
+    ######################################################################################
     ######    F E A T U R E    E N G G    U S I N G    D A T A B U N C H  ###################
+    ######################################################################################
     if feature_gen or feature_type:
         print('Starting feature engineering...this will take time...')
         if test is None:
@@ -934,7 +976,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                                                             random_state=RANDOM_SEED)
         else:
             X_train = train[preds]
-            if multi_label:
+            if settings.multi_label:
                 y_train = train[target]
             else:
                 y_train = train[target[0]]
@@ -950,11 +992,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     X_test=X_test, # be sure to specify X_test, because the encoder needs all dataset to work.
                     cat_features = catvars,
                     clean_and_encod_data=True,
-                    cat_encoder_names=[np.where(feature_type in cat_encoders_list,feature_type,'OrdinalEncoder').tolist()], # Encoders list for Generator cat encodet features
+                    cat_encoder_names=final_cat_encoders, # final list of Encoders selected
                     clean_nan=True, # fillnan
                     num_generator_features=np.where('interactions' in feature_gen,True, False).tolist(), # Generate interaction Num Features
                     group_generator_features=np.where('groupby' in feature_gen,True, False).tolist(), # Generate groupby Features
-                    target_enc_cat_features=np.where('target' in feature_gen,True, False).tolist(),# Generate target encoded features
+                    target_enc_cat_features=target_enc_cat_features,# Generate target encoded features
                     normalization=False,
                     random_state=RANDOM_SEED)
         #### Now you can process the tuple this way #########
@@ -971,7 +1013,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 test = copy.deepcopy(data_tuple.X_test)
             test = test.reindex(test_index)
             train = copy.deepcopy(data1)
-        print('    Completed feature engineering. Shape of data = %s' %(train.shape,))
+        print('    Completed feature engineering. Shape of Train (with target) = %s' %(train.shape,))
         preds = [x for x in list(train) if x not in target]
         numvars = train[preds].select_dtypes(include = 'number').columns.tolist()
         catvars = left_subtract(preds, numvars)
@@ -991,7 +1033,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ########    can't handle missing values in early stopping rounds #######
     train.dropna(axis=0,subset=preds+target,inplace=True)
     if len(numvars) > 1:
-        final_list = remove_variables_using_fast_correlation(train,numvars,modeltype,target,
+        final_list = remove_variables_using_fast_correlation(train,numvars,settings.modeltype,target,
                          corr_limit,verbose)
     else:
         final_list = copy.deepcopy(numvars)
@@ -1003,13 +1045,15 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     preds = final_list+important_cats
     #######You must convert category variables into integers ###############
     if len(important_cats) > 0:
-        train, _ = convert_all_object_columns_to_numeric(train, "")
+        train, traindict = convert_all_object_columns_to_numeric(train, "")
+        if not isinstance(test, str) or test is not None:
+            test, _ = convert_all_object_columns_to_numeric(test, traindict)
     ########   Dont move this train and y definition anywhere else ########
     y = train[target]
     print('############## F E A T U R E   S E L E C T I O N  ####################')
     important_features = []
     ########## This is for Single_Label problems ######################
-    if modeltype == 'Regression':
+    if settings.modeltype == 'Regression':
         objective = 'reg:squarederror'
         model_xgb = XGBRegressor( n_estimators=100,subsample=subsample,objective=objective,
                                 colsample_bytree=col_sub_sample,reg_alpha=0.5, reg_lambda=0.5,
@@ -1037,9 +1081,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     #### Now set the parameters for XGBoost ###################
     model_xgb.set_params(**param)
     #print('Model parameters: %s' %model_xgb)
-    if multi_label:
-        ########## This is for multi_label problems ###############################
-        if modeltype == 'Regression':
+    if settings.multi_label:
+        ########## This is for settings.multi_label problems ###############################
+        if settings.modeltype == 'Regression':
             model_xgb = MultiOutputRegressor(model_xgb)
             #model_xgb = RegressorChain(model_xgb)
         else:
@@ -1064,18 +1108,18 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             if train_p.shape[1]-i < iter_limit:
                 X = train_p.iloc[:,i:]
                 cols_sel = X.columns.tolist()
-                if modeltype == 'Regression':
+                if settings.modeltype == 'Regression':
                     train_part = int((1-test_size)*X.shape[0])
                     X_train, X_cv, y_train, y_cv = X[:train_part],X[train_part:],y[:train_part],y[train_part:]
                 else:
                     X_train, X_cv, y_train, y_cv = train_test_split(X, y,
                                                                 test_size=test_size, random_state=seed)
                 try:
-                    if multi_label:
+                    if settings.multi_label:
                         eval_set = [(X_train.values,y_train.values),(X_cv.values,y_cv.values)]
                     else:
                         eval_set = [(X_train,y_train),(X_cv,y_cv)]
-                    if multi_label:
+                    if settings.multi_label:
                         model_xgb.fit(X_train,y_train)
                     else:
                         model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,eval_set=eval_set,
@@ -1086,7 +1130,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     ####  This is to turn it back to cpu_predictor in case GPU errors!
                     if GPU_exists:
                         print('Error: GPU exists but it is not turned on. Using CPU for predictions...')
-                        if multi_label:
+                        if settings.multi_label:
                             new_xgb.estimator.set_params(**cpu_params)
                             new_xgb.fit(X_train,y_train)
                         else:
@@ -1094,7 +1138,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                             new_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,eval_set=eval_set,
                                         eval_metric=eval_metric,verbose=False)
                 #### This is where you collect the feature importances from each run ############
-                if multi_label:
+                if settings.multi_label:
                     ### doing this for multi-label is a little different for single label #########
                     imp_feats = [model_xgb.estimators_[i].feature_importances_ for i in range(len(target))]
                     imp_feats_df = pd.DataFrame(imp_feats).T
@@ -1103,7 +1147,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     imp_feats_df['sum'] = imp_feats_df.sum(axis=1).values
                     important_features += imp_feats_df.sort_values(by='sum',ascending=False)[:top_num].index.tolist()
                 else:
-                    ### doing this for single-label is a little different from multi_label #########
+                    ### doing this for single-label is a little different from settings.multi_label #########
                     important_features += pd.Series(model_xgb.get_booster().get_score(
                             importance_type='gain')).sort_values(ascending=False)[:top_num].index.tolist()
                 #######  order this in the same order in which they were collected ######
@@ -1112,20 +1156,20 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 X = train_p[list(train_p.columns.values)[i:train_p.shape[1]]]
                 cols_sel = X.columns.tolist()
                 #### Split here into train and test #####
-                if modeltype == 'Regression':
+                if settings.modeltype == 'Regression':
                     train_part = int((1-test_size)*X.shape[0])
                     X_train, X_cv, y_train, y_cv = X[:train_part],X[train_part:],y[:train_part],y[train_part:]
                 else:
                     X_train, X_cv, y_train, y_cv = train_test_split(X, y,
                                                                 test_size=test_size, random_state=seed)
                 ### set the validation data as arrays in multi-label case #####
-                if multi_label:
+                if settings.multi_label:
                     eval_set = [(X_train.values,y_train.values),(X_cv.values,y_cv.values)]
                 else:
                     eval_set = [(X_train,y_train),(X_cv,y_cv)]
                 ########## Try training the model now #####################
                 try:
-                    if multi_label:
+                    if settings.multi_label:
                         model_xgb.fit(X_train,y_train)
                     else:
                         model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,
@@ -1136,7 +1180,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     ####  This is to turn it back to cpu_predictor in case GPU errors!
                     if GPU_exists:
                         print('Error: GPU exists but it is not turned on. Using CPU for predictions...')
-                        if multi_label:
+                        if settings.multi_label:
                             new_xgb.estimator.set_params(**cpu_params)
                             new_xgb.fit(X_train,y_train)
                         else:
@@ -1144,7 +1188,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                             new_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,
                                   eval_set=eval_set,eval_metric=eval_metric,verbose=False)
                 ### doing this for multi-label is a little different for single label #########
-                if multi_label:
+                if settings.multi_label:
                     imp_feats = [model_xgb.estimators_[i].feature_importances_ for i in range(len(target))]
                     imp_feats_df = pd.DataFrame(imp_feats).T
                     imp_feats_df.columns = target
