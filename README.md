@@ -3,12 +3,11 @@
 ![banner](featurewiz_logo.jpg)
 
 Featurewiz is a new python library for creating and selecting the best features in your data set fast!
-<br>
 <p>featurewiz accomplishes this in 2 steps:<br>
-The first step is optional and it is about creating new features.<br>
+The first step is optional and it is about creating new features.<p>
 1. <b>Performing Feature Engineering</b>: One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions like Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features was painstaking and left only to "experts". Now there is some good news.<br>
 featurewiz now enables you to add hundreds of such features at the click of a code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go.<br> Not only that, it will use SULOV method and Recursive XGBoost to sift through those variables and find only the least correlated and most important features among them. All in one step!.<br>
-The second step is Feature Selection:<br>
+<p>The second step is Feature Selection:<br>
 2. <b>Executing Feature Selection</b>: Once you have created 100's of new features, you still have two problems left to solve:
 1. How do we interpret those newly created features?
 2. Which of these features is important and which are useless? How many of them are highly correlated to each other causing redundancy?
@@ -16,7 +15,7 @@ The second step is Feature Selection:<br>
 <br>
 All are very important questions and you must be very careful using this feature_engg option in featurewiz. Otherwise, you can create a "garbage in, garbage out" problem. Caveat Emptor!
 <br>featurewiz uses the SULOV method and Recursive XGBoost to reduce features in order to select the best features for the model. Here is how.<br>
-<b>SULOV<b>: SULOV means Searching for Uncorrelated List of Variables. The SULOV method is similar to the Minimum-redundancy-maximum-relevance (mRMR) <a href="https://en.wikipedia.org/wiki/Feature_selection#Minimum-redundancy-maximum-relevance_(mRMR)_feature_selection">algorithm explained in wikipedia</a> as one of the best feature selection methods. The SULOV algorithm is explained in this chart below.
+<b>SULOV</b>: SULOV means Searching for Uncorrelated List of Variables. The SULOV method is similar to the Minimum-redundancy-maximum-relevance (mRMR) <a href="https://en.wikipedia.org/wiki/Feature_selection#Minimum-redundancy-maximum-relevance_(mRMR)_feature_selection">algorithm explained in wikipedia</a> as one of the best feature selection methods. The SULOV algorithm is explained in this chart below.
 Here is a simple way of explaining how it works:
 <ol>
 <li>Find all the pairs of highly correlated variables exceeding a correlation threshold (say absolute(0.7)).
