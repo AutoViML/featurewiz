@@ -2,10 +2,21 @@
 
 ![banner](featurewiz_logo.jpg)
 
-Featurewiz is a new python library for selecting the best features in your data set fast!
-(featurewiz logo created using Wix)
-<p>Two methods are used in this version of featurewiz:<br>
-1. SULOV -> SULOV means Searching for Uncorrelated List of Variables. The SULOV method is explained in this chart below.
+Featurewiz is a new python library for creating and selecting the best features in your data set fast!
+<br>
+<p>featurewiz accomplishes this in 2 steps:<br>
+The first step is optional and it is about creating new features.<br>
+1. <b>Performing Feature Engineering</b>: One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions like Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features was painstaking and left only to "experts". Now there is some good news.<br>
+featurewiz now enables you to add hundreds of such features at the click of a code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go.<br> Not only that, it will use SULOV method and Recursive XGBoost to sift through those variables and find only the least correlated and most important features among them. All in one step!.<br>
+The second step is Feature Selection:<br>
+2. <b>Feature Selection</b>: Once you have created 100's of new features, you still have two problems left to solve:
+1. How do we interpret those newly created features?
+2. Which of these features is important and which are useless? How many of them are highly correlated to each other causing redundancy?
+3. Does the model overfit now on these new features and perform better or worse than before?
+<br>
+All are very important questions and you must be very careful using this feature_engg option in featurewiz. Otherwise, you can create a "garbage in, garbage out" problem. Caveat Emptor!
+<br>featurewiz uses the SULOV method and Recursive XGBoost to reduce features in order to select the best features for the model. Here is how.<br>
+SULOV -> SULOV means Searching for Uncorrelated List of Variables. The SULOV method is similar to the Minimum-redundancy-maximum-relevance (mRMR) <a href="https://en.wikipedia.org/wiki/Feature_selection#Minimum-redundancy-maximum-relevance_(mRMR)_feature_selection">algorithm explained in wikipedia</a> as one of the best feature selection methods. The SULOV algorithm is explained in this chart below.
 Here is a simple way of explaining how it works:
 <ol>
 <li>Find all the pairs of highly correlated variables exceeding a correlation threshold (say absolute(0.7)).
@@ -17,7 +28,7 @@ Here is a simple way of explaining how it works:
 ![sulov](SULOV.jpg)
 
 
-2. Recursive XGBoost: Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, we use XGBoost to repeatedly find best features among the remaining variables after SULOV. The Recursive XGBoost method is explained in this chart below.
+3. Recursive XGBoost: Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, we use XGBoost to repeatedly find best features among the remaining variables after SULOV. The Recursive XGBoost method is explained in this chart below.
 Here is how it works:
 <ol>
 <li>Select all variables in data set and the full data split into train and valid sets.
@@ -28,18 +39,9 @@ Here is how it works:
 
 ![xgboost](xgboost.jpg)
 
-3. <b>Performing Feature Engineering</b>: One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions like Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features was painstaking and left only to "experts". Now there is some good news.
-featurewiz (https://lnkd.in/eGep5uG) now enables you to add hundreds of such features at the click of a code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go. Not only that, it will use SULOV method and Recursive XGBoost to sift through those variables and find only the least correlated and most important features among them. All in one step!.<br>
-
-4. <b>Building the simplest and most "interpretable" model</b>: Featurewiz represents the "next best" step you must perform after doing feature engineering  since you might have added some highly correlated or even useless features when you use automated feature engineering. featurewiz ensures you have the least number of features needed to build a high performing or equivalent model.
+4. <b>Building the simplest and most "interpretable" model</b>: featurewiz represents the "next best" step you must perform after doing feature engineering  since you might have added some highly correlated or even useless features when you use automated feature engineering. featurewiz ensures you have the least number of features needed to build a high performing or equivalent model.
 
 <b>A WORD OF CAUTION:</b> Just because you can, doesn't mean you should. Make sure you understand feature engineered variables before you attempt to build your model any further. featurewiz displays the SULOV chart which can show you the 100's of newly created variables added to your dataset using featurewiz.
-<br>
-But you still have two problems:
-1. How to interpret those newly created features?
-2. Does the model overfit now on these many features?
-<br>
-Both are very important questions and you must be very careful using this feature_engg option in featurewiz. Otherwise, you can create a "garbage in, garbage out" problem. Caveat Emptor!
 <br>
 <p>To upgrade to the best, most stable and full-featured version always do the following: <br>
 <code>Use $ pip install featurewiz --upgrade --ignore-installed</code><br>
@@ -121,9 +123,8 @@ from featurewiz import featurewiz
 Load a data set (any CSV or text file) into a Pandas dataframe and give it the name of the target(s) variable. If you have more than one target, it will handle multi-label targets too. Just give it a list of variables in that case. If you don't have a dataframe, you can simply enter the name and path of the file to load into featurewiz:
 
 ```
-featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
-                      test_data='', feature_engg='', category_encoders='',
-                      ```
+featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,test_data="", feature_engg="", category_encoders="",
+```
 
 Output: is a Tuple which contains the list of features selected, the dataframe modified with new features and the test data modified.
 This list of selected features is ready for you to now to do further modeling.
@@ -149,7 +150,7 @@ You don't have to tell featurwiz whether it is a Regression or Classification pr
     for adding feature engineering. There are three choices. You can choose one, two or all three.
     'interactions': This will add interaction features to your data such as x1*x2, x2*x3, x1**2, x2**2, etc.
     'groupby': This will generate Group By features to your numeric vars by grouping all categorical vars.
-    'target':  This will encode & transform all your categorical features using certain target encoders.
+    'target':  This will encode and transform all your categorical features using certain target encoders.
     Default is empty string (which means no additional features)
 `category_encoders`: Instead of above method, you can choose your own kind of category encoders from below.
     Recommend you do not use more than two of these. Featurewiz will automatically select only two from your list.
