@@ -751,12 +751,19 @@ def convert_all_object_columns_to_numeric(train, test=""):
     """
     #######################################################################################
     This is a utility that converts string columns to numeric WITHOUT LABEL ENCODER.
+    Make sure test and train have the same number of columns. If you have target in train,
+    remove it before sending it through this utility. Otherwise, might blow up during test transform.
     The beauty of this utility is that it does not blow up when it finds strings in test not in train.
     #######################################################################################
     """
     train = copy.deepcopy(train)
     lis = []
     lis = train.select_dtypes('object').columns.tolist() + train.select_dtypes('category').columns.tolist()
+    if not isinstance(test, str):
+        lis_test = test.select_dtypes('object').columns.tolist() + test.select_dtypes('category').columns.tolist()
+        if len(left_subtract(lis, lis_test)) > 0:
+            ### if there is an extra column in train that is not in test, then remove it from consideration
+            lis = copy.deepcopy(lis_test)
     if not (len(lis)==0):
         for everycol in lis:
             #print('    Converting %s to numeric' %everycol)
@@ -970,8 +977,16 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if feature_gen or feature_type:
         print('Starting feature engineering...this will take time...')
         if test is None:
-            X_train, X_test, y_train, y_test = train_test_split(train[preds],
-                                                            train[target],
+            if settings.multi_label:
+                ### if it is a multi_label problem, leave target as it is - a list!
+                X_train, X_test, y_train, y_test = train_test_split(train[preds],
+                                                                train[target],
+                                                                test_size=0.2,
+                                                                random_state=RANDOM_SEED)
+            else:
+                ### if it not a multi_label problem, make target as target[0]
+                X_train, X_test, y_train, y_test = train_test_split(train[preds],
+                                                            train[target[0]],
                                                             test_size=0.2,
                                                             random_state=RANDOM_SEED)
         else:
@@ -1045,8 +1060,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     preds = final_list+important_cats
     #######You must convert category variables into integers ###############
     if len(important_cats) > 0:
-        train, traindict = convert_all_object_columns_to_numeric(train, "")
-        if not isinstance(test, str) or test is not None:
+        train, traindict = convert_all_object_columns_to_numeric(train,  "")
+        if test is not None:
             test, _ = convert_all_object_columns_to_numeric(test, traindict)
     ########   Dont move this train and y definition anywhere else ########
     y = train[target]

@@ -104,7 +104,7 @@ class DataBunch(object):
         if X_test is not None:
             if self.check_data_format(X_test):
                 self.X_test_source = pd.DataFrame(X_test)
-
+        ### There is a chance for an error in this - so worth watching!
         if y_train is not None:
             le = LabelEncoder()
             if self.check_data_format(y_train):
@@ -112,15 +112,19 @@ class DataBunch(object):
                     ### if the model is mult-Label, don't transform it since it won't work
                     self.y_train_source = y_train
                 else:
-                    if y_train.dtype == 'object' or str(y_train.dtype) == 'category':
-                        self.y_train_source =  le.fit_transform(y_train)
+                    if not isinstance(y_train, pd.DataFrame):
+                        if y_train.dtype == 'object' or str(y_train.dtype) == 'category':
+                            self.y_train_source =  le.fit_transform(y_train)
+                        else:
+                            if settings.modeltype == 'Multi_Classification':
+                                rare_class = find_rare_class(y_train)
+                                if rare_class != 0:
+                                    ### if the rare class is not zero, then transform it using Label Encoder
+                                    y_train =  le.fit_transform(y_train)
+                            self.y_train_source =  copy.deepcopy(y_train)
                     else:
-                        if settings.modeltype == 'Multi_Classification':
-                            rare_class = find_rare_class(y_train)
-                            if rare_class != 0:
-                                ### if the rare class is not zero, then transform it using Label Encoder
-                                y_train =  le.fit_transform(y_train)
-                        self.y_train_source =  copy.deepcopy(y_train)
+                        print('Error: y_train should be a series. Skipping target encoding for dataset...')
+                        target_enc_cat_features = False
             else:
                 if settings.multi_label:
                     self.y_train_source = pd.DataFrame(y_train)
