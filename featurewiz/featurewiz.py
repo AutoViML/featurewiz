@@ -944,27 +944,16 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             print('Processing %s column for date time features....' %date_col)
             date_df_train = create_time_series_features(train, date_col)
             date_col_adds_train = left_subtract(date_df_train.columns.tolist(),date_col)
-            print('    Adding %d columns from date-time column %s in train' %(len(date_col_adds_train),date_col))
+            print('    Adding %d column(s) from date-time column %s in train' %(len(date_col_adds_train),date_col))
+            train.drop(date_col,axis=1,inplace=True)
+            train = train.join(date_df_train)
             if test is not None:
-                print('        Adding time series features for test data...')
+                print('        Adding same time series features to test data...')
                 date_df_test = create_time_series_features(test, date_col)
                 date_col_adds_test = left_subtract(date_df_test.columns.tolist(),date_col)
-            else:
-                date_col_adds_test = []
-            if len(date_col_adds_test) == 0:
-                ### if both create_time_series_features return the same variables, then good
-                date_col_adds = copy.deepcopy(date_col_adds_train)
-                if date_col_adds != []:
-                    ### Now time to remove the date time column from all further processing ##
-                    train.drop(date_col,axis=1,inplace=True)
-                    date_df_train.drop(date_col,axis=1,inplace=True)
-                    train = train.join(date_df_train)
-                    if not test is None:
-                        if date_col_adds != []:
-                            ### Now time to remove the date time column from all further processing ##
-                            test.drop(date_col,axis=1,inplace=True)
-                            date_df_test.drop(date_col,axis=1,inplace=True)
-                            test = test.join(date_df_test)
+                ### Now time to remove the date time column from all further processing ##
+                test.drop(date_col,axis=1,inplace=True)
+                test = test.join(date_df_test)
     ### Now time to continue with our further processing ##
     cols_to_remove = features_dict['cols_delete'] + features_dict['IDcols'] + features_dict['discrete_string_vars']
     preds = [x for x in list(train) if x not in target+cols_to_remove]
@@ -1249,22 +1238,23 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         important_features = copy.deepcopy(preds)
         return important_features, train[important_features+target]
     important_features = list(OrderedDict.fromkeys(important_features))
+    print('Selected %d important features from your dataset' %len(important_features))
     numvars = [x for x in numvars if x in important_features]
     important_cats = [x for x in important_cats if x in important_features]
     print('    Time taken (in seconds) = %0.0f' %(time.time()-start_time))
     if feature_gen or feature_type:
-        print(f'Returning list of features and dataframe containing {len(important_features)} features.')
+        print(f'Returning list of {len(important_features)} important features and dataframe.')
         if test is None:
             return important_features, train[important_features+target]
         else:
-            print('Returning 2 dataframes train and test with %d important features.' %len(important_features))
+            print('Returning 2 dataframes: train and test with %d important features.' %len(important_features))
             try:
                 test[target] ### see if target exists in this test data
                 return train[important_features+target], test[important_features+target]
             except:
                 return train[important_features+target], test[important_features]
     else:
-        print(f'Returning list of features and dataframe containing {len(important_features)} features.')
+        print(f'Returning list of {len(important_features)} important features and dataframe.')
         return important_features, train[important_features+target]
 ################################################################################
 def remove_highly_correlated_vars_fast(df, corr_limit=0.70):
@@ -1567,7 +1557,7 @@ def create_time_series_features(dtf, ts_column):
                 ### If it is just a year variable alone, you should leave it as just a year!
                 age_col = ts_column+'_age_in_years'
                 dtf[age_col] = dtf[ts_column].map(lambda x: pd.to_datetime(x,format='%Y')).apply(compute_age).values
-                return dtf[[ts_column,age_col]]
+                return dtf[[age_col]]
             else:
                 ### if it is not a year alone, then convert it into a date time variable
                 dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
