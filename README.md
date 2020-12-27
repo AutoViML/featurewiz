@@ -176,10 +176,10 @@ You don't have to tell featurwiz whether it is a Regression or Classification pr
     The mean target value (regardless of the feature value).
 
 **Return values**
--   `Output`: Output is always a tuple containing two objects. The objects in that tuple can vary.
--   `out1 and out2`: We can call our outputs: out1 and out2. Depending on your input, out1 and out2 can be different. Here is how:
+-   `Output`: Output is always a tuple. We can call our outputs in that tuple: out1 and out2.
+-   `out1` and `out1`: If you sent in just one dataframe or filename as input, you will get:
 -   `features` and `trainm`: It be a list (of selected features) and one dataframe (if you sent in train only)
--   `trainm` and `testm` are the modified dataframes with new features engineered (train and test)
+-   `out1` and `out2`: If you sent in two files or dataframes (train and test), you will get:
 - 1. `trainm`: modified train dataframe is the dataframe that is modified with engineered and selected features from dataname.
 - 2. `testm`: modified test dataframe is the dataframe that is modified with engineered and selected features from test_data
 
