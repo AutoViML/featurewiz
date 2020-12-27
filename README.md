@@ -60,6 +60,8 @@ or
 
 ## Background
 
+![background](featurewiz_background.jpg)
+
 To learn more about how featurewiz works under the hood, watch this [video](https://www.youtube.com/embed/ZiNutwPcAU0)<br>
 
 <p>featurewiz was designed for selecting High Performance variables with the fewest steps.
