@@ -12,19 +12,14 @@ from .featurewiz import split_one_field_into_many, add_aggregate_primitive_featu
 from .featurewiz import create_time_series_features
 ################################################################################
 if __name__ == "__main__":
-    version_number = __version__
-    print("""Running featurewiz: Auto_ViML's feature engg and selection library. Version=%s
+    module_type = 'Running'
+else:
+    module_type = 'Imported'
+version_number = __version__
+print("""%s featurewiz: Auto_ViML's feature engg and selection library. Version=%s
 output = featurewiz(dataname, target, corr_limit=0.70,
                     verbose=2, sep=',', header=0, test_data='',
                     feature_engg='', category_encoders='')
 Let featurewiz add features to your data! Set 'feature_engg' as: 'interactions' or 'groupby' or 'target'
-                                """ %version_number)
-else:
-    version_number = __version__
-    print("""Imported featurewiz: Auto_ViML's feature engg and selection library. Version=%s
-output = featurewiz(dataname, target, corr_limit=0.70,
-                    verbose=2,  sep=',', header=0, test_data='',
-                    feature_engg='', category_encoders='')
-Let featurewiz add features to your data! Set 'feature_engg' as: 'interactions' or 'groupby' or 'target'
-""" %version_number)
+                                """ %(module_type, version_number))
 ################################################################################

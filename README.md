@@ -122,11 +122,13 @@ from featurewiz import featurewiz
 Load a data set (any CSV or text file) into a Pandas dataframe and give it the name of the target(s) variable. If you have more than one target, it will handle multi-label targets too. Just give it a list of variables in that case. If you don't have a dataframe, you can simply enter the name and path of the file to load into featurewiz:
 
 ```
-output = featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",",
+out1, out2 = featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",",
 header=0,test_data="", feature_engg="", category_encoders="")
 ```
 
-output: can be a list of selected features or a tuple with two dataframes: the input dataframe modified with new features and the test data modified.
+out1 and out2: is always a tuple containing two objects. The objects in that tuple can vary:
+1. "features" and "train": It be a list (of selected features) and one dataframe (if you sent in train only)
+2. "trainm" and "testm": It can be two dataframes when you send in both test and train but with selected features.
 
 Both the selected features and dataframes are ready for you to now to do further modeling.<br>
 featurewiz works on any Multi-Class, Multi-Label Data Set. So you can have as many target labels as you want.<br>
@@ -171,12 +173,16 @@ You don't have to tell featurwiz whether it is a Regression or Classification pr
     The mean target value for the observed feature value i.
     The mean target value (regardless of the feature value).
 
-**Return values**
-If you don't want any feature_engg, then featurewiz will return just one thing:
-- `features`: the fewest number of features in your model to make it perform well
-- `dataframes`: Otherwise, Featurewiz can output either one dataframe or two depending on what you send inside as input.
-    1. `trainm`: modified train dataframe is the dataframe that is modified with engineered and selected features from dataname.
-    2. `testm`: modified test dataframe is the dataframe that is modified with engineered and selected features from test_data
+**Return values**<p>
+Output is always a tuple containing two objects. The objects in that tuple can vary:
+Let's call them out1 and out2. Depending on your input, out1 and out2 can be different. Here is how:
+    - 1. "features" and "train": It be a list (of selected features) and one dataframe (if you sent in train only)
+    - `features` and `train` are the best features in your model selected and the modified dataframe with new features engineered (if any)
+    If you don't want any feature_engg, then featurewiz will return just your selected features and the dataframe.
+    - 2. "trainm" and "testm": It can be two dataframes when you send in both test and train. Here is how.
+    - `dataframes`: Supposed you sent in both train and test? In that case, you will receive two dataframes as output:
+    - 1. `trainm`: modified train dataframe is the dataframe that is modified with engineered and selected features from dataname.
+    - 2. `testm`: modified test dataframe is the dataframe that is modified with engineered and selected features from test_data
 
 ## Maintainers
 

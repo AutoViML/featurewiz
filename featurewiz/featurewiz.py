@@ -936,7 +936,37 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ###### Now we detect the various types of variables to see how to convert them to numeric
     ######################################################################################
     features_dict = classify_features(train, target)
-    cols_to_remove = features_dict['cols_delete'] + features_dict['IDcols'] + features_dict['discrete_string_vars']+features_dict['date_vars']
+    if len(features_dict['date_vars']) > 0:
+        date_time_vars = features_dict['date_vars']
+        date_cols = copy.deepcopy(date_time_vars)
+        #### Do this only if date time columns exist in your data set!
+        for date_col in date_cols:
+            print('Processing %s column for date time features....' %date_col)
+            date_df_train = create_time_series_features(train, date_col)
+            date_col_adds_train = left_subtract(date_df_train.columns.tolist(),date_col)
+            print('    Adding %d columns from date-time column %s in train' %(len(date_col_adds_train),date_col))
+            if test is not None:
+                print('        Adding time series features for test data...')
+                date_df_test = create_time_series_features(test, date_col)
+                date_col_adds_test = left_subtract(date_df_test.columns.tolist(),date_col)
+            else:
+                date_col_adds_test = []
+            if len(date_col_adds_test) == 0:
+                ### if both create_time_series_features return the same variables, then good
+                date_col_adds = copy.deepcopy(date_col_adds_train)
+                if date_col_adds != []:
+                    ### Now time to remove the date time column from all further processing ##
+                    train.drop(date_col,axis=1,inplace=True)
+                    date_df_train.drop(date_col,axis=1,inplace=True)
+                    train = train.join(date_df_train)
+                    if not test is None:
+                        if date_col_adds != []:
+                            ### Now time to remove the date time column from all further processing ##
+                            test.drop(date_col,axis=1,inplace=True)
+                            date_df_test.drop(date_col,axis=1,inplace=True)
+                            test = test.join(date_df_test)
+    ### Now time to continue with our further processing ##
+    cols_to_remove = features_dict['cols_delete'] + features_dict['IDcols'] + features_dict['discrete_string_vars']
     preds = [x for x in list(train) if x not in target+cols_to_remove]
     numvars = train[preds].select_dtypes(include = 'number').columns.tolist()
     if len(numvars) > max_nums:
@@ -1217,24 +1247,25 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     except:
         print('Finding top features using XGB is crashing. Continuing with all predictors...')
         important_features = copy.deepcopy(preds)
-        return important_features
+        return important_features, train[important_features+target]
     important_features = list(OrderedDict.fromkeys(important_features))
     numvars = [x for x in numvars if x in important_features]
     important_cats = [x for x in important_cats if x in important_features]
     print('    Time taken (in seconds) = %0.0f' %(time.time()-start_time))
     if feature_gen or feature_type:
-        print(f'Returning dataframe containing {len(important_features)} features after feature engineering and selection.')
+        print(f'Returning list of features and dataframe containing {len(important_features)} features.')
         if test is None:
-            return train[important_features+target]
+            return important_features, train[important_features+target]
         else:
+            print('Returning 2 dataframes train and test with %d important features.' %len(important_features))
             try:
                 test[target] ### see if target exists in this test data
                 return train[important_features+target], test[important_features+target]
             except:
                 return train[important_features+target], test[important_features]
     else:
-        print('Returning names of %d important features in dataset.' %len(important_features))
-        return important_features
+        print(f'Returning list of features and dataframe containing {len(important_features)} features.')
+        return important_features, train[important_features+target]
 ################################################################################
 def remove_highly_correlated_vars_fast(df, corr_limit=0.70):
     """
