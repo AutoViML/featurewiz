@@ -3,8 +3,8 @@
 ![banner](featurewiz_logo.jpg)
 
 Featurewiz is a new python library for creating and selecting the best features in your data set fast!
-<p>featurewiz accomplishes this in 2 steps:<br>
-The first step is optional and it is about creating new features.<p>
+featurewiz accomplishes this in 2 steps:
+<p>The first step is optional and it is about creating new features.<p>
 1. <b>Performing Feature Engineering</b>: One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions like Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features was painstaking and left only to "experts". Now there is some good news.<br>
 featurewiz now enables you to add hundreds of such features at the click of a code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go.<br> Not only that, it will use SULOV method and Recursive XGBoost to sift through those variables and find only the least correlated and most important features among them. All in one step!.<br>
 <p>The second step is Feature Selection:<br>
@@ -15,7 +15,7 @@ featurewiz now enables you to add hundreds of such features at the click of a co
 <br>
 All are very important questions and you must be very careful using this feature_engg option in featurewiz. Otherwise, you can create a "garbage in, garbage out" problem. Caveat Emptor!
 <br>featurewiz uses the SULOV method and Recursive XGBoost to reduce features in order to select the best features for the model. Here is how.<br>
-<b>SULOV</b>: SULOV means Searching for Uncorrelated List of Variables. The SULOV method is similar to the Minimum-redundancy-maximum-relevance (mRMR) <a href="https://en.wikipedia.org/wiki/Feature_selection#Minimum-redundancy-maximum-relevance_(mRMR)_feature_selection">algorithm explained in wikipedia</a> as one of the best feature selection methods. The SULOV algorithm is explained in this chart below.
+<p><b>SULOV</b>: SULOV means Searching for Uncorrelated List of Variables. The SULOV method is similar to the Minimum-redundancy-maximum-relevance (mRMR) <a href="https://en.wikipedia.org/wiki/Feature_selection#Minimum-redundancy-maximum-relevance_(mRMR)_feature_selection">algorithm explained in wikipedia</a> as one of the best feature selection methods. The SULOV algorithm is explained in this chart below.
 Here is a simple way of explaining how it works:
 <ol>
 <li>Find all the pairs of highly correlated variables exceeding a correlation threshold (say absolute(0.7)).
@@ -173,16 +173,14 @@ You don't have to tell featurwiz whether it is a Regression or Classification pr
     The mean target value for the observed feature value i.
     The mean target value (regardless of the feature value).
 
-**Return values**<p>
-Output is always a tuple containing two objects. The objects in that tuple can vary:
+**Return values**
+-   `Output`: Output is always a tuple containing two objects. The objects in that tuple can vary:<br>
 Let's call them out1 and out2. Depending on your input, out1 and out2 can be different. Here is how:
-    - 1. "features" and "train": It be a list (of selected features) and one dataframe (if you sent in train only)
-    - `features` and `train` are the best features in your model selected and the modified dataframe with new features engineered (if any)
-    If you don't want any feature_engg, then featurewiz will return just your selected features and the dataframe.
-    - 2. "trainm" and "testm": It can be two dataframes when you send in both test and train. Here is how.
-    - `dataframes`: Supposed you sent in both train and test? In that case, you will receive two dataframes as output:
-    - 1. `trainm`: modified train dataframe is the dataframe that is modified with engineered and selected features from dataname.
-    - 2. `testm`: modified test dataframe is the dataframe that is modified with engineered and selected features from test_data
+-   `features` and `trainm`: It be a list (of selected features) and one dataframe (if you sent in train only)
+-   `Output`If you don't want any feature_engg, then featurewiz will return just your selected features and the dataframe.
+-   `trainm` and `testm` are the modified dataframes with new features engineered (train and test)
+- 1. `trainm`: modified train dataframe is the dataframe that is modified with engineered and selected features from dataname.
+- 2. `testm`: modified test dataframe is the dataframe that is modified with engineered and selected features from test_data
 
 ## Maintainers
 
