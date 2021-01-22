@@ -500,7 +500,18 @@ class DataBunch(object):
             data = self.clean_nans(data, cols=num_features)
             if test_data is not None:
                 test_data = self.clean_nans(test_data, cols=num_features)
-
+            ### Sometimes, train has nulls while test doesn't and vice versa
+            if test_data is not None:
+                rem_cols = left_subtract(list(data),list(test_data))
+                if len(rem_cols) > 0:
+                    for rem_col in rem_cols:
+                        test_data[rem_col] = 0
+                elif len(left_subtract(list(test_data),list(data))) > 0:
+                    rem_cols = left_subtract(list(test_data),list(data))
+                    for rem_col in rem_cols:
+                        data[rem_col] = 0
+                else:
+                    print(' + test and train have similar NaN columns')
         # Generate interaction features for Numeric variables
         if num_generator_features:
             if len(num_features) > 1:
@@ -595,4 +606,11 @@ def find_rare_class(series, verbose=0):
     This can also be helpful in using it as pos_label in Binary and Multi Class problems.
     """
     return series.value_counts().index[-1]
+#################################################################################
+def left_subtract(l1,l2):
+    lst = []
+    for i in l1:
+        if i not in l2:
+            lst.append(i)
+    return lst
 #################################################################################

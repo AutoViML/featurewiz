@@ -380,7 +380,7 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0):
             for code in codex:
                 try:
                     dfte = pd.read_csv(dataname,sep=sep,index_col=None,encoding=code)
-                    print('Encoder %s chosen to read CSV file' %code)
+                    print('    Encoder %s chosen to read CSV file' %code)
                     print('Shape of your Data Set loaded: %s' %(dfte.shape,))
                     if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
                         print('You have duplicate column names in your data set. Removing duplicate columns now...')
