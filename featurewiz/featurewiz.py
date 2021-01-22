@@ -13,13 +13,10 @@
 #See the License for the specific language governing permissions and
 #limitations under the License.
 #################################################################################
-####  C O D E  C A N  B E  RE-FACTORED  W I T H   C I T A T I O N   B E L O W ###
-#################################################################################
 ###############           F E A T U R E   W I Z A R D          ##################
 ################  featurewiz library developed by Ram Seshadri  #################
 # featurewiz utilizes SULOV METHOD which is a fast method for feature selection #
 #####  SULOV also means Searching for Uncorrelated List Of Variables (:-)  ######
-###############                  v 0.0.7                         ################
 ###############     A L L   R I G H T S  R E S E R V E D         ################
 #################################################################################
 ##### This project is not an official Google project. It is not supported by ####
@@ -1248,10 +1245,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             return important_features, train[important_features+target]
         else:
             print('Returning 2 dataframes: train and test with %d important features.' %len(important_features))
-            try:
-                test[target] ### see if target exists in this test data
+            if target in list(test): ### see if target exists in this test data
                 return train[important_features+target], test[important_features+target]
-            except:
+            else:
                 return train[important_features+target], test[important_features]
     else:
         print(f'Returning list of {len(important_features)} important features and dataframe.')
