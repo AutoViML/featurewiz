@@ -939,14 +939,14 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         #### Do this only if date time columns exist in your data set!
         for date_col in date_cols:
             print('Processing %s column for date time features....' %date_col)
-            date_df_train = create_time_series_features(train, date_col)
+            date_df_train = fe_create_time_series_features(train, date_col)
             date_col_adds_train = left_subtract(date_df_train.columns.tolist(),date_col)
             print('    Adding %d column(s) from date-time column %s in train' %(len(date_col_adds_train),date_col))
             train.drop(date_col,axis=1,inplace=True)
             train = train.join(date_df_train)
             if test is not None:
                 print('        Adding same time series features to test data...')
-                date_df_test = create_time_series_features(test, date_col)
+                date_df_test = fe_create_time_series_features(test, date_col)
                 date_col_adds_test = left_subtract(date_df_test.columns.tolist(),date_col)
                 ### Now time to remove the date time column from all further processing ##
                 test.drop(date_col,axis=1,inplace=True)
@@ -1524,8 +1524,9 @@ def compute_age(year_string):
     age = relativedelta(today, year_string)
     return age.years
 #################################################################
-def create_time_series_features(dtf, ts_column):
+def fe_create_time_series_features(dtf, ts_column):
     """
+    FE means FEATURE ENGINEERING - That means this function will create new features
     This creates between 8 and 10 date time features for each date variable. The number of features
     depends on whether it is just a year variable or a year+month+day and whether it has hours and mins+secs.
     So this can create all these features using just the date time column that you send in.
@@ -1564,3 +1565,192 @@ def create_time_series_features(dtf, ts_column):
         print('Error in Processing %s column for date time features. Continuing...' %ts_column)
     return dtf
 ######################################################################################
+def fe_get_latest_status_from_date(dft, id_col, date_col, cols, ascending=False):
+    """
+    FE means FEATURE ENGINEERING - That means this function will create new features
+    This function gets you the latest status of the columns in cols from the date column you specify in dataframe, dft.
+    ######################################################################################
+    date_col: this must be a valid pandas date-time column. If it is a string, make sure you change it to a date-time column.
+    cols: these are the list of columns you want their latest value based on the date-col you specify.
+    ascending: you can set this as True or False depending on whether you want the smallest or the biggest
+    ######################################################################################
+    Returns a dataframe that is smaller than the original dataframe since it groups everything by ID column and date-col.
+    It then sorts each group with the latest date on top and selects that top row. It then returns the cols.
+    You should get a dataframe that has the cols specified in your input with fewer rows than your input dft.
+    """
+    dft = copy.deepcopy(dft)
+    try:
+        train_add = dft.groupby([id_col], sort=False).apply(lambda x: x.sort_values([date_col],
+                                                                        ascending=ascending))
+        train_add = train_add[cols].reset_index()
+        train_add = train_add.groupby(id_col).head(1).reset_index(drop=True).drop('level_1',axis=1)
+    except:
+        print('    Error in getting latest status of columns based on %s. Returning...' %date_col)
+        return dft
+    return train_add
+#################################################################################
+from functools import reduce
+def fe_split_add_column(dft, col, splitter=',', action='+'):
+    """
+    FE means FEATURE ENGINEERING - That means this function will create new features
+    This function will split a column's values based on a splitter you specify and
+    will either add them or concatenate them as you specify in the action argument.
+    ###########################################################################
+    splitter: splitter can be any string that is found in your column and that you want to split by.
+    action: can be anything, add, subtract, multiply, concatenate, whatever you specify.
+    ################################################################################
+    Returns a dataframe with a new column that is a modification of the old column
+    """
+    dft = copy.deepcopy(dft)
+    new_col = col + '_split_apply'
+    print('Creating column = %s using split_add feature engineering...' %new_col)
+    if action in ['+','-','*','/','add','subtract','multiply','divide']:
+        if action == 'add':
+            sign = '+'
+        elif action == 'subtract':
+            sign = '-'
+        elif action == 'multiply':
+            sign = '*'
+        elif action == 'divide':
+            sign = '/'
+        else:
+            sign = '+'
+        # using reduce to compute sum of list
+        try:
+            trainx = dft[col].map(lambda x:  0 if x is np.nan else 0 if x == '' else x.split(splitter)).map(
+                                lambda listx: [int(x) if x != '' else 0 for x in listx ] if isinstance(listx,list) else [0,0])
+            dft[new_col] = trainx.map(lambda lis: reduce(lambda a,b : eval('a'+sign+'b'), lis) if isinstance(lis,list) else 0).values
+        except:
+            print('    Error: returning without creating new column')
+            return dft
+    elif action in ['concat','concatenate']:
+        try:
+            dft[new_col] = dft[col].map(lambda x:  " " if x is np.nan else " " if x == '' else x.split(splitter)).map(
+                            lambda listx: np.concatenate([str(x) if x != '' else " " for x in listx] if isinstance(listx,list) else " ")).values
+        except:
+            print('    Error: returning without creating new column')
+    else:
+        print('Could not perform action. Please check your inputs and try again')
+        return dft
+    return dft
+################################################################################
+def fe_add_age_by_date_col(dft, date_col, age_format):
+    """
+    FE means FEATURE ENGINEERING - That means this function will create new features
+    This handy function gets you age from the date_col to today. It can be counted in months or years or days.
+    It returns the same dataframe with an extra column added that gives you age
+    """
+    if not age_format in ['M','D','Y']:
+        print('Age is not given in right format. Must be one of D, Y or M')
+        return dft
+    new_date_col = 'last_'+date_col+'_in_months'
+    try:
+        now = pd.Timestamp('now')
+        dft[date_col] = pd.to_datetime(dft[date_col], format='%y-%m-%d')
+        dft[date_col] = dft[date_col].where(dft[date_col] < now, dft[date_col] -  np.timedelta64(100, age_format))
+        if age_format == 'M':
+            dft[new_date_col] = (now - dft[date_col]).astype('<m8[M]')
+        elif age_format == 'Y':
+            dft[new_date_col] = (now - dft[date_col]).astype('<m8[Y]')
+        elif age_format == 'D':
+            dft[new_date_col] = (now - dft[date_col]).astype('<m8[D]')
+    except:
+        print('    Error in date formatting. Please check your input and try again')
+    return dft
+#################################################################################
+def fe_count_rows_for_all_columns_by_group(dft, id_col):
+    """
+    FE means FEATURE ENGINEERING - That means this function will create new features
+    This handy function gives you a count of all rows by groups based on id_col in your dataframe.
+    Remember that it counts only non-null rows. Hence it is a different count than other count function.
+    It returns a dataframe with id_col as the index and a bunch of new columns that give you counts of groups.
+    """
+    new_col = 'row_count_'
+    groupby_columns =  [id_col]
+    grouped_count = dft.groupby(groupby_columns).count().add_prefix(new_col)
+    return grouped_count
+#################################################################################
+def fe_count_rows_by_group_incl_nulls(dft, id_col):
+    """
+    FE means FEATURE ENGINEERING - That means this function will create new features
+    This function gives you the count of all the rows including null rows in your data.
+    It returns a dataframe with id_col as the index and the counts of rows (incl null rows) as a new column
+    """
+    new_col = 'row_count_incl_null_rows'
+    groupby_columns =  [id_col]
+    ### len gives you count of all the rows including null rows in your data
+    grouped_len = dft.groupby(groupby_columns).apply(len)
+    grouped_val = grouped_len.values
+    grouped_len = pd.DataFrame(grouped_val, columns=[new_col],index=grouped_len.index)
+    return grouped_len
+#################################################################################
+import copy
+import time
+import pdb
+def fe_create_groupby_features(dft, groupby_columns, numeric_columns, agg_types):
+    """
+    FE means FEATURE ENGINEERING - That means this function will create new features
+    Beware: this function will return a smaller dataframe than what you send in since it groups rows by keys.
+    #########################################################################################################
+    Function groups rows in a dft dataframe by the groupby_columns and returns multiple columns for the numeric column aggregated.
+    Do not send in more than one column in the numeric column since beyond the first column it will be ignored!
+    agg_type can be any numpy function such as mean, median, sum, count, etc.
+    ##########################################################################################################
+    Returns: a smaller dataframe with rows grouped by groupby_columns and aggregated for the numeric_column
+    """
+    start_time = time.time()
+    grouped_sep = pd.DataFrame()
+    print('Autoviml Feature Engineering: creating groupby features using %s' %groupby_columns)
+    ##########  This is where we create new columns by each numeric column grouped by group-by columns given.
+    if isinstance(numeric_columns, list):
+        pass
+    elif isinstance(numeric_column, str):
+        numeric_columns = [numeric_columns]
+    else:
+        print('    Numeric column must be a string not a number Try again')
+        return pd.DataFrame()
+    grouped_list = pd.DataFrame()
+    for iteration, numeric_column in zip(range(len(numeric_columns)),numeric_columns):
+        grouped = dft.groupby(groupby_columns)[[numeric_column]]
+        try:
+            agg_type = agg_types[iteration]
+        except:
+            print('    No aggregation type given, hence mean is chosen by default')
+            agg_type = 'mean'
+        try:
+            prefix = numeric_column + '_'
+            if agg_type in ['Sum', 'sum']:
+                grouped_agg = grouped.sum()
+            elif agg_type in ['Mean', 'mean','Average','average']:
+                grouped_agg = grouped.mean()
+            elif agg_type in ['count', 'Count']:
+                grouped_agg = grouped.count()
+            elif agg_type in ['Median', 'median']:
+                grouped_agg = grouped.median()
+            elif agg_type in ['Maximum', 'maximum','max', 'Max']:
+                ## maximum of the amounts
+                grouped_agg = grouped.max()
+            elif agg_type in ['Minimum', 'minimum','min', 'Min']:
+                ## maximum of the amounts
+                grouped_agg = grouped.min()
+            else:
+                grouped_agg = grouped.mean()
+            grouped_sep = grouped_agg.unstack().add_prefix(prefix).fillna(0)
+        except:
+            print('    Error in creating groupby features...returning with null dataframe')
+            grouped_sep = pd.DataFrame()
+        if iteration == 0:
+            grouped_list = copy.deepcopy(grouped_sep)
+        else:
+            grouped_list = pd.concat([grouped_list,grouped_sep],axis=1)
+        print('    After grouped features added by %s, number of columns = %d' %(numeric_column, grouped_list.shape[1]))
+    #### once everything is done, you can close it here
+    print('Time taken for creation of groupby features (in seconds) = %0.0f' %(time.time()-start_time))
+    try:
+        grouped_list.columns = grouped_list.columns.get_level_values(1)
+        grouped_list.columns.name = None ## make sure the name on columns is removed
+        grouped_list = grouped_list.reset_index() ## make sure the ID column comes back
+    except:
+        print('   Error in setting column names. Please reset column names after this step...')
+    return grouped_list
+################################################################################
