@@ -1754,3 +1754,174 @@ def fe_create_groupby_features(dft, groupby_columns, numeric_columns, agg_types)
         print('   Error in setting column names. Please reset column names after this step...')
     return grouped_list
 ################################################################################
+# Can we see if a feature or features has some outliers and how can we cap them?
+from collections import Counter
+def FE_capping_outliers_beyond_IQR_Range(df, features, cap_at_nth_largest=5, IQR_multiplier=1.5, drop=False):
+    """
+    FE at the beginning of function name stands for Feature Engineering. FE functions add or drop features.
+    #########################################################################################
+    Typically we think of outliers as being observations beyond the 1.5 Inter Quartile Range (IQR)
+    But this function will allow you to cap any observation that is multiple of that range, such as 1.5, 2. etc.
+    In addition, this utility helps you select the number to cap it at. The value to be capped at
+    is based on "n" that you input. It selects the nth_largest number after the maximum value to cap at!
+    "cap_at_nth_largest" specifies the max number below the largest (max) number in your column to cap that feature.
+    Optionally, you can drop certain observations that have too many outliers in at least 3 columns.
+    #########################################################################################
+    It returns the same dataframe as you input unless you change drop to True in the input argument.
+    If drop=True, it will return a smaller number of rows in your dataframe than what you sent in. Be careful!
+    """
+    outlier_indices = []
+    df = df.copy(deep=True)
+    # iterate over features(columns)
+    for col in features:
+        ### this is how the column looks now before capping outliers
+        fig, (ax1,ax2) = plt.subplots(1,2,figsize=(12,5))
+        df[col].plot(kind='box', title = '%s before capping outliers' %col, ax=ax1)
+        # 1st quartile (25%)
+        Q1 = np.percentile(df[col], 25)
+        # 3rd quartile (75%)
+        Q3 = np.percentile(df[col],75)
+        # Interquartile range (IQR)
+        IQR = Q3 - Q1
+
+        # outlier step using multiplier
+        outlier_step = IQR_multiplier * IQR
+
+        lower_limit = Q1 - outlier_step
+        upper_limit = Q3 + outlier_step
+
+        # Determine a list of indices of outliers for feature col
+        outlier_list_col = df[(df[col] < lower_limit) | (df[col] > upper_limit )].index
+
+        ### Capping using the n largest value based on n given in input.
+        maxval = df[col].max()  ## what is the maximum value in this column?
+        num_maxs = df[df[col]==maxval].shape[0] ## number of rows that have max value
+        ### find the n_largest values after the maximum value based on given input n
+        num_largest_after_max = num_maxs + cap_at_nth_largest
+        capped_value = df[col].nlargest(num_largest_after_max).iloc[-1] ## this is the value we cap it against
+        df.loc[df[col]==maxval, col] =  capped_value ## maximum values are now capped
+        ### you are now good to go - you can show how they are capped using before and after pics
+        df[col].plot(kind='box', title = '%s after capping outliers' %col, ax=ax2)
+        plt.show()
+
+        # Let's save the list of outliers and see if there are some with outliers in multiple columns
+        outlier_indices.extend(outlier_list_col)
+
+    # select certain observations containing more than one outlier in 2 columns or more. We can drop them!
+    outlier_indices = Counter(outlier_indices)
+    multiple_outliers = list( k for k, v in outlier_indices.items() if v > 3 )
+    ### now drop these rows altogether ####
+    if drop:
+        print('Shape of dataframe before outliers being dropped: %s' %(df.shape,))
+        number_of_rows = df.shape[0]
+        df.drop(multiple_outliers, axis=0, inplace=True)
+        print('Shape of dataframe after outliers being dropped: %s' %(df.shape,))
+        print('\nNumber_of_rows with multiple outliers in more than 3 columns which were dropped = %d' %(number_of_rows-df.shape[0]))
+    return df
+#################################################################################
+from sklearn.base import TransformerMixin
+from collections import defaultdict
+import pdb
+class My_LabelEncoder(TransformerMixin):
+    """
+    ######  Label Encode any column in a data frame using this neat function #######################
+    This not only Label Encodes a column but also accounts for NaN's and unknown values.
+    Returns the same column label encoded as well as a dictionary mapping previous and new values.
+    ################################################################################################
+    """
+    def __init__(self):
+        self.transformer = defaultdict(str)
+        self.reverse_transformer = defaultdict(str)
+
+    def fit(self,testx):
+        if isinstance(testx, pd.Series):
+            pass
+        elif isinstance(testx, np.ndarray):
+            testx = pd.Series(testx)
+        else:
+            return testx
+        outs = np.unique(testx.factorize()[0])
+        ins = np.unique(testx.factorize()[1]).tolist()
+        if -1 in outs:
+            ins.insert(0,np.nan)
+        self.transformer = dict(zip(ins,outs.tolist()))
+        self.inverse_transformer = dict(zip(outs.tolist(),ins))
+        return self
+
+    def transform(self, testx):
+        if isinstance(testx, pd.Series):
+            pass
+        elif isinstance(testx, np.ndarray):
+            testx = pd.Series(testx)
+        else:
+            return testx
+        ins = np.unique(testx.factorize()[1]).tolist()
+        missing = [x for x in ins if x not in self.transformer.keys()]
+        if len(missing) > 0:
+            for each_missing in missing:
+                max_val = np.max(list(self.transformer.values())) + 1
+                self.transformer[each_missing] = max_val
+                self.inverse_transformer[max_val] = each_missing
+        ### now convert the input to transformer dictionary values
+        outs = testx.map(self.transformer).values
+        return outs
+
+    def inverse_transform(self, testx):
+        ### now convert the input to transformer dictionary values
+        if isinstance(testx, pd.Series):
+            outs = testx.map(self.inverse_transformer).values
+        elif isinstance(testx, np.ndarray):
+            outs = pd.Series(testx).map(self.inverse_transformer).values
+        else:
+            outs = testx[:]
+        return outs
+#################################################################################
+def EDA_classify_and_return_cols_by_type(df1):
+    """
+    EDA stands for Exploratory data analysis. This function performs EDA - hence the name
+    ########################################################################################
+    This handy function classifies your columns into different types : make sure you send only predictors.
+    Beware sending target column into the dataframe. You don't want to start modifying it.
+    #####################################################################################
+    It returns a list of categorical columns, integer cols and float columns in that order.
+    """
+    ### Let's find all the categorical excluding integer columns in dataset: unfortunately not all integers are categorical!
+    catcols = df1.select_dtypes(include='object').columns.tolist() + df1.select_dtypes(include='category').columns.tolist()
+    cats = copy.deepcopy(catcols)
+    nlpcols = []
+    for each_cat in cats:
+        try:
+            if df1[each_cat].map(len).mean() >=20:
+                nlpcols.append(each_cat)
+                catcols.remove(each_cat)
+        except:
+            continue
+    intcols = df1.select_dtypes(include='integer').columns.tolist()
+    # let's find all the float numeric columns in data
+    floatcols = df1.select_dtypes(include='float').columns.tolist()
+    return catcols, intcols, floatcols, nlpcols
+############################################################################################
+def EDA_classify_features(train, target, idcols):
+    ### Test Labeler is a very important dictionary that will help transform test data same as train ####
+    test_labeler = defaultdict(list)
+
+    #### all columns are features except the target column and the folds column ###
+    if isinstance(target, str):
+        features = [x for x in list(train) if x not in [target]+idcols]
+    else:
+        ### in this case target is a list and hence can be added to idcols
+        features = [x for x in list(train) if x not in target+idcols]
+
+    ### first find all the types of columns in your data set ####
+    cats, ints, floats, nlps = EDA_classify_and_return_cols_by_type(train[features])
+
+    numeric_features = ints + floats
+    categoricals_features = copy.deepcopy(cats)
+    nlp_features = copy.deepcopy(nlps)
+
+    test_labeler['categoricals_features'] = categoricals_features
+    test_labeler['numeric_features'] = numeric_features
+    test_labeler['nlp_features'] = nlp_features
+
+    return cats, ints, floats, nlps
+#############################################################################################

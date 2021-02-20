@@ -9,7 +9,7 @@
 from .__version__ import __version__
 from .featurewiz import featurewiz, convert_all_object_columns_to_numeric
 from .featurewiz import split_one_field_into_many, add_aggregate_primitive_features
-from .featurewiz import create_time_series_features
+from .featurewiz import fe_create_time_series_features
 ################################################################################
 if __name__ == "__main__":
     module_type = 'Running'
