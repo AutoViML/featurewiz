@@ -469,7 +469,7 @@ def return_dictionary_list(lst_of_tuples):
         orDict[key].append(val)
     return orDict
 ##################################################################################
-def remove_variables_using_fast_correlation(df, numvars, modeltype, target,
+def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
                                 corr_limit = 0.70,verbose=0):
     """
     ##########################################################################################
@@ -669,30 +669,6 @@ def left_subtract(l1,l2):
             lst.append(i)
     return lst
 #################################################################################
-def convert_train_test_cat_col_to_numeric(start_train, start_test, col):
-    """
-    ####  This is the easiest way to label encode object variables in both train and test
-    #### This takes care of some categories that are present in train and not in test
-    ###     and vice versa
-    """
-    start_train = copy.deepcopy(start_train)
-    start_test = copy.deepcopy(start_test)
-    if start_train[col].isnull().sum() > 0:
-        start_train[col] = start_train[col].fillna("NA")
-    train_categs = list(pd.unique(start_train[col].values))
-    if not isinstance(start_test,str) :
-        test_categs = list(pd.unique(start_test[col].values))
-        categs_all = train_categs+test_categs
-        dict_all =  return_factorized_dict(categs_all)
-    else:
-        dict_all = return_factorized_dict(train_categs)
-    start_train[col] = start_train[col].map(dict_all)
-    if not isinstance(start_test,str) :
-        if start_test[col].isnull().sum() > 0:
-            start_test[col] = start_test[col].fillna("NA")
-        start_test[col] = start_test[col].map(dict_all)
-    return start_train, start_test
-###############################################################################
 def return_factorized_dict(ls):
     """
     ######  Factorize any list of values in a data frame using this neat function
@@ -705,52 +681,15 @@ def return_factorized_dict(ls):
         categs = np.insert(categs,np.where(factos==-1)[0][0],np.nan)
     return dict(zip(categs,factos))
 ###########################################################################################
-############## CONVERSION OF STRING COLUMNS TO NUMERIC WITHOUT LABEL ENCODER #########
+############## CONVERSION OF STRING COLUMNS TO NUMERIC using MY_LABELENCODER #########
 #######################################################################################
-import copy
-import pdb
-def convert_a_column_to_numeric(x, col_dict=""):
-    '''Function converts any pandas series (or column) consisting of string chars,
-       into numeric values. It converts an all-string column to an all-number column.
-       This is an amazing function which performs exactly like a Label Encoding
-       except that it is simpler and faster'''
-    if isinstance(col_dict, str):
-        values = np.unique(x)
-        values2nums = dict(zip(values,range(len(values))))
-        convert_dict = dict(zip(range(len(values)),values))
-        return x.replace(values2nums), convert_dict
-    else:
-        convert_dict = copy.deepcopy(col_dict)
-        keys  = col_dict.keys()
-        newkeys = np.unique(x)
-        rem_keys = left_subtract(newkeys, keys)
-        max_val = max(col_dict.values()) + 1
-        for eachkey in rem_keys:
-            convert_dict.update({eachkey:max_val})
-            max_val += 1
-        return x.replace(convert_dict)
-#######################################################################################
-def convert_a_mixed_object_column_to_numeric(x, col_dict=''):
-    """
-    This is the main utility that converts any string column to numeric.
-    It does not need Label Encoder since it picks up an string that may not be in test data.
-    """
-    x = x.astype(str)
-    if isinstance(col_dict, str):
-        x, convert_dict = convert_a_column_to_numeric(x)
-        convert_dict = dict([(v,k) for (k,v) in convert_dict.items()])
-        return x, convert_dict
-    else:
-        x = convert_a_column_to_numeric(x, col_dict)
-        return x, ''
-######################################################################################
-def convert_all_object_columns_to_numeric(train, test=""):
+def FE_convert_all_object_columns_to_numeric(train, test=""):
     """
     #######################################################################################
-    This is a utility that converts string columns to numeric WITHOUT LABEL ENCODER.
+    This is a utility that converts string columns to numeric using MY_LABEL ENCODER.
     Make sure test and train have the same number of columns. If you have target in train,
     remove it before sending it through this utility. Otherwise, might blow up during test transform.
-    The beauty of this utility is that it does not blow up when it finds strings in test not in train.
+    The beauty of My_LabelEncoder is it handles NA's and future values in test that are not in train.
     #######################################################################################
     """
     train = copy.deepcopy(train)
@@ -764,10 +703,11 @@ def convert_all_object_columns_to_numeric(train, test=""):
     if not (len(lis)==0):
         for everycol in lis:
             #print('    Converting %s to numeric' %everycol)
+            MLB = My_LabelEncoder()
             try:
-                train[everycol], train_dict = convert_a_mixed_object_column_to_numeric(train[everycol])
+                train[everycol] = MLB.fit_transform(train[everycol])
                 if not isinstance(test, str):
-                    test[everycol],_ = convert_a_mixed_object_column_to_numeric(test[everycol], train_dict)
+                    test[everycol] = MLB.transform(test[everycol])
             except:
                 print('Error converting %s column from string to numeric. Continuing...' %everycol)
                 continue
@@ -939,14 +879,14 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         #### Do this only if date time columns exist in your data set!
         for date_col in date_cols:
             print('Processing %s column for date time features....' %date_col)
-            date_df_train = fe_create_time_series_features(train, date_col)
+            date_df_train = FE_create_time_series_features(train, date_col)
             date_col_adds_train = left_subtract(date_df_train.columns.tolist(),date_col)
             print('    Adding %d column(s) from date-time column %s in train' %(len(date_col_adds_train),date_col))
             train.drop(date_col,axis=1,inplace=True)
             train = train.join(date_df_train)
             if test is not None:
                 print('        Adding same time series features to test data...')
-                date_df_test = fe_create_time_series_features(test, date_col)
+                date_df_test = FE_create_time_series_features(test, date_col)
                 date_col_adds_test = left_subtract(date_df_test.columns.tolist(),date_col)
                 ### Now time to remove the date time column from all further processing ##
                 test.drop(date_col,axis=1,inplace=True)
@@ -1064,7 +1004,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ########    can't handle missing values in early stopping rounds #######
     train.dropna(axis=0,subset=preds+target,inplace=True)
     if len(numvars) > 1:
-        final_list = remove_variables_using_fast_correlation(train,numvars,settings.modeltype,target,
+        final_list = FE_remove_variables_using_SULOV_method(train,numvars,settings.modeltype,target,
                          corr_limit,verbose)
     else:
         final_list = copy.deepcopy(numvars)
@@ -1076,9 +1016,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     preds = final_list+important_cats
     #######You must convert category variables into integers ###############
     if len(important_cats) > 0:
-        train, traindict = convert_all_object_columns_to_numeric(train,  "")
-        if test is not None:
-            test, _ = convert_all_object_columns_to_numeric(test, traindict)
+        train, test = FE_convert_all_object_columns_to_numeric(train,  test)
     ########   Dont move this train and y definition anywhere else ########
     y = train[target]
     print('############## F E A T U R E   S E L E C T I O N  ####################')
@@ -1300,17 +1238,19 @@ import matplotlib.pyplot as plt
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
 from sklearn.feature_selection import SelectKBest
 ######################################################################################
-# Removes duplicates from a list to return unique values - USED ONLYONCE
-def find_remove_duplicates(values):
+def find_remove_duplicates(list_of_values):
+    """
+    # Removes duplicates from a list to return unique values - USED ONLY ONCE
+    """
     output = []
     seen = set()
-    for value in values:
+    for value in list_of_values:
         if value not in seen:
             output.append(value)
             seen.add(value)
     return output
 ################################################################################
-def add_date_time_features(smalldf, startTime, endTime, splitter_date_string="/",splitter_hour_string=":"):
+def FE_add_date_time_features(smalldf, startTime, endTime, splitter_date_string="/",splitter_hour_string=":"):
     """
     If you have start date time stamp and end date time stamp, this module will create additional features for such fields.
     You must provide a start date time stamp field and if you have an end date time stamp field, you must use it.
@@ -1392,9 +1332,9 @@ def add_date_time_features(smalldf, startTime, endTime, splitter_date_string="/"
     print('%d columns added using start date=%s and end date=%s processing...' %(len(add_cols),startTime,endTime))
     return smalldf
 ###########################################################################
-def split_one_field_into_many(df, field, splitter, filler, new_names_list, add_count_field=False):
+def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list, add_count_field=False):
     """
-    This little function takes any data frame field (string variables only) and splits
+    This Feature Engineering function takes any data frame field (string variables only) and splits
     it into as many fields as you want in the new_names_list.
     You can also specify what string to split on using the splitter argument.
     You can also fill Null values that occur due to your splitting by specifying a filler.
@@ -1435,44 +1375,55 @@ def split_one_field_into_many(df, field, splitter, filler, new_names_list, add_c
         return df
     return df, new_names_list
 ###########################################################################
-def add_aggregate_primitive_features(dft, agg_types, id_column, ignore_variables=[]):
+
+###########################################################################
+import copy
+def FE_add_groupby_features_aggregates(dft, agg_types, groupby_column, ignore_variables=[]):
     """
-    ###   Modify Dataframe by adding computational primitive Features using Feature Tools ####
-    ###   What are aggregate primitives? they are to "mean""median","mode","min","max", etc. features
+    ###   Add aggregated Features using a groupby column on all your numeric variables using this function ####
+    ###   What can you aggregate by ? aggregates can be "count, "mean", "median", "mode", "min", "max", etc.
+    ###   What do you need? a groupby column and it will iteratively compute aggregates for all numeric columns
+    ###      except those numeric variables you designate in the ignore_variables list. Can be empty.
     ### Inputs:
-    ###   df: Just sent in the data frame df that you want features added to
+    ###   dft: Just sent in the data frame df that you want features added to
     ###   agg_types: list of computational types: 'mean','median','count', 'max', 'min', 'sum', etc.
-    ###         One caveat: these agg_types must be found in the agg_func of numpy or pandas groupby statement.
-    ###         for example: numpy has 'median','prod','sum','std','var', etc. - they will work!
-    ###   idcolumn: this is to create an index for the dataframe since FT runs on index variable. You can leave it empty string.
+    ###         One caveat: these agg_types must be found in the following agg_func of numpy or pandas groupby statement.
+    ###         List of aggregates available: {'count','sum','mean','mad','median','min','max','mode','abs',
+    #               'prod','std','var','sem','skew','kurt',
+                    'quantile','cumsum','cumprod','cummax','cummin'}
+    ###   groupby_column: this is to groupby all the numeric features and compute aggregates by.
     ###   ignore_variables: list of variables to ignore among numeric variables in data since they may be ID variables.
     """
-    import copy
+    dft = copy.deepcopy(dft)
     ### Make sure the list of functions they send in are acceptable functions. If not, the aggregate will blow up!
-    func_set = {'count','sum','mean','mad','median','min','max','mode','abs','prod','std','var','sem','skew','kurt','quantile','cumsum','cumprod','cummax','cummin'}
+    func_set = {'count','sum','mean','mad','median','min','max','mode','abs','prod','std','var','sem','skew','kurt',
+                    'quantile','cumsum','cumprod','cummax','cummin'}
+    ### Only select those that match the func set ############
     agg_types = list(set(agg_types).intersection(func_set))
     ### If the ignore_variables list is empty, make sure you add the id_column to it so it can be dropped from aggregation.
     if len(ignore_variables) == 0:
-        ignore_variables = [id_column]
+        ignore_variables = [groupby_column]
     ### Select only integer and float variables to do this aggregation on. Be very careful if there are too many vars.
     ### This will take time to run in that case.
-    dft_index = copy.deepcopy(dft[id_column])
+    dft_index = dft[groupby_column].values
     dft_cont = copy.deepcopy(dft.select_dtypes('number').drop(ignore_variables,axis=1))
-    dft_cont[id_column] = dft_index
+    dft_cont[groupby_column] = dft_index
     try:
         dft_full = dft_cont.groupby(id_column).agg(agg_types)
     except:
         ### if for some reason, the groupby blows up, then just return the dataframe as is - no changes!
+        print('Error in groupby function: returning dataframe as is')
         return dft
     cols = [x+'_'+y+'_by_'+id_column for (x,y) in dft_full.columns]
     dft_full.columns = cols
     ###  Not every column has useful values. If it is full of just the same value, remove it
     _, list_unique_col_ids = np.unique(dft_full, axis = 1, return_index=True)
     dft_full = dft_full.iloc[:, list_unique_col_ids]
+    #### Now you need to merge the columns you created with the original dataframe ###########
     return dft_full
-################################################################################################################################
-import copy
+
 ##############################################################
+import copy
 def create_ts_features(df, tscol):
     """
     This takes in input a dataframe and a date variable.
@@ -1524,7 +1475,7 @@ def compute_age(year_string):
     age = relativedelta(today, year_string)
     return age.years
 #################################################################
-def fe_create_time_series_features(dtf, ts_column):
+def FE_create_time_series_features(dtf, ts_column):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
     This creates between 8 and 10 date time features for each date variable. The number of features
@@ -1565,7 +1516,7 @@ def fe_create_time_series_features(dtf, ts_column):
         print('Error in Processing %s column for date time features. Continuing...' %ts_column)
     return dtf
 ######################################################################################
-def fe_get_latest_status_from_date(dft, id_col, date_col, cols, ascending=False):
+def FE_get_latest_status_from_date(dft, id_col, date_col, cols, ascending=False):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
     This function gets you the latest status of the columns in cols from the date column you specify in dataframe, dft.
@@ -1590,7 +1541,7 @@ def fe_get_latest_status_from_date(dft, id_col, date_col, cols, ascending=False)
     return train_add
 #################################################################################
 from functools import reduce
-def fe_split_add_column(dft, col, splitter=',', action='+'):
+def FE_split_add_column(dft, col, splitter=',', action='+'):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
     This function will split a column's values based on a splitter you specify and
@@ -1634,7 +1585,7 @@ def fe_split_add_column(dft, col, splitter=',', action='+'):
         return dft
     return dft
 ################################################################################
-def fe_add_age_by_date_col(dft, date_col, age_format):
+def FE_add_age_by_date_col(dft, date_col, age_format):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
     This handy function gets you age from the date_col to today. It can be counted in months or years or days.
@@ -1658,7 +1609,7 @@ def fe_add_age_by_date_col(dft, date_col, age_format):
         print('    Error in date formatting. Please check your input and try again')
     return dft
 #################################################################################
-def fe_count_rows_for_all_columns_by_group(dft, id_col):
+def FE_count_rows_for_all_columns_by_group(dft, id_col):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
     This handy function gives you a count of all rows by groups based on id_col in your dataframe.
@@ -1670,7 +1621,7 @@ def fe_count_rows_for_all_columns_by_group(dft, id_col):
     grouped_count = dft.groupby(groupby_columns).count().add_prefix(new_col)
     return grouped_count
 #################################################################################
-def fe_count_rows_by_group_incl_nulls(dft, id_col):
+def FE_count_rows_by_group_incl_nulls(dft, id_col):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
     This function gives you the count of all the rows including null rows in your data.
@@ -1687,7 +1638,7 @@ def fe_count_rows_by_group_incl_nulls(dft, id_col):
 import copy
 import time
 import pdb
-def fe_create_groupby_features(dft, groupby_columns, numeric_columns, agg_types):
+def FE_create_groupby_features(dft, groupby_columns, numeric_columns, agg_types):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
     Beware: this function will return a smaller dataframe than what you send in since it groups rows by keys.
@@ -1824,14 +1775,19 @@ from collections import defaultdict
 import pdb
 class My_LabelEncoder(TransformerMixin):
     """
-    ######  Label Encode any column in a data frame using this neat function #######################
-    This not only Label Encodes a column but also accounts for NaN's and unknown values.
-    Returns the same column label encoded as well as a dictionary mapping previous and new values.
+    ######  This Label Encoder class works just like sklearn's Label Encoder!  #####################
+    #####  You can label encode any column in a data frame using this new class. But unlike sklearn,
+    the beauty of this function is that it can take care of NaN's and unknown (future) values.
+    It uses the same fit() and fit_transform() methods of sklearn's LabelEncoder class.
     ################################################################################################
+    Usage:
+          MLB = My_LabelEncoder()
+          train[column] = MLB.fit_transform(train[column])
+          test[column] = MLB.transform(test[column])
     """
     def __init__(self):
         self.transformer = defaultdict(str)
-        self.reverse_transformer = defaultdict(str)
+        self.inverse_transformer = defaultdict(str)
 
     def fit(self,testx):
         if isinstance(testx, pd.Series):
@@ -1891,7 +1847,7 @@ def EDA_classify_and_return_cols_by_type(df1):
     nlpcols = []
     for each_cat in cats:
         try:
-            if df1[each_cat].map(len).mean() >=20:
+            if df1[each_cat].map(len).mean() >=40:
                 nlpcols.append(each_cat)
                 catcols.remove(each_cat)
         except:
@@ -1901,7 +1857,11 @@ def EDA_classify_and_return_cols_by_type(df1):
     floatcols = df1.select_dtypes(include='float').columns.tolist()
     return catcols, intcols, floatcols, nlpcols
 ############################################################################################
-def EDA_classify_features(train, target, idcols):
+def EDA_classify_features_for_deep_learning(train, target, idcols):
+    """
+    This is a simpler method of classifying features into 4 types: cats, integers, floats and NLPs
+    This is needed for deep learning problems where we need fewer types of variables to transform.
+    """
     ### Test Labeler is a very important dictionary that will help transform test data same as train ####
     test_labeler = defaultdict(list)
 
@@ -1924,4 +1884,27 @@ def EDA_classify_features(train, target, idcols):
     test_labeler['nlp_features'] = nlp_features
 
     return cats, ints, floats, nlps
+#############################################################################################
+from itertools import combinations
+def FE_create_feature_crosses(dfc, cats):
+    """
+    FE means FEATURE ENGINEERING - That means this function will create new features
+    This creates feature crosses for each pair of categorical variables in cats.
+    The number of features created will be n*(n-1)/2 which means 3 cat features will create
+    3*2/2 = 3 new features. You must be careful with this function so it doesn't create too many.
+    Inputs:
+    dfc : dataframe containing all the features 
+    cats: a list of categorical features in the dataframe above (dfc)
+
+    Outputs:
+    dfc: returns the dataframe with newly added features. Original features are untouched.
+
+    Usage:
+    dfc = FE_create_feature_crosses(dfc, cats)
+    """
+    dfc = copy.deepcopy(dfc)
+    combos = list(combinations(cats, 2))
+    for cat1, cat2 in combos:
+        dfc.loc[:,cat1+'_cross_'+cat2] = dfc[cat1].astype(str)+" "+dfc[cat2].astype(str)
+    return dfc
 #############################################################################################
