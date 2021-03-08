@@ -13,18 +13,13 @@
 #See the License for the specific language governing permissions and
 #limitations under the License.
 #################################################################################
-###############           F E A T U R E   W I Z A R D          ##################
-################  featurewiz library developed by Ram Seshadri  #################
-# featurewiz utilizes SULOV METHOD which is a fast method for feature selection #
-#####  SULOV also means Searching for Uncorrelated List Of Variables (:-)  ######
-###############     A L L   R I G H T S  R E S E R V E D         ################
-#################################################################################
 ##### This project is not an official Google project. It is not supported by ####
 ##### Google and Google specifically disclaims all warranties as to its quality,#
 ##### merchantability, or fitness for a particular purpose.  ####################
 #################################################################################
 import pandas as pd
 import numpy as np
+np.random.seed(99)
 from sklearn.model_selection import KFold
 from sklearn.model_selection import GridSearchCV
 from sklearn.multioutput import MultiOutputClassifier, MultiOutputRegressor
@@ -121,7 +116,8 @@ def classify_features(dfte, depVar, verbose=0):
         ppt.pprint('   %s' % depVar)
     elif verbose==1 and len(cols_list) > max_cols_analyzed:
         print('   Total columns > %d, too numerous to list.' %max_cols_analyzed)
-    features_dict = dict([('IDcols',IDcols),('cols_delete',cols_delete),('bool_vars',bool_vars),('categorical_vars',categorical_vars),
+    features_dict = dict([('IDcols',IDcols),('cols_delete',cols_delete),('bool_vars',bool_vars),(
+                            'categorical_vars',categorical_vars),
                         ('continuous_vars',continuous_vars),('discrete_string_vars',discrete_string_vars),
                         ('date_vars',date_vars)])
     return features_dict
@@ -151,6 +147,8 @@ def marthas_columns(data,verbose=0):
 ################################################################################
 def classify_columns(df_preds, verbose=0):
     """
+    This actually does Exploratory data analysis - it means this function performs EDA
+    ######################################################################################
     Takes a dataframe containing only predictors to be classified into various types.
     DO NOT SEND IN A TARGET COLUMN since it will try to include that into various columns.
     Returns a data frame containing columns and the class it belongs to such as numeric,
@@ -472,8 +470,9 @@ def return_dictionary_list(lst_of_tuples):
 def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
                                 corr_limit = 0.70,verbose=0):
     """
-    ##########################################################################################
-    #####              SULOV stands for Searching Uncorrelated List Of Variables  ############
+    FE stands for Feature Engineering - it means this function performs feature engineering
+    ###########################################################################################
+    #####              SULOV stands for Searching Uncorrelated List Of Variables  #############
     This highly efficient method removes variables that are highly correlated using a series of
     pair-wise correlation knockout rounds. It is extremely fast and hence can work on thousands
     of variables in less than a minute, even on a laptop. You need to send in a list of numeric
@@ -484,7 +483,7 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
     a ranked list of these correlated variables: when we select one, we knock out others
     that it is correlated to. Then we select next var. This way we knock out correlated variables.
     Finally we are left with uncorrelated variables that are also highly important in mutual score.
-    ##############  YOU MUST INCLUDE THE ABOVE MESSAGE IF YOU COPY THIS CODE IN YOUR LIBRARY #####
+    ########  YOU MUST INCLUDE THE ABOVE MESSAGE IF YOU COPY THIS CODE IN YOUR LIBRARY ##########
     """
     import copy
     target = copy.deepcopy(target)
@@ -685,21 +684,33 @@ def return_factorized_dict(ls):
 #######################################################################################
 def FE_convert_all_object_columns_to_numeric(train, test=""):
     """
-    #######################################################################################
+    FE stands for Feature Engineering - it means this function performs feature engineering
+    ######################################################################################
     This is a utility that converts string columns to numeric using MY_LABEL ENCODER.
     Make sure test and train have the same number of columns. If you have target in train,
     remove it before sending it through this utility. Otherwise, might blow up during test transform.
     The beauty of My_LabelEncoder is it handles NA's and future values in test that are not in train.
     #######################################################################################
+    Inputs:
+    train : pandas dataframe
+    test: (optional) pandas dataframe
+
+    Outputs:
+    train: this is the transformed DataFrame
+    test: (optional) this is the transformed test dataframe if given.
+    ######################################################################################
     """
     train = copy.deepcopy(train)
     lis = []
     lis = train.select_dtypes('object').columns.tolist() + train.select_dtypes('category').columns.tolist()
     if not isinstance(test, str):
-        lis_test = test.select_dtypes('object').columns.tolist() + test.select_dtypes('category').columns.tolist()
-        if len(left_subtract(lis, lis_test)) > 0:
-            ### if there is an extra column in train that is not in test, then remove it from consideration
-            lis = copy.deepcopy(lis_test)
+        if test is None:
+            pass
+        else:
+            lis_test = test.select_dtypes('object').columns.tolist() + test.select_dtypes('category').columns.tolist()
+            if len(left_subtract(lis, lis_test)) > 0:
+                ### if there is an extra column in train that is not in test, then remove it from consideration
+                lis = copy.deepcopy(lis_test)
     if not (len(lis)==0):
         for everycol in lis:
             #print('    Converting %s to numeric' %everycol)
@@ -707,7 +718,10 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
             try:
                 train[everycol] = MLB.fit_transform(train[everycol])
                 if not isinstance(test, str):
-                    test[everycol] = MLB.transform(test[everycol])
+                    if test is None:
+                        pass
+                    else:
+                        test[everycol] = MLB.transform(test[everycol])
             except:
                 print('Error converting %s column from string to numeric. Continuing...' %everycol)
                 continue
@@ -721,11 +735,19 @@ from sklearn.model_selection import train_test_split
 def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                       test_data='', feature_engg='', category_encoders='', **kwargs):
     """
-    This is a fast utility that uses XGB to find top features. You
-    It returns a list of important features.
-    Since it is XGB, you dont have to restrict the input to just numeric vars.
-    You can send in all kinds of vars and it will take care of transforming it. Sweet!
-    #####           Featurewiz arguments           #############################
+    #################################################################################
+    ###############           F E A T U R E   W I Z A R D          ##################
+    ################  featurewiz library developed by Ram Seshadri  #################
+    # featurewiz utilizes SULOV METHOD which is a fast method for feature selection #
+    #####  SULOV also means Searching for Uncorrelated List Of Variables (:-)  ######
+    ###############     A L L   R I G H T S  R E S E R V E D         ################
+    #################################################################################
+    Featurewiz is the main module of this library. You will create features and select
+    the best features using the SULOV method and permutation based XGB feature importance.
+    It returns a list of important features from your dataframe after feature engineering.
+    Since we do label encoding, you can send both categorical and numeric vars.
+    You can also send in features with NaN's in them.
+    #################################################################################
     Inputs:
         dataname: dataname is the name of the training data you want to transform or select.
             dataname could be a datapath+filename or a dataframe. featurewiz will detect whether
@@ -748,19 +770,26 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             'target':  This will encode & transform all your categorical features using certain target encoders.
             Default is empty string (which means no additional features)
         category_encoders: Instead of above method, you can choose your own kind of category encoders from below.
-            Recommend you do not use more than two of these. Featurewiz will automatically select only two from your list.
+            Recommend you do not use more than two of these. 
+                            Featurewiz will automatically select only two from your list.
             Default is empty string (which means no encoding of your categorical features)
                 ['HashingEncoder', 'SumEncoder', 'PolynomialEncoder', 'BackwardDifferenceEncoder',
                 'OneHotEncoder', 'HelmertEncoder', 'OrdinalEncoder', 'FrequencyEncoder', 'BaseNEncoder',
                 'TargetEncoder', 'CatBoostEncoder', 'WOEEncoder', 'JamesSteinEncoder']
-        ############       C A V E A T !  C A U T I O N !   W A R N I N G ! #######################################
-        In general: Be very careful with featurewiz. Don't use it mindlessly to generate un-interpretable features!
     ########           Featurewiz Output           #############################
     Output: Tuple
     Featurewiz can output either a list of features or one dataframe or two depending on what you send in.
-        1. features: featurewiz will return just a list of important features in your data if you send in just a dataset.
-        2. trainm: modified train dataframe is the dataframe that is modified with engineered and selected features from dataname.
-        3. testm: modified test dataframe is the dataframe that is modified with engineered and selected features from test_data
+        1. features: featurewiz will return just a list of important features
+                     in your data if you send in just a dataset.
+        2. trainm: modified train dataframe is the dataframe that is modified 
+                        with engineered and selected features from dataname.
+        3. testm: modified test dataframe is the dataframe that is modified with 
+                    engineered and selected features from test_data
+    ######################################################################################
+    ############       C A V E A T !  C A U T I O N !   W A R N I N G ! ###################
+    In general: Be very careful with featurewiz. Don't use it mindlessly 
+                        to generate un-interpretable features!
+    ######################################################################################
     """
     ### set all the defaults here ##############################################
     dataname = copy.deepcopy(dataname)
@@ -1000,9 +1029,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         top_num = int(len(preds)*0.10)
     ######################   I M P O R T A N T ##############################################
     important_cats = copy.deepcopy(catvars)
-    ########    Drop Missing value rows since XGB for some reason  #########
-    ########    can't handle missing values in early stopping rounds #######
-    train.dropna(axis=0,subset=preds+target,inplace=True)
     if len(numvars) > 1:
         final_list = FE_remove_variables_using_SULOV_method(train,numvars,settings.modeltype,target,
                          corr_limit,verbose)
@@ -1018,13 +1044,16 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if len(important_cats) > 0:
         train, test = FE_convert_all_object_columns_to_numeric(train,  test)
     ########   Dont move this train and y definition anywhere else ########
+    ########    Fill Missing values since XGB for some reason  #########
+    ########    can't handle missing values in early stopping rounds #######
+    train = train.fillna(0)
     y = train[target]
     print('############## F E A T U R E   S E L E C T I O N  ####################')
     important_features = []
     ########## This is for Single_Label problems ######################
     if settings.modeltype == 'Regression':
         objective = 'reg:squarederror'
-        model_xgb = XGBRegressor( n_estimators=100,subsample=subsample,objective=objective,
+        model_xgb = XGBRegressor( n_estimators=100,booster='gbtree',subsample=subsample,objective=objective,
                                 colsample_bytree=col_sub_sample,reg_alpha=0.5, reg_lambda=0.5,
                                  seed=1,n_jobs=-1,random_state=1)
         eval_metric = 'rmse'
@@ -1117,8 +1146,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     important_features += imp_feats_df.sort_values(by='sum',ascending=False)[:top_num].index.tolist()
                 else:
                     ### doing this for single-label is a little different from settings.multi_label #########
-                    important_features += pd.Series(model_xgb.get_booster().get_score(
-                            importance_type='gain')).sort_values(ascending=False)[:top_num].index.tolist()
+                    imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
+                    print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
+                    important_features += pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
                 #######  order this in the same order in which they were collected ######
                 important_features = list(OrderedDict.fromkeys(important_features))
             else:
@@ -1165,8 +1195,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     imp_feats_df['sum'] = imp_feats_df.sum(axis=1).values
                     important_features += imp_feats_df.sort_values(by='sum',ascending=False)[:top_num].index.tolist()
                 else:
-                    important_features += pd.Series(model_xgb.get_booster().get_score(
-                            importance_type='gain')).sort_values(ascending=False)[:top_num].index.tolist()
+                    imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
+                    print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
+                    important_features += pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
                 important_features = list(OrderedDict.fromkeys(important_features))
     except:
         print('Finding top features using XGB is crashing. Continuing with all predictors...')
@@ -1177,19 +1208,15 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     numvars = [x for x in numvars if x in important_features]
     important_cats = [x for x in important_cats if x in important_features]
     print('    Time taken (in seconds) = %0.0f' %(time.time()-start_time))
-    if feature_gen or feature_type:
-        print(f'Returning list of {len(important_features)} important features and dataframe.')
-        if test is None:
-            return important_features, train[important_features+target]
-        else:
-            print('Returning 2 dataframes: train and test with %d important features.' %len(important_features))
-            if target in list(test): ### see if target exists in this test data
-                return train[important_features+target], test[important_features+target]
-            else:
-                return train[important_features+target], test[important_features]
-    else:
+    if test is None:
         print(f'Returning list of {len(important_features)} important features and dataframe.')
         return important_features, train[important_features+target]
+    else:
+        print('Returning 2 dataframes: train and test with %d important features.' %len(important_features))
+        if target in list(test): ### see if target exists in this test data
+            return train[important_features+target], test[important_features+target]
+        else:
+            return train[important_features+target], test[important_features]
 ################################################################################
 def remove_highly_correlated_vars_fast(df, corr_limit=0.70):
     """
@@ -1250,17 +1277,26 @@ def find_remove_duplicates(list_of_values):
             seen.add(value)
     return output
 ################################################################################
-def FE_add_date_time_features(smalldf, startTime, endTime, splitter_date_string="/",splitter_hour_string=":"):
+def FE_start_end_date_time_features(smalldf, startTime, endTime, splitter_date_string="/",splitter_hour_string=":"):
     """
-    If you have start date time stamp and end date time stamp, this module will create additional features for such fields.
-    You must provide a start date time stamp field and if you have an end date time stamp field, you must use it.
-    Otherwise, you are better off using the create_date_time_features module which is also in this library.
-    You must provide the following:
+    FE stands for Feature Engineering - it means this function performs feature engineering
+    ######################################################################################
+    This function is used when you have start and end date time stamps in your dataset. 
+        - If there is no start and end time features, don't use it. Both must be present!
+        - this module will create additional features for such fields.
+        - you must provide a start date time stamp field and an end date time stamp field
+    Otherwise, you are better off using the FE_create_date_time_features() module in this library.
+
+    Inputs:
     smalldf: Dataframe containing your date time fields
     startTime: this is hopefully a string field which converts to a date time stamp easily. Make sure it is a string.
     endTime: this also must be a string field which converts to a date time stamp easily. Make sure it is a string.
     splitter_date_string: usually there is a string such as '/' or '.' between day/month/year etc. Default is assumed / here.
     splitter_hour_string: usually there is a string such as ':' or '.' between hour:min:sec etc. Default is assumed : here.
+
+    Outputs:
+    The original pandas dataframe with additional fields created by splitting the start and end time fields
+    ######################################################################################
     """
     smalldf = smalldf.copy()
     add_cols = []
@@ -1332,15 +1368,25 @@ def FE_add_date_time_features(smalldf, startTime, endTime, splitter_date_string=
     print('%d columns added using start date=%s and end date=%s processing...' %(len(add_cols),startTime,endTime))
     return smalldf
 ###########################################################################
-def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list, add_count_field=False):
+def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list='', add_count_field=False):
     """
-    This Feature Engineering function takes any data frame field (string variables only) and splits
+    FE stands for Feature Engineering - it means this function performs feature engineering
+    ######################################################################################
+    This function takes any data frame field (string variables only) and splits
     it into as many fields as you want in the new_names_list.
-    You can also specify what string to split on using the splitter argument.
-    You can also fill Null values that occur due to your splitting by specifying a filler.
-    if no new_names_list is given, then we use the name of the field itself to split.
+
+    Inputs:
+    dft: pandas DataFrame
+    field: name of string column that you want to split using the splitter string specified
+    splitter: specify what string to split on using the splitter argument.
+    filler: You can also fill Null values that may happen due to your splitting by specifying a filler.
+    new_names_list: If no new_names_list is given, then we use the name of the field itself to split.
     add_count_field: False (default). If True, it will count the number of items in
         the "field" column before the split. This may be needed in nested dictionary fields.
+
+    Outputs:
+    dft: original dataframe with additional columns created by splitting the field.
+    ######################################################################################
     """
     import warnings
     warnings.filterwarnings("ignore")
@@ -1361,8 +1407,11 @@ def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list, ad
     ### Clean up the field such that it has the right number of split chars otherwise add to it
     df[field] = df[field].map(lambda x: x+splitter*(max_things-len(x.split(";"))) if len(x.split(";")) < max_things else x)
     ###### Now you create new fields by split the one large field ########
-    if new_names_list == '':
-        new_names_list = [field+'_'+str(i) for i in range(1,max_things+1)]
+    if isinstance(new_names_list, str):
+        if new_names_list == '':
+            new_names_list = [field+'_'+str(i) for i in range(1,max_things+1)]
+        else:
+            new_names_list = [new_names_list]
     try:
         for i in range(len(new_names_list)):
             df[field].fillna(filler, inplace=True)
@@ -1375,24 +1424,31 @@ def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list, ad
         return df
     return df, new_names_list
 ###########################################################################
-
-###########################################################################
 import copy
-def FE_add_groupby_features_aggregates(dft, agg_types, groupby_column, ignore_variables=[]):
+def FE_add_groupby_features_aggregated_to_dataframe(dft, agg_types, groupby_column, ignore_variables=[]):
     """
-    ###   Add aggregated Features using a groupby column on all your numeric variables using this function ####
-    ###   What can you aggregate by ? aggregates can be "count, "mean", "median", "mode", "min", "max", etc.
-    ###   What do you need? a groupby column and it will iteratively compute aggregates for all numeric columns
+    FE stands for Feature Engineering. That means this function performs feature engineering on data.
+    ######################################################################################
+    ###   This function is a very fast function that will iteratively compute aggregates for all numeric columns
+    ###   It returns original dataframe with added features using numeric variables grouped and aggregated
+    ###   What do you mean aggregate? aggregates can be "count, "mean", "median", "mode", "min", "max", etc.
+    ###   What do you aggregrate? all numeric columns in your data
+    ###   What do you groupby? a groupby column
     ###      except those numeric variables you designate in the ignore_variables list. Can be empty.
+    ######################################################################################
     ### Inputs:
     ###   dft: Just sent in the data frame df that you want features added to
     ###   agg_types: list of computational types: 'mean','median','count', 'max', 'min', 'sum', etc.
     ###         One caveat: these agg_types must be found in the following agg_func of numpy or pandas groupby statement.
     ###         List of aggregates available: {'count','sum','mean','mad','median','min','max','mode','abs',
-    #               'prod','std','var','sem','skew','kurt',
-                    'quantile','cumsum','cumprod','cummax','cummin'}
+    ###               'prod','std','var','sem','skew','kurt',
+    ###                'quantile','cumsum','cumprod','cummax','cummin'}
     ###   groupby_column: this is to groupby all the numeric features and compute aggregates by.
     ###   ignore_variables: list of variables to ignore among numeric variables in data since they may be ID variables.
+    ### Outputs:
+    ###     dft: original dataframe with tons of additional features created by this function.
+    ######################################################################################
+    ###     Make sure you reduce correlated variables by using FE_remove_variables_using_SULOV_method()
     """
     dft = copy.deepcopy(dft)
     ### Make sure the list of functions they send in are acceptable functions. If not, the aggregate will blow up!
@@ -1409,17 +1465,20 @@ def FE_add_groupby_features_aggregates(dft, agg_types, groupby_column, ignore_va
     dft_cont = copy.deepcopy(dft.select_dtypes('number').drop(ignore_variables,axis=1))
     dft_cont[groupby_column] = dft_index
     try:
-        dft_full = dft_cont.groupby(id_column).agg(agg_types)
+        dft_full = dft_cont.groupby(groupby_column).agg(agg_types)
     except:
         ### if for some reason, the groupby blows up, then just return the dataframe as is - no changes!
         print('Error in groupby function: returning dataframe as is')
         return dft
-    cols = [x+'_'+y+'_by_'+id_column for (x,y) in dft_full.columns]
+    cols = [x+'_'+y+'_by_'+groupby_column for (x,y) in dft_full.columns]
     dft_full.columns = cols
     ###  Not every column has useful values. If it is full of just the same value, remove it
     _, list_unique_col_ids = np.unique(dft_full, axis = 1, return_index=True)
-    dft_full = dft_full.iloc[:, list_unique_col_ids]
+    dft_full = dft_full.iloc[:, list_unique_col_ids].fillna(0).reset_index()
+    print('%d new columns created for numeric data grouped by %s for aggregates %s' %(dft_full.shape[1],
+                                groupby_column, agg_types))
     #### Now you need to merge the columns you created with the original dataframe ###########
+    dft_full = dft.merge(dft_full, on=groupby_column, how='left')
     return dft_full
 
 ##############################################################
@@ -1433,38 +1492,50 @@ def create_ts_features(df, tscol):
     df = copy.deepcopy(df)
     dt_adds = []
     try:
-        df[tscol+'_hour'] = df[tscol].dt.hour.astype(int)
-        df[tscol+'_minute'] = df[tscol].dt.minute.astype(int)
+        df[tscol+'_hour'] = df[tscol].dt.hour.fillna(0).astype(int)
+        df[tscol+'_minute'] = df[tscol].dt.minute.fillna(0).astype(int)
         dt_adds.append(tscol+'_hour')
         dt_adds.append(tscol+'_minute')
     except:
         print('    Error in creating hour-second derived features. Continuing...')
     try:
-        df[tscol+'_dayofweek'] = df[tscol].dt.dayofweek.astype(int)
+        df[tscol+'_dayofweek'] = df[tscol].dt.dayofweek.fillna(0).astype(int)
         dt_adds.append(tscol+'_dayofweek')
-        df[tscol+'_quarter'] = df[tscol].dt.quarter.astype(int)
+        if tscol+'_hour' in dt_adds:
+            DAYS = dict(zip(range(7),['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']))
+            df[tscol+'_dayofweek'] = df[tscol+'_dayofweek'].map(DAYS)
+            df.loc[:,tscol+'_dayofweek_hour_cross'] = df[tscol+'_dayofweek'] +" "+ df[tscol+'_hour'].astype(str)
+            dt_adds.append(tscol+'_dayofweek_hour_cross')
+        df[tscol+'_quarter'] = df[tscol].dt.quarter.fillna(0).astype(int)
         dt_adds.append(tscol+'_quarter')
-        df[tscol+'_month'] = df[tscol].dt.month.astype(int)
+        df[tscol+'_month'] = df[tscol].dt.month.fillna(0).astype(int)
+        MONTHS = dict(zip(range(12),['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul',
+                                    'Aug', 'Sep', 'Oct', 'Nov', 'Dec']))
+        df[tscol+'_month'] = df[tscol+'_month'].map(MONTHS)
         dt_adds.append(tscol+'_month')
-        df[tscol+'_year'] = df[tscol].dt.year.astype(int)
+        if tscol+'_dayofweek' in dt_adds:
+            df.loc[:,tscol+'_month_dayofweek_cross'] = df[tscol+'_month'] +" "+ df[tscol+'_dayofweek']
+            dt_adds.append(tscol+'_month_dayofweek_cross')
+        df[tscol+'_year'] = df[tscol].dt.year.fillna(0).astype(int)
         dt_adds.append(tscol+'_year')
         today = date.today()
-        df[tscol+'_age_in_years'] = today.year - df[tscol].dt.year.astype(int)
+        df[tscol+'_age_in_years'] = today.year - df[tscol].dt.year.fillna(0).astype(int)
         dt_adds.append(tscol+'_age_in_years')
-        df[tscol+'_dayofyear'] = df[tscol].dt.dayofyear.astype(int)
+        df[tscol+'_dayofyear'] = df[tscol].dt.dayofyear.fillna(0).astype(int)
         dt_adds.append(tscol+'_dayofyear')
-        df[tscol+'_dayofmonth'] = df[tscol].dt.day.astype(int)
+        df[tscol+'_dayofmonth'] = df[tscol].dt.day.fillna(0).astype(int)
         dt_adds.append(tscol+'_dayofmonth')
-        df[tscol+'_weekofyear'] = df[tscol].dt.weekofyear.astype(int)
+        df[tscol+'_weekofyear'] = df[tscol].dt.weekofyear.fillna(0).astype(int)
         dt_adds.append(tscol+'_weekofyear')
-        weekends = (df[tscol+'_dayofweek'] == 5) | (df[tscol+'_dayofweek'] == 6)
-        df[tscol+'_weekend'] = 0
-        df.loc[weekends, tscol+'_weekend'] = 1
-        df[tscol+'_weekend'] = df[tscol+'_weekend'].astype(int)
-        dt_adds.append(tscol+'_weekend')
+        weekends = (df[tscol+'_dayofweek'] == 'Sat') | (df[tscol+'_dayofweek'] == 'Sun')
+        df[tscol+'_typeofday'] = 'weekday'
+        df.loc[weekends, tscol+'_typeofday'] = 'weekend'
+        dt_adds.append(tscol+'_typeofday')
+        if tscol+'_typeofday' in dt_adds:
+            df.loc[:,tscol+'_month_typeofday_cross'] = df[tscol+'_month'] +" "+ df[tscol+'_typeofday']
+            dt_adds.append(tscol+'_month_typeofday_cross')
     except:
         print('    Error in creating date time derived features. Continuing...')
-    df = df[dt_adds].fillna(0).astype(int)
     return df
 ################################################################
 from dateutil.relativedelta import relativedelta
@@ -1478,10 +1549,20 @@ def compute_age(year_string):
 def FE_create_time_series_features(dtf, ts_column):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
+    ######################################################################################
     This creates between 8 and 10 date time features for each date variable. The number of features
     depends on whether it is just a year variable or a year+month+day and whether it has hours and mins+secs.
     So this can create all these features using just the date time column that you send in.
-    It returns the entire dataframe with added variables as output.
+    ######################################################################################
+    Inputs:
+    dtf: pandas DataFrame
+    ts_column: name of the time series column
+
+    Oututs:
+    dtf: pandas dataframe
+    Beware: It returns the entire dataframe with added variables as output.
+    ######################################################################################
+    It also has the original time series column which you might want to drop later.
     """
     dtf = copy.deepcopy(dtf)
     #### If for some reason ts_column is just a number, make sure it is a string so it does not blow up and concatenated
@@ -1516,21 +1597,31 @@ def FE_create_time_series_features(dtf, ts_column):
         print('Error in Processing %s column for date time features. Continuing...' %ts_column)
     return dtf
 ######################################################################################
-def FE_get_latest_status_from_date(dft, id_col, date_col, cols, ascending=False):
+def FE_get_latest_values_based_on_date_column(dft, id_col, date_col, cols, ascending=False):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
-    This function gets you the latest status of the columns in cols from the date column you specify in dataframe, dft.
     ######################################################################################
-    date_col: this must be a valid pandas date-time column. If it is a string, make sure you change it to a date-time column.
+    This function gets you the latest values of the columns in cols from a date column date_col.
+
+    Inputs: 
+    dft: dataframe, pandas
+    id_col: you need to provide an ID column to groupby the cols and then sort them by date_col.
+    date_col: this must be a valid pandas date-time column. If it is a string column,
+           make sure you change it to a date-time column.
+          It sorts each group by the latest date (descending) and selects that top row. 
     cols: these are the list of columns you want their latest value based on the date-col you specify.
-    ascending: you can set this as True or False depending on whether you want the smallest or the biggest
+         These cols can be any type of column: numeric or string. 
+    ascending: Set this as True or False depending on whether you want smallest or biggest on top.
+
+    Outputs:
+    Returns a dataframe that is smaller than input dataframe since it groups cols by ID_column.
     ######################################################################################
-    Returns a dataframe that is smaller than the original dataframe since it groups everything by ID column and date-col.
-    It then sorts each group with the latest date on top and selects that top row. It then returns the cols.
-    You should get a dataframe that has the cols specified in your input with fewer rows than your input dft.
+    Beware! You will get a dataframe that has fewer cols than your input with fewer rows than input.
     """
     dft = copy.deepcopy(dft)
     try:
+        if isinstance(cols, str):
+            cols = [cols]
         train_add = dft.groupby([id_col], sort=False).apply(lambda x: x.sort_values([date_col],
                                                                         ascending=ascending))
         train_add = train_add[cols].reset_index()
@@ -1541,14 +1632,18 @@ def FE_get_latest_status_from_date(dft, id_col, date_col, cols, ascending=False)
     return train_add
 #################################################################################
 from functools import reduce
-def FE_split_add_column(dft, col, splitter=',', action='+'):
+def FE_split_add_column(dft, col, splitter=',', action='add'):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
+    ######################################################################################
     This function will split a column's values based on a splitter you specify and
     will either add them or concatenate them as you specify in the action argument.
-    ###########################################################################
+
+    Inputs:
+    dft: pandas DataFrame
+    col: name of column that you want to split into its constituent parts. It must be a string column.
     splitter: splitter can be any string that is found in your column and that you want to split by.
-    action: can be anything, add, subtract, multiply, concatenate, whatever you specify.
+    action: can be any one of following: {'add', 'subtract', 'multiply', 'divide', 'concat', 'concatenate'}
     ################################################################################
     Returns a dataframe with a new column that is a modification of the old column
     """
@@ -1556,19 +1651,20 @@ def FE_split_add_column(dft, col, splitter=',', action='+'):
     new_col = col + '_split_apply'
     print('Creating column = %s using split_add feature engineering...' %new_col)
     if action in ['+','-','*','/','add','subtract','multiply','divide']:
-        if action == 'add':
+        if action in ['add','+']:
             sign = '+'
-        elif action == 'subtract':
+        elif action in ['-', 'subtract']:
             sign = '-'
-        elif action == 'multiply':
+        elif action in ['*', 'multiply']:
             sign = '*'
-        elif action == 'divide':
+        elif action in ['/', 'divide']:
             sign = '/'
         else:
             sign = '+'
         # using reduce to compute sum of list
         try:
-            trainx = dft[col].map(lambda x:  0 if x is np.nan else 0 if x == '' else x.split(splitter)).map(
+            trainx = dft[col].astype(str)
+            trainx = trainx.map(lambda x:  0 if x is np.nan else 0 if x == '' else x.split(splitter)).map(
                                 lambda listx: [int(x) if x != '' else 0 for x in listx ] if isinstance(listx,list) else [0,0])
             dft[new_col] = trainx.map(lambda lis: reduce(lambda a,b : eval('a'+sign+'b'), lis) if isinstance(lis,list) else 0).values
         except:
@@ -1588,7 +1684,9 @@ def FE_split_add_column(dft, col, splitter=',', action='+'):
 def FE_add_age_by_date_col(dft, date_col, age_format):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
+    ######################################################################################
     This handy function gets you age from the date_col to today. It can be counted in months or years or days.
+    ######################################################################################
     It returns the same dataframe with an extra column added that gives you age
     """
     if not age_format in ['M','D','Y']:
@@ -1612,122 +1710,78 @@ def FE_add_age_by_date_col(dft, date_col, age_format):
 def FE_count_rows_for_all_columns_by_group(dft, id_col):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
+    ######################################################################################
     This handy function gives you a count of all rows by groups based on id_col in your dataframe.
     Remember that it counts only non-null rows. Hence it is a different count than other count function.
+    ######################################################################################
     It returns a dataframe with id_col as the index and a bunch of new columns that give you counts of groups.
     """
     new_col = 'row_count_'
-    groupby_columns =  [id_col]
+    if isinstance(id_col, str):
+        groupby_columns =  [id_col]
+    else:
+        groupby_columns = copy.deepcopy(id_col)
     grouped_count = dft.groupby(groupby_columns).count().add_prefix(new_col)
     return grouped_count
 #################################################################################
-def FE_count_rows_by_group_incl_nulls(dft, id_col):
+def count_rows_by_group_incl_nulls(dft, id_col):
     """
-    FE means FEATURE ENGINEERING - That means this function will create new features
+    ######################################################################################
     This function gives you the count of all the rows including null rows in your data.
     It returns a dataframe with id_col as the index and the counts of rows (incl null rows) as a new column
+    ######################################################################################
     """
     new_col = 'row_count_incl_null_rows'
-    groupby_columns =  [id_col]
+    if isinstance(id_col, str):
+        groupby_columns =  [id_col]
+    else:
+        groupby_columns = copy.deepcopy(id_col)
     ### len gives you count of all the rows including null rows in your data
     grouped_len = dft.groupby(groupby_columns).apply(len)
     grouped_val = grouped_len.values
     grouped_len = pd.DataFrame(grouped_val, columns=[new_col],index=grouped_len.index)
     return grouped_len
 #################################################################################
-import copy
-import time
-import pdb
-def FE_create_groupby_features(dft, groupby_columns, numeric_columns, agg_types):
-    """
-    FE means FEATURE ENGINEERING - That means this function will create new features
-    Beware: this function will return a smaller dataframe than what you send in since it groups rows by keys.
-    #########################################################################################################
-    Function groups rows in a dft dataframe by the groupby_columns and returns multiple columns for the numeric column aggregated.
-    Do not send in more than one column in the numeric column since beyond the first column it will be ignored!
-    agg_type can be any numpy function such as mean, median, sum, count, etc.
-    ##########################################################################################################
-    Returns: a smaller dataframe with rows grouped by groupby_columns and aggregated for the numeric_column
-    """
-    start_time = time.time()
-    grouped_sep = pd.DataFrame()
-    print('Autoviml Feature Engineering: creating groupby features using %s' %groupby_columns)
-    ##########  This is where we create new columns by each numeric column grouped by group-by columns given.
-    if isinstance(numeric_columns, list):
-        pass
-    elif isinstance(numeric_column, str):
-        numeric_columns = [numeric_columns]
-    else:
-        print('    Numeric column must be a string not a number Try again')
-        return pd.DataFrame()
-    grouped_list = pd.DataFrame()
-    for iteration, numeric_column in zip(range(len(numeric_columns)),numeric_columns):
-        grouped = dft.groupby(groupby_columns)[[numeric_column]]
-        try:
-            agg_type = agg_types[iteration]
-        except:
-            print('    No aggregation type given, hence mean is chosen by default')
-            agg_type = 'mean'
-        try:
-            prefix = numeric_column + '_'
-            if agg_type in ['Sum', 'sum']:
-                grouped_agg = grouped.sum()
-            elif agg_type in ['Mean', 'mean','Average','average']:
-                grouped_agg = grouped.mean()
-            elif agg_type in ['count', 'Count']:
-                grouped_agg = grouped.count()
-            elif agg_type in ['Median', 'median']:
-                grouped_agg = grouped.median()
-            elif agg_type in ['Maximum', 'maximum','max', 'Max']:
-                ## maximum of the amounts
-                grouped_agg = grouped.max()
-            elif agg_type in ['Minimum', 'minimum','min', 'Min']:
-                ## maximum of the amounts
-                grouped_agg = grouped.min()
-            else:
-                grouped_agg = grouped.mean()
-            grouped_sep = grouped_agg.unstack().add_prefix(prefix).fillna(0)
-        except:
-            print('    Error in creating groupby features...returning with null dataframe')
-            grouped_sep = pd.DataFrame()
-        if iteration == 0:
-            grouped_list = copy.deepcopy(grouped_sep)
-        else:
-            grouped_list = pd.concat([grouped_list,grouped_sep],axis=1)
-        print('    After grouped features added by %s, number of columns = %d' %(numeric_column, grouped_list.shape[1]))
-    #### once everything is done, you can close it here
-    print('Time taken for creation of groupby features (in seconds) = %0.0f' %(time.time()-start_time))
-    try:
-        grouped_list.columns = grouped_list.columns.get_level_values(1)
-        grouped_list.columns.name = None ## make sure the name on columns is removed
-        grouped_list = grouped_list.reset_index() ## make sure the ID column comes back
-    except:
-        print('   Error in setting column names. Please reset column names after this step...')
-    return grouped_list
-################################################################################
 # Can we see if a feature or features has some outliers and how can we cap them?
 from collections import Counter
-def FE_capping_outliers_beyond_IQR_Range(df, features, cap_at_nth_largest=5, IQR_multiplier=1.5, drop=False):
+def FE_capping_outliers_beyond_IQR_Range(df, features, cap_at_nth_largest=5, IQR_multiplier=1.5,
+                                         drop=False, verbose=False):
     """
     FE at the beginning of function name stands for Feature Engineering. FE functions add or drop features.
     #########################################################################################
     Typically we think of outliers as being observations beyond the 1.5 Inter Quartile Range (IQR)
-    But this function will allow you to cap any observation that is multiple of that range, such as 1.5, 2. etc.
-    In addition, this utility helps you select the number to cap it at. The value to be capped at
-    is based on "n" that you input. It selects the nth_largest number after the maximum value to cap at!
+    But this function will allow you to cap any observation that is multiple of IQR range, such as 1.5, 2, etc.
+    In addition, this utility helps you select the value to cap it at. 
+    The value to be capped is based on "n" that you input. 
+    n represents the nth_largest number below the maximum value to cap at!
+    Notice that it does not put a floor under minimums. You have to do that yourself.
     "cap_at_nth_largest" specifies the max number below the largest (max) number in your column to cap that feature.
     Optionally, you can drop certain observations that have too many outliers in at least 3 columns.
     #########################################################################################
+    Inputs:
+    df : pandas DataFrame
+    features: a single column or a list of columns in your DataFrame
+    cap_at_nth_largest: default is 5 = you can set it to any integer such as 1, 2, 3, 4, 5, etc.
+    IQR_multiplier: default is 1.5 = but you can set it to any float value such as 1, 1.25. 1.5, 2.0, etc.
+
+    Outputs:
+    df: pandas DataFrame
     It returns the same dataframe as you input unless you change drop to True in the input argument.
+
+    Optionally, it can drop certain rows that have too many outliers in at least 3 columns simultaneously.
     If drop=True, it will return a smaller number of rows in your dataframe than what you sent in. Be careful!
+    #########################################################################################
     """
     outlier_indices = []
     df = df.copy(deep=True)
+    if isinstance(features, str):
+        features = [features]
     # iterate over features(columns)
     for col in features:
         ### this is how the column looks now before capping outliers
-        fig, (ax1,ax2) = plt.subplots(1,2,figsize=(12,5))
-        df[col].plot(kind='box', title = '%s before capping outliers' %col, ax=ax1)
+        if verbose:
+            fig, (ax1,ax2) = plt.subplots(1,2,figsize=(12,5))
+            df[col].plot(kind='box', title = '%s before capping outliers' %col, ax=ax1)
         # 1st quartile (25%)
         Q1 = np.percentile(df[col], 25)
         # 3rd quartile (75%)
@@ -1752,8 +1806,9 @@ def FE_capping_outliers_beyond_IQR_Range(df, features, cap_at_nth_largest=5, IQR
         capped_value = df[col].nlargest(num_largest_after_max).iloc[-1] ## this is the value we cap it against
         df.loc[df[col]==maxval, col] =  capped_value ## maximum values are now capped
         ### you are now good to go - you can show how they are capped using before and after pics
-        df[col].plot(kind='box', title = '%s after capping outliers' %col, ax=ax2)
-        plt.show()
+        if verbose:
+            df[col].plot(kind='box', title = '%s after capping outliers' %col, ax=ax2)
+            plt.show()
 
         # Let's save the list of outliers and see if there are some with outliers in multiple columns
         outlier_indices.extend(outlier_list_col)
@@ -1775,6 +1830,7 @@ from collections import defaultdict
 import pdb
 class My_LabelEncoder(TransformerMixin):
     """
+    ################################################################################################
     ######  This Label Encoder class works just like sklearn's Label Encoder!  #####################
     #####  You can label encode any column in a data frame using this new class. But unlike sklearn,
     the beauty of this function is that it can take care of NaN's and unknown (future) values.
@@ -1859,8 +1915,10 @@ def EDA_classify_and_return_cols_by_type(df1):
 ############################################################################################
 def EDA_classify_features_for_deep_learning(train, target, idcols):
     """
-    This is a simpler method of classifying features into 4 types: cats, integers, floats and NLPs
+    ######################################################################################
+    This is a simple method of classifying features into 4 types: cats, integers, floats and NLPs
     This is needed for deep learning problems where we need fewer types of variables to transform.
+    ######################################################################################
     """
     ### Test Labeler is a very important dictionary that will help transform test data same as train ####
     test_labeler = defaultdict(list)
@@ -1889,9 +1947,11 @@ from itertools import combinations
 def FE_create_feature_crosses(dfc, cats):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
+    ######################################################################################
     This creates feature crosses for each pair of categorical variables in cats.
     The number of features created will be n*(n-1)/2 which means 3 cat features will create
     3*2/2 = 3 new features. You must be careful with this function so it doesn't create too many.
+
     Inputs:
     dfc : dataframe containing all the features 
     cats: a list of categorical features in the dataframe above (dfc)
@@ -1899,6 +1959,7 @@ def FE_create_feature_crosses(dfc, cats):
     Outputs:
     dfc: returns the dataframe with newly added features. Original features are untouched.
 
+    ######################################################################################
     Usage:
     dfc = FE_create_feature_crosses(dfc, cats)
     """
@@ -1908,3 +1969,30 @@ def FE_create_feature_crosses(dfc, cats):
         dfc.loc[:,cat1+'_cross_'+cat2] = dfc[cat1].astype(str)+" "+dfc[cat2].astype(str)
     return dfc
 #############################################################################################
+from scipy.stats import probplot,skew
+def EDA_find_skewed_variables(dft, skew_limit=1.1):
+    """
+    EDA stands for Exploratory Data Analysis : this function performs EDA 
+    ######################################################################################
+    This function finds all the highly skewed float (continuous) variables in your DataFrame
+    It selects them based on the skew_limit you set: anything over skew 1.1 is the default setting.
+    ######################################################################################
+    Inputs:
+    df: pandas DataFrame
+    skew_limit: default 1.1 = anything over this limit and it detects it as a highly skewed var.
+
+    Outputs:
+    list of a variables found that have high skew in data set.
+    ######################################################################################
+    You can use FE_capping_outliers_beyond_IQR_Range() function to cap outliers in these variables.
+    """
+    skewed_vars = []
+    conti = dft.select_dtypes(include='float').columns.tolist()
+    for each_conti in conti:
+        skew_val=round(dft[each_conti].skew(), 1)
+        if skew_val >= skew_limit:
+            skewed_vars.append(each_conti)
+    print('Found %d skewed variables in data based on skew_limit >= %s' %(len(skewed_vars),skew_limit))    
+    return skewed_vars
+#############################################################################################
+

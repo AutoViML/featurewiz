@@ -208,7 +208,7 @@ class DataBunch(object):
             nan_columns = list(data[cols].columns[data[cols].isnull().sum() > 0])
             if nan_columns:
                 for nan_column in nan_columns:
-                    data[nan_column+'isNAN'] = pd.isna(data[nan_column]).astype('uint8')
+                    data[nan_column+'_isNAN'] = pd.isna(data[nan_column]).astype('uint8')
                 data.fillna(data.median(), inplace=True)
         return(data)
 
@@ -568,13 +568,13 @@ class DataBunch(object):
             ### If they have been transformed into Cat Encoded variables, then you can drop them!
             data.drop(columns=encodet_features_names, inplace=True)
         data.replace([np.inf, -np.inf], np.nan, inplace=True)
-        data.fillna(0, inplace=True)
+        #data.fillna(0, inplace=True)
         if test_data is not None:
             if not len(cat_encoder_names) == 0:
                 ### if there is no categorical encoding, then let the categorical_vars pass through.
                 test_data.drop(columns=encodet_features_names, inplace=True)
             test_data.replace([np.inf, -np.inf], np.nan, inplace=True)
-            test_data.fillna(0, inplace=True)
+            #test_data.fillna(0, inplace=True)
 
         X_train = copy.deepcopy(data)
         X_test = copy.deepcopy(test_data)

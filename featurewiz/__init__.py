@@ -7,9 +7,16 @@
 ################################################################################
 # Version
 from .__version__ import __version__
-from .featurewiz import featurewiz, convert_all_object_columns_to_numeric
-from .featurewiz import split_one_field_into_many, add_aggregate_primitive_features
-from .featurewiz import fe_create_time_series_features
+from .featurewiz import featurewiz, FE_convert_all_object_columns_to_numeric
+from .featurewiz import FE_split_one_field_into_many, FE_add_groupby_features_aggregated_to_dataframe
+from .featurewiz import FE_create_time_series_features, FE_start_end_date_time_features
+from .featurewiz import FE_remove_variables_using_SULOV_method, classify_features
+from .featurewiz import classify_columns
+from .featurewiz import FE_count_rows_for_all_columns_by_group
+from .featurewiz import FE_add_age_by_date_col, FE_split_add_column, FE_get_latest_values_based_on_date_column
+from .featurewiz import FE_capping_outliers_beyond_IQR_Range, My_LabelEncoder
+from .featurewiz import EDA_classify_and_return_cols_by_type, EDA_classify_features_for_deep_learning
+from .featurewiz import FE_create_feature_crosses, EDA_find_skewed_variables
 ################################################################################
 if __name__ == "__main__":
     module_type = 'Running'
