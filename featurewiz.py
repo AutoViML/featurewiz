@@ -19,6 +19,7 @@
 #################################################################################
 import pandas as pd
 import numpy as np
+np.random.seed(99)
 from sklearn.model_selection import KFold
 from sklearn.model_selection import GridSearchCV
 from sklearn.multioutput import MultiOutputClassifier, MultiOutputRegressor
@@ -703,10 +704,13 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
     lis = []
     lis = train.select_dtypes('object').columns.tolist() + train.select_dtypes('category').columns.tolist()
     if not isinstance(test, str):
-        lis_test = test.select_dtypes('object').columns.tolist() + test.select_dtypes('category').columns.tolist()
-        if len(left_subtract(lis, lis_test)) > 0:
-            ### if there is an extra column in train that is not in test, then remove it from consideration
-            lis = copy.deepcopy(lis_test)
+        if test is None:
+            pass
+        else:
+            lis_test = test.select_dtypes('object').columns.tolist() + test.select_dtypes('category').columns.tolist()
+            if len(left_subtract(lis, lis_test)) > 0:
+                ### if there is an extra column in train that is not in test, then remove it from consideration
+                lis = copy.deepcopy(lis_test)
     if not (len(lis)==0):
         for everycol in lis:
             #print('    Converting %s to numeric' %everycol)
@@ -714,7 +718,10 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
             try:
                 train[everycol] = MLB.fit_transform(train[everycol])
                 if not isinstance(test, str):
-                    test[everycol] = MLB.transform(test[everycol])
+                    if test is None:
+                        pass
+                    else:
+                        test[everycol] = MLB.transform(test[everycol])
             except:
                 print('Error converting %s column from string to numeric. Continuing...' %everycol)
                 continue
@@ -1022,9 +1029,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         top_num = int(len(preds)*0.10)
     ######################   I M P O R T A N T ##############################################
     important_cats = copy.deepcopy(catvars)
-    ########    Drop Missing value rows since XGB for some reason  #########
-    ########    can't handle missing values in early stopping rounds #######
-    train.dropna(axis=0,subset=preds+target,inplace=True)
     if len(numvars) > 1:
         final_list = FE_remove_variables_using_SULOV_method(train,numvars,settings.modeltype,target,
                          corr_limit,verbose)
@@ -1040,13 +1044,16 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if len(important_cats) > 0:
         train, test = FE_convert_all_object_columns_to_numeric(train,  test)
     ########   Dont move this train and y definition anywhere else ########
+    ########    Fill Missing values since XGB for some reason  #########
+    ########    can't handle missing values in early stopping rounds #######
+    train = train.fillna(0)
     y = train[target]
     print('############## F E A T U R E   S E L E C T I O N  ####################')
     important_features = []
     ########## This is for Single_Label problems ######################
     if settings.modeltype == 'Regression':
         objective = 'reg:squarederror'
-        model_xgb = XGBRegressor( n_estimators=100,subsample=subsample,objective=objective,
+        model_xgb = XGBRegressor( n_estimators=100,booster='gbtree',subsample=subsample,objective=objective,
                                 colsample_bytree=col_sub_sample,reg_alpha=0.5, reg_lambda=0.5,
                                  seed=1,n_jobs=-1,random_state=1)
         eval_metric = 'rmse'
@@ -1139,8 +1146,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     important_features += imp_feats_df.sort_values(by='sum',ascending=False)[:top_num].index.tolist()
                 else:
                     ### doing this for single-label is a little different from settings.multi_label #########
-                    important_features += pd.Series(model_xgb.get_booster().get_score(
-                            importance_type='gain')).sort_values(ascending=False)[:top_num].index.tolist()
+                    imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
+                    print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
+                    important_features += pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
                 #######  order this in the same order in which they were collected ######
                 important_features = list(OrderedDict.fromkeys(important_features))
             else:
@@ -1187,8 +1195,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     imp_feats_df['sum'] = imp_feats_df.sum(axis=1).values
                     important_features += imp_feats_df.sort_values(by='sum',ascending=False)[:top_num].index.tolist()
                 else:
-                    important_features += pd.Series(model_xgb.get_booster().get_score(
-                            importance_type='gain')).sort_values(ascending=False)[:top_num].index.tolist()
+                    imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
+                    print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
+                    important_features += pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
                 important_features = list(OrderedDict.fromkeys(important_features))
     except:
         print('Finding top features using XGB is crashing. Continuing with all predictors...')
@@ -1199,19 +1208,15 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     numvars = [x for x in numvars if x in important_features]
     important_cats = [x for x in important_cats if x in important_features]
     print('    Time taken (in seconds) = %0.0f' %(time.time()-start_time))
-    if feature_gen or feature_type:
-        print(f'Returning list of {len(important_features)} important features and dataframe.')
-        if test is None:
-            return important_features, train[important_features+target]
-        else:
-            print('Returning 2 dataframes: train and test with %d important features.' %len(important_features))
-            if target in list(test): ### see if target exists in this test data
-                return train[important_features+target], test[important_features+target]
-            else:
-                return train[important_features+target], test[important_features]
-    else:
+    if test is None:
         print(f'Returning list of {len(important_features)} important features and dataframe.')
         return important_features, train[important_features+target]
+    else:
+        print('Returning 2 dataframes: train and test with %d important features.' %len(important_features))
+        if target in list(test): ### see if target exists in this test data
+            return train[important_features+target], test[important_features+target]
+        else:
+            return train[important_features+target], test[important_features]
 ################################################################################
 def remove_highly_correlated_vars_fast(df, corr_limit=0.70):
     """
