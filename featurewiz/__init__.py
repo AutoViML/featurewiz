@@ -14,7 +14,7 @@ from .featurewiz import FE_remove_variables_using_SULOV_method, classify_feature
 from .featurewiz import classify_columns
 from .featurewiz import FE_count_rows_for_all_columns_by_group
 from .featurewiz import FE_add_age_by_date_col, FE_split_add_column, FE_get_latest_values_based_on_date_column
-from .featurewiz import FE_capping_outliers_beyond_IQR_Range, My_LabelEncoder
+from .featurewiz import FE_capping_outliers_beyond_IQR_Range, My_LabelEncoder, My_Groupby_Encoder
 from .featurewiz import EDA_classify_and_return_cols_by_type, EDA_classify_features_for_deep_learning
 from .featurewiz import FE_create_feature_crosses, EDA_find_skewed_variables
 ################################################################################
