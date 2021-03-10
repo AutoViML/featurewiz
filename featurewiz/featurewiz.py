@@ -1519,6 +1519,7 @@ class My_Groupby_Encoder(TransformerMixin):
         return self
         
     def transform(self, dft ):
+        ##### First make a copy of dataframe ###
         dft = copy.deepcopy(dft)
         if isinstance(dft, pd.Series):
             print('data to transform must be a dataframe')
@@ -1534,12 +1535,12 @@ class My_Groupby_Encoder(TransformerMixin):
             for each_col in copy_cols:
                 MLB = self.MLB_dict[each_col]
                 dft[each_col] = MLB.transform(dft[each_col])
-                
+
             ## Since you want to ignore some variables, you can drop them here
             ls = dft.select_dtypes('number').columns.tolist()
             ignore_in_list = [x for x in self.ignore_variables if x in ls]
             if len(ignore_in_list) > 0:
-                dft_cont = copy.deepcopy(dft.select_dtypes('number').drop(ignore_variables,axis=1))
+                dft_cont = copy.deepcopy(dft.select_dtypes('number').drop(self.ignore_variables,axis=1))
             else:
                 dft_cont = copy.deepcopy(dft.select_dtypes('number'))
 
@@ -1616,7 +1617,23 @@ def FE_add_groupby_features_aggregated_to_dataframe(train,
         testm = MGB.transform(test)
         return trainm, testm
 
-##############################################################
+#####################################################################################################
+def FE_combine_rare_categories(train_df, categorical_features, test_df=""):
+    """
+    In this function, we will select all rare classes having representation <1% of population and 
+    group them together under a new label called 'RARE'. We will apply this on train and test (optional)
+    """
+    train_df[categorical_features] = train_df[categorical_features].apply(
+            lambda x: x.mask(x.map(x.value_counts())< (0.01*train_df.shape[0]), 'RARE'))
+    for col in categorical_features:
+        vals = list(train_df[col].unique())
+        if isinstance(test_df, str) or test_df is None:
+            return train_df
+        else:
+            test_df[col] = test_df[col].apply(lambda x: 'RARE' if x not in vals else x)
+            return train_df, test_df
+
+#####################################################################################################
 import copy
 def create_ts_features(df, tscol):
     """
