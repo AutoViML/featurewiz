@@ -704,6 +704,28 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
     ######################################################################################
     """
     train = copy.deepcopy(train)
+    #### This is to fill all numeric columns with a missing number ##########
+    nums = train.select_dtypes('number').columns.tolist()
+    if len(nums) == 0:
+        pass
+    else:
+        if train[nums].isnull().sum().sum() > 0:
+            null_cols = np.array(nums)[train[nums].isnull().sum()>0].tolist()
+            for each_col in null_cols:
+                new_missing_col = each_col + '_Missing_Flag'
+                train[new_missing_col] = 0
+                train.loc[train[each_col].isnull(),new_missing_col]=1
+                train[each_col] = train[each_col].fillna(-9999)
+                if not train[each_col].dtype in [np.float64,np.float32,np.float16]:
+                    train[each_col] = train[each_col].astype(int)
+                if not isinstance(test, str):
+                    new_missing_col = each_col + '_Missing_Flag'
+                    test[new_missing_col] = 0
+                    test.loc[test[each_col].isnull(),new_missing_col]=1
+                    test[each_col] = test[each_col].fillna(-9999)
+                    if not test[each_col].dtype in [np.float64,np.float32,np.float16]:
+                        test[each_col] = test[each_col].astype(int)
+    ###### Now we convert all object columns to numeric ##########
     lis = []
     lis = train.select_dtypes('object').columns.tolist() + train.select_dtypes('category').columns.tolist()
     if not isinstance(test, str):
@@ -728,6 +750,7 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
             except:
                 print('Error converting %s column from string to numeric. Continuing...' %everycol)
                 continue
+
     return train, test
 ###################################################################################
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
@@ -773,7 +796,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             'target':  This will encode & transform all your categorical features using certain target encoders.
             Default is empty string (which means no additional features)
         category_encoders: Instead of above method, you can choose your own kind of category encoders from below.
-            Recommend you do not use more than two of these. 
+            Recommend you do not use more than two of these.
                             Featurewiz will automatically select only two from your list.
             Default is empty string (which means no encoding of your categorical features)
                 ['HashingEncoder', 'SumEncoder', 'PolynomialEncoder', 'BackwardDifferenceEncoder',
@@ -784,13 +807,13 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     Featurewiz can output either a list of features or one dataframe or two depending on what you send in.
         1. features: featurewiz will return just a list of important features
                      in your data if you send in just a dataset.
-        2. trainm: modified train dataframe is the dataframe that is modified 
+        2. trainm: modified train dataframe is the dataframe that is modified
                         with engineered and selected features from dataname.
-        3. testm: modified test dataframe is the dataframe that is modified with 
+        3. testm: modified test dataframe is the dataframe that is modified with
                     engineered and selected features from test_data
     ######################################################################################
     ############       C A V E A T !  C A U T I O N !   W A R N I N G ! ###################
-    In general: Be very careful with featurewiz. Don't use it mindlessly 
+    In general: Be very careful with featurewiz. Don't use it mindlessly
                         to generate un-interpretable features!
     ######################################################################################
     """
@@ -1298,7 +1321,7 @@ def FE_start_end_date_time_features(smalldf, startTime, endTime, splitter_date_s
     """
     FE stands for Feature Engineering - it means this function performs feature engineering
     ######################################################################################
-    This function is used when you have start and end date time stamps in your dataset. 
+    This function is used when you have start and end date time stamps in your dataset.
         - If there is no start and end time features, don't use it. Both must be present!
         - this module will create additional features for such fields.
         - you must provide a start date time stamp field and an end date time stamp field
@@ -1488,7 +1511,7 @@ class My_Groupby_Encoder(TransformerMixin):
             self.agg_types = [agg_types]
         else:
             self.agg_types = agg_types
-        
+
         if isinstance(ignore_variables, str):
             self.ignore_variables = [ignore_variables]
         else:
@@ -1517,7 +1540,7 @@ class My_Groupby_Encoder(TransformerMixin):
             self.MLB_dict[each_col] = MLB
 
         return self
-        
+
     def transform(self, dft ):
         ##### First make a copy of dataframe ###
         dft = copy.deepcopy(dft)
@@ -1539,7 +1562,7 @@ class My_Groupby_Encoder(TransformerMixin):
             ## Since you want to ignore some variables, you can drop them here
             ls = dft.select_dtypes('number').columns.tolist()
             ignore_in_list = [x for x in self.ignore_variables if x in ls]
-            if len(ignore_in_list) > 0:
+            if len(ignore_in_list) == len(self.ignore_variables) and left_subtract(ignore_in_list,self.ignore_variables)==[]:
                 dft_cont = copy.deepcopy(dft.select_dtypes('number').drop(self.ignore_variables,axis=1))
             else:
                 dft_cont = copy.deepcopy(dft.select_dtypes('number'))
@@ -1549,7 +1572,7 @@ class My_Groupby_Encoder(TransformerMixin):
             cols = [x+'_'+y for (x,y) in dft_full.columns]
             dft_full.columns = cols
             dft_full = dft_full.reset_index()
-            
+
             # make sure there are no zero-variance cols. If so, drop them #
             if len(self.train_cols) == 0:
                 #### drop zero variance cols the first time
@@ -1563,15 +1586,20 @@ class My_Groupby_Encoder(TransformerMixin):
                 self.train_cols = dft_full.columns.tolist()
             else:
                 #### if it is the second time, just use column names created during train
-                dft_full = dft_full[self.train_cols]
+                if len(left_subtract(self.train_cols, list(dft_full))) == 0:
+                    #### make sure that they are the exact same columns, if not, leave dft_full as is
+                    dft_full = dft_full[self.train_cols]
+                else:
+                    print('Alert! train and test have different number of columns')
+
 
             dft = dft.merge(dft_full, on=self.groupby_column, how='left')
-            
+
             #### Now change the label encoded columns back to original status ##
             copy_cols = copy.deepcopy(self.groupby_column)
             for each_col in copy_cols:
                 MLB = self.MLB_dict[each_col]
-                dft[each_col] = MLB.inverse_transform(dft[each_col])            
+                dft[each_col] = MLB.inverse_transform(dft[each_col])
         except:
             ### if for some reason, the groupby blows up, then just return the dataframe as is - no changes!
             print('Error in groupby function: returning dataframe as is')
@@ -1620,7 +1648,7 @@ def FE_add_groupby_features_aggregated_to_dataframe(train,
 #####################################################################################################
 def FE_combine_rare_categories(train_df, categorical_features, test_df=""):
     """
-    In this function, we will select all rare classes having representation <1% of population and 
+    In this function, we will select all rare classes having representation <1% of population and
     group them together under a new label called 'RARE'. We will apply this on train and test (optional)
     """
     train_df[categorical_features] = train_df[categorical_features].apply(
@@ -1755,14 +1783,14 @@ def FE_get_latest_values_based_on_date_column(dft, id_col, date_col, cols, ascen
     ######################################################################################
     This function gets you the latest values of the columns in cols from a date column date_col.
 
-    Inputs: 
+    Inputs:
     dft: dataframe, pandas
     id_col: you need to provide an ID column to groupby the cols and then sort them by date_col.
     date_col: this must be a valid pandas date-time column. If it is a string column,
            make sure you change it to a date-time column.
-          It sorts each group by the latest date (descending) and selects that top row. 
+          It sorts each group by the latest date (descending) and selects that top row.
     cols: these are the list of columns you want their latest value based on the date-col you specify.
-         These cols can be any type of column: numeric or string. 
+         These cols can be any type of column: numeric or string.
     ascending: Set this as True or False depending on whether you want smallest or biggest on top.
 
     Outputs:
@@ -1903,8 +1931,8 @@ def FE_capping_outliers_beyond_IQR_Range(df, features, cap_at_nth_largest=5, IQR
     #########################################################################################
     Typically we think of outliers as being observations beyond the 1.5 Inter Quartile Range (IQR)
     But this function will allow you to cap any observation that is multiple of IQR range, such as 1.5, 2, etc.
-    In addition, this utility helps you select the value to cap it at. 
-    The value to be capped is based on "n" that you input. 
+    In addition, this utility helps you select the value to cap it at.
+    The value to be capped is based on "n" that you input.
     n represents the nth_largest number below the maximum value to cap at!
     Notice that it does not put a floor under minimums. You have to do that yourself.
     "cap_at_nth_largest" specifies the max number below the largest (max) number in your column to cap that feature.
@@ -2096,7 +2124,7 @@ def EDA_classify_features_for_deep_learning(train, target, idcols):
     return cats, ints, floats, nlps
 #############################################################################################
 from itertools import combinations
-def FE_create_feature_crosses(dfc, cats):
+def FE_create_categorical_feature_crosses(dfc, cats):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
     ######################################################################################
@@ -2105,7 +2133,7 @@ def FE_create_feature_crosses(dfc, cats):
     3*2/2 = 3 new features. You must be careful with this function so it doesn't create too many.
 
     Inputs:
-    dfc : dataframe containing all the features 
+    dfc : dataframe containing all the features
     cats: a list of categorical features in the dataframe above (dfc)
 
     Outputs:
@@ -2124,7 +2152,7 @@ def FE_create_feature_crosses(dfc, cats):
 from scipy.stats import probplot,skew
 def EDA_find_skewed_variables(dft, skew_limit=1.1):
     """
-    EDA stands for Exploratory Data Analysis : this function performs EDA 
+    EDA stands for Exploratory Data Analysis : this function performs EDA
     ######################################################################################
     This function finds all the highly skewed float (continuous) variables in your DataFrame
     It selects them based on the skew_limit you set: anything over skew 1.1 is the default setting.
@@ -2144,7 +2172,309 @@ def EDA_find_skewed_variables(dft, skew_limit=1.1):
         skew_val=round(dft[each_conti].skew(), 1)
         if skew_val >= skew_limit:
             skewed_vars.append(each_conti)
-    print('Found %d skewed variables in data based on skew_limit >= %s' %(len(skewed_vars),skew_limit))    
+    print('Found %d skewed variables in data based on skew_limit >= %s' %(len(skewed_vars),skew_limit))
     return skewed_vars
 #############################################################################################
+def is_outlier(dataframe, thresh=3.5):
+    if len(dataframe.shape) == 1:
+        dataframe = dataframe[:,None]
+    median = np.median(dataframe, axis=0)
+    diff = np.sum((dataframe - median)**2, axis=-1)
+    diff = np.sqrt(diff)
+    med_abs_deviation = np.median(diff)
 
+    modified_z_score = 0.6745 * diff / med_abs_deviation
+    return modified_z_score > thresh
+
+def EDA_find_outliers(df, col, thresh=5):
+    """
+    """
+    ####### Finds Outliers and marks them as 'True' if they are outliers
+    ####### Dataframe refers to the input dataframe and threshold refers to how far from the median a value is
+    ####### I am using the Median Absolute Deviation Method (MADD) to find Outliers here
+    mask_outliers = is_outlier(df[col],thresh=thresh).astype(int)
+    return df.loc[np.where(mask_outliers>0)]
+###################################################################################
+from collections import Counter
+def FE_find_and_cap_outliers(df, features, thresh=5,
+                                         drop=False, verbose=False):
+    """
+    FE at the beginning of function name stands for Feature Engineering. FE functions add or drop features.
+    #########################################################################################
+    Typically we think of outliers as being observations beyond the 1.5 Inter Quartile Range (IQR)
+    But this function will allow you to cap any observation using MADD method:
+        MADD: Median Absolute Deviation Method - it's a fast and easy method to find outliers.
+    In addition, this utility helps you select the value to cap it at.
+    The value to be capped is based on "n" that you input.
+    thresh represents how far away from median the data point needs to be for it to called an outlier.
+         -- the higher the thresh number, the fewer the outliers. So use 5 or higher to find outliers.
+
+    Notice that it does not put a floor under minimums. You have to do that yourself.
+    "cap_at_nth_largest" specifies the max number below the largest (max) number in your column to cap that feature.
+    Optionally, you can drop certain observations that have too many outliers in at least 3 columns.
+    #########################################################################################
+    Inputs:
+    df : pandas DataFrame
+    features: a single column or a list of columns in your DataFrame
+    cap_at_nth_largest: default is 5 = you can set it to any integer such as 1, 2, 3, 4, 5, etc.
+
+    Outputs:
+    df: pandas DataFrame
+    It returns the same dataframe as you input unless you change drop to True in the input argument.
+
+    Optionally, it can drop certain rows that have too many outliers in at least 3 columns simultaneously.
+    If drop=True, it will return a smaller number of rows in your dataframe than what you sent in. Be careful!
+    #########################################################################################
+    """
+    df = df.copy(deep=True)
+    outlier_indices = []
+    idcol = 'idcol'
+    df[idcol] = range(len(df))
+    if isinstance(features, str):
+        features = [features]
+    # iterate over features(columns)
+    for col in features:
+        # Determine a list of indices of outliers for feature col
+        mask_outliers = is_outlier(df[col], thresh=thresh).astype(int)
+        dfout_index = df.loc[np.where(mask_outliers>0)].index
+
+        df['anomaly1'] = 0
+        df.loc[dfout_index ,'anomaly1'] = 1
+
+        ### this is how the column looks now before capping outliers
+        if verbose:
+            fig, (ax1,ax2) = plt.subplots(1,2,figsize=(12,5))
+            colors = {0:'blue', 1:'red'}
+            ax1.scatter(df[idcol], df[col], c=df["anomaly1"].apply(lambda x: colors[x]))
+            ax1.set_xlabel('Row ID')
+            ax1.set_ylabel('Target values')
+            ax1.set_title('%s before capping outliers' %col)
+
+        capped_value = df.loc[dfout_index, col].min() ## this is the value we cap it against
+        df.loc[dfout_index, col] =  capped_value ## maximum values are now capped
+        ### you are now good to go - you can show how they are capped using before and after pics
+        if verbose:
+            colors = {0:'blue', 1:'red'}
+            ax2.scatter(df[idcol], df[col], c=df["anomaly1"].apply(lambda x: colors[x]))
+            ax2.set_xlabel('Row ID')
+            ax2.set_ylabel('Target values')
+            ax2.set_title('%s after capping outliers' %col)
+
+        # Let's save the list of outliers and see if there are some with outliers in multiple columns
+        outlier_indices.extend(dfout_index)
+
+    # select certain observations containing more than one outlier in 2 columns or more. We can drop them!
+    outlier_indices = Counter(outlier_indices)
+    multiple_outliers = list( k for k, v in outlier_indices.items() if v > 3 )
+    ### now drop these rows altogether ####
+    df.drop([idcol,'anomaly1'], axis=1, inplace=True)
+    if drop:
+        print('Shape of dataframe before outliers being dropped: %s' %(df.shape,))
+        number_of_rows = df.shape[0]
+        df.drop(multiple_outliers, axis=0, inplace=True)
+        print('Shape of dataframe after outliers being dropped: %s' %(df.shape,))
+        print('\nNumber_of_rows with multiple outliers in more than 3 columns which were dropped = %d' %(number_of_rows-df.shape[0]))
+    return df
+#################################################################################
+import pandas as pd
+import numpy as np
+import pdb
+from sklearn.utils.validation import check_X_y, check_is_fitted
+from sklearn.preprocessing import LabelEncoder
+from collections import Counter, defaultdict
+from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
+
+from imblearn.over_sampling import SMOTE, SVMSMOTE
+from imblearn.over_sampling import ADASYN, SMOTENC
+
+import pandas as pd
+import numpy as np
+from collections import Counter
+import warnings
+warnings.filterwarnings("ignore")
+#################################################################################
+import copy
+from sklearn.cluster import KMeans
+def FE_kmeans_resampler(x_train, y_train, target, smote="", verbose=0):
+    """
+    This function converts a Regression problem into a Classification problem to enable SMOTE!
+    It is a very simple way to send your x_train, y_train in and get back an oversampled x_train, y_train.
+    Why is this needed in Machine Learning problems?
+         In Imbalanced datasets, esp. skewed regression problems where the target variable is skewed, this is needed.
+    Try this on your skewed Regression problems and see what results you get. It should be better.
+    ----------
+    Inputs
+    ----------
+    x_train : pandas dataframe: you must send in the data with predictors only.
+    min_n_samples : int, default=5: min number of samples below which you combine bins
+    bins : int, default=3: how many bins you want to split target into
+
+    Outputs
+    ----------
+    n_features_ : int
+        The number of features of the data passed to :meth:`fit`.
+    """
+    x_train_c = copy.deepcopy(x_train)
+    x_train_c[target] = y_train.values
+
+    # Regression problem turned into Classification problem
+    n_clusters = max(3, int(np.log10(len(y_train))) + 1)
+    # Use KMeans to find natural clusters in your data
+    km_model = KMeans(n_clusters=n_clusters,
+                      n_init=5,
+                      random_state=99)
+    #### remember you must predict using only predictor variables!
+    y_train_c = km_model.fit_predict(x_train)
+
+    if verbose >= 1:
+        print('Number of clusters created = %d' %n_clusters)
+
+    #### Generate the over-sampled data
+    #### ADASYN / SMOTE oversampling #####
+    if isinstance(smote, str):
+        x_train_ext, _ = oversample_SMOTE(x_train_c, y_train_c)
+    else:
+        x_train_ext, _ = smote.fit_resample(x_train_c, y_train_c)
+    y_train_ext = x_train_ext[target].values
+    x_train_ext.drop(target, axis=1, inplace=True)
+    return (x_train_ext, y_train_ext)
+
+###################################################################################################
+from sklearn.utils.class_weight import compute_class_weight
+def get_class_distribution(y_input):
+    y_input = copy.deepcopy(y_input)
+    classes = np.unique(y_input)
+    xp = Counter(y_input)
+    class_weights = compute_class_weight('balanced', classes=np.unique(y_input), y=y_input)
+    if len(class_weights[(class_weights> 10)]) > 0:
+        class_weights = (class_weights/10).astype(int)
+    else:
+        class_weights = (class_weights).astype(int)
+    print('class_weights = %s' %class_weights)
+    class_weights[(class_weights<1)]=1
+    class_rows = class_weights*[xp[x] for x in classes]
+    class_weighted_rows = dict(zip(classes,class_rows))
+    print('class_weighted_rows = %s' %class_weighted_rows)
+    return class_weighted_rows
+
+def oversample_SMOTE(X,y):
+    #input DataFrame
+    #X →Independent Variable in DataFrame\
+    #y →dependent Variable in Pandas DataFrame format
+    # Get the class distriubtion for perfoming relative sampling in the next line
+    class_weighted_rows = get_class_distribution(y)
+    smote = SVMSMOTE( random_state=27,
+                  sampling_strategy=class_weighted_rows)
+    X, y = smote.fit_resample(X, y)
+    return(X,y)
+
+def oversample_ADASYN(X,y):
+    #input DataFrame
+    #X →Independent Variable in DataFrame\
+    #y →dependent Variable in Pandas DataFrame format
+    # Get the class distriubtion for perfoming relative sampling in the next line
+    class_weighted_rows = get_class_distribution(y)
+    # Your favourite oversampler
+    smote = ADASYN(random_state=27,
+                   sampling_strategy=class_weighted_rows)
+    X, y = smote.fit_resample(X, y)
+    return(X,y)
+#############################################################################
+import numpy as np
+import pandas as pd
+import pdb
+from sklearn.model_selection import train_test_split
+def split_data_n_ways(df, target, n_splits, test_size=0.2, modeltype=None,**kwargs):
+    """
+    Inputs:
+    df: dataframe that you want to split
+    target: the target variable in data frame (df)
+    n_splits: number of ways in which you want to split the data frame (default=3)
+    test_size: size of the test dataset: default is 0.2 But it splits this test into valid and test half.
+    Hence you will get 10% of df as test and 10% of df as valid and remaining 80% as train
+    ################   how it works ################################################
+    You can split a dataframe three ways or six ways depending on your need. Three ways is:
+    train, valid, test
+    Six ways can be:
+    X_train,y_train, X_valid, y_valid, X_test, y_test
+    You will get a list containing these dataframes...depending on what you entered as number of splits
+    Output: List of dataframes
+    """
+    if kwargs:
+        for key, val in kwargs:
+            if key == 'modeltype':
+                key = val
+            if key == 'test_size':
+                test_size = val
+    if modeltype is None:
+        if isinstance(target, str):
+            if df[target].dtype == float:
+                modeltype = 'Regression'
+            else:
+                modeltype = 'Classification'
+            target = [target]
+        else:
+            if df[target[0]].dtype == float:
+                modeltype = 'Regression'
+            else:
+                 modeltype = 'Classification'
+    preds = [x for x in list(df) if x not in target]
+    print('Number of predictors in dataset: %d' %len(preds))
+    list_of_dfs = []
+    if modeltype == 'Regression':
+        nums = int((1-test_size)*df.shape[0])
+        train, testlarge = df[:nums], df[nums:]
+    else:
+        train, testlarge = train_test_split(df, test_size=test_size, random_state=42)
+    list_of_dfs.append(train)
+    if n_splits == 2:
+        print('Returning a Tuple with two dataframes and shapes: (%s,%s)' %(train.shape, testlarge.shape))
+        return train, testlarge
+    elif modeltype == 'Regression' and n_splits == 3:
+        nums2 = int(0.5*(testlarge.shape[0]))
+        valid, test = testlarge[:nums2], testlarge[nums2:]
+        print('Returning a Tuple with three dataframes and shapes: (%s,%s,%s)' %(train.shape, valid.shape, test.shape))
+        return train, valid, test
+    elif modeltype == 'Classification' and n_splits == 3:
+        valid, test = train_test_split(testlarge, test_size=0.5, random_state=99)
+        print('Returning a Tuple with three dataframes and shapes: (%s,%s,%s)' %(train.shape, valid.shape, test.shape))
+        return train, valid, test
+    #### Continue only if you need more than 3 splits ######
+    if modeltype == 'Regression':
+        nums2 = int(0.5*(df.shape[0] - nums))
+        valid, test = testlarge[:nums2], testlarge[nums2:]
+        if n_splits == 4:
+            X_train, y_train, X_test, y_test = train[preds], train[target], testlarge[preds], testlarge[target]
+            list_of_dfs = [X_train,y_train, X_test, y_test]
+            print('Returning a Tuple with 4 dataframes: (%s %s %s %s)' %(X_train.shape,y_train.shape,
+                                X_test.shape,y_test.shape))
+            return list_of_dfs
+        elif n_splits == 6:
+            X_train, y_train, X_valid, y_valid, X_test, y_test = train[preds], train[target], valid[
+                                    preds], valid[target], test[preds], test[target]
+            list_of_dfs = [X_train,y_train, X_valid, y_valid, X_test, y_test]
+            print('Returning a Tuple with six dataframes and shapes: (%s %s %s %s,%s,%s)' %(
+                X_train.shape,y_train.shape, X_valid.shape,y_valid.shape,X_test.shape,y_test.shape))
+            return list_of_dfs
+        else:
+            print('Number of splits must be 2, 3, 4 or 6')
+            return
+    else:
+        if n_splits == 4:
+            X_train, y_train, X_test, y_test = train[preds], train[target], testlarge[preds], testlarge[target]
+            list_of_dfs = [X_train,y_train, X_test, y_test]
+            print('Returning a Tuple with 4 dataframes: (%s %s %s %s)' %(X_train.shape,y_train.shape,
+                                X_test.shape,y_test.shape))
+            return list_of_dfs
+        elif n_splits == 6:
+            X_train, y_train, X_valid, y_valid, X_test, y_test = train[preds], train[target], valid[
+                                    preds], valid[target], test[preds], test[target]
+            print('Returning 4 dataframes:', X_train.shape, y_train.shape, X_test.shape, y_test.shape)
+            list_of_dfs = [X_train,y_train, X_valid, y_valid, X_test, y_test]
+            print('Returning a Tuple with six dataframes and shapes: (%s %s %s %s,%s,%s)' %(
+                X_train.shape,y_train.shape, X_valid.shape,y_valid.shape,X_test.shape,y_test.shape))
+            return list_of_dfs
+        else:
+            print('Number of splits must be 2, 3, 4 or 6')
+            return
+##################################################################################

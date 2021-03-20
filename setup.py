@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="featurewiz",
-    version="0.0.23",
+    version="0.0.24",
     author="Ram Seshadri",
     author_email="rsesha2001@yahoo.com",
     description="Select Best Features from your data set - any size - now with XGBoost!",
@@ -26,7 +26,8 @@ setuptools.setup(
         "scikit-learn>=0.23.1",
         "networkx",
         "category_encoders",
-        "xlrd"
+        "xlrd",
+        "imbalanced-learn>=0.7",
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
