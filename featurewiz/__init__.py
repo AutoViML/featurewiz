@@ -30,6 +30,6 @@ print("""%s featurewiz: advanced feature engg and selection library. Version=%s
 output = featurewiz(dataname, target, corr_limit=0.70,
                     verbose=2, sep=',', header=0, test_data='',
                     feature_engg='', category_encoders='')
-Engineer new features via 'feature_engg' flag : ['interactions','groupby','target']
+Create new features via 'feature_engg' flag : ['interactions','groupby','target']
                                 """ %(module_type, version_number))
 ################################################################################
