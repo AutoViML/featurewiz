@@ -19,7 +19,7 @@ from .featurewiz import EDA_classify_and_return_cols_by_type, EDA_classify_featu
 from .featurewiz import FE_create_categorical_feature_crosses, EDA_find_skewed_variables
 from .featurewiz import FE_kmeans_resampler, FE_find_and_cap_outliers, EDA_find_outliers
 from .featurewiz import split_data_n_ways, FE_concatenate_multiple_columns
-from .featurewiz import simple_XGBoost_model
+from .featurewiz import simple_XGBoost_model, FE_discretize_numeric_variables
 ################################################################################
 if __name__ == "__main__":
     module_type = 'Running'

@@ -367,7 +367,7 @@ import time
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
 from sklearn.feature_selection import SelectKBest
 ##################################################################################
-def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all'):
+def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all',parse_dates=False):
     start_time = time.time()
     ###########################  This is where we load file or data frame ###############
     if isinstance(dataname,str):
@@ -377,9 +377,11 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all'):
             for code in codex:
                 try:
                     if isinstance(nrows, str):
-                        dfte = pd.read_csv(dataname,sep=sep,index_col=None,encoding=code)
+                        dfte = pd.read_csv(dataname,sep=sep,index_col=None,encoding=code,
+                                        parse_dates=parse_dates)
                     else:
-                        dfte = pd.read_csv(dataname,sep=sep,index_col=None,encoding=code, nrows=nrows)
+                        dfte = pd.read_csv(dataname,sep=sep,index_col=None,encoding=code,
+                                    nrows=nrows, parse_dates=parse_dates)
                     print('    Encoder %s chosen to read CSV file' %code)
                     print('Shape of your Data Set loaded: %s' %(dfte.shape,))
                     if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
@@ -392,9 +394,9 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all'):
         elif dataname.endswith(('xlsx','xls','txt')):
             #### It's very important to get header rows in Excel since people put headers anywhere in Excel#
             if isinstance(nrows, str):
-                dfte = pd.read_excel(dataname,header=header)
+                dfte = pd.read_excel(dataname,header=header, parse_dates=parse_dates)
             else:
-                dfte = pd.read_excel(dataname,header=header, nrows=nrows)
+                dfte = pd.read_excel(dataname,header=header, nrows=nrows, parse_dates=parse_dates)
             print('Shape of your Data Set loaded: %s' %(dfte.shape,))
             return dfte
         else:
@@ -1634,9 +1636,10 @@ class My_Groupby_Encoder(TransformerMixin):
             print('Error in groupby function: returning dataframe as is')
             return dft
         return dft
+###################################################################################
 
 def FE_add_groupby_features_aggregated_to_dataframe(train,
-                    agg_types,groupby_column,ignore_variables, test=""):
+                    agg_types,groupby_columns,ignore_variables, test=""):
     """
     FE stands for Feature Engineering. That means this function performs feature engineering on data.
     ######################################################################################
@@ -1644,8 +1647,9 @@ def FE_add_groupby_features_aggregated_to_dataframe(train,
     ###   It returns original dataframe with added features using numeric variables grouped and aggregated
     ###   What do you mean aggregate? aggregates can be "count, "mean", "median", "mode", "min", "max", etc.
     ###   What do you aggregrate? all numeric columns in your data
-    ###   What do you groupby? a groupby column
-    ###      except those numeric variables you designate in the ignore_variables list. Can be empty.
+    ###   What do you groupby? one groupby column at a time or multiple columns one by one
+    ###     -- if you give it a list of columns, it will execute the grouping one by one
+    ###   What is the ignore_variables for? it will ignore these variables from grouping.
     ######################################################################################
     ### Inputs:
     ###   train: Just sent in the data frame df that you want features added to
@@ -1654,8 +1658,8 @@ def FE_add_groupby_features_aggregated_to_dataframe(train,
     ###         List of aggregates available: {'count','sum','mean','mad','median','min','max','mode','abs',
     ###               'prod','std','var','sem','skew','kurt',
     ###                'quantile','cumsum','cumprod','cummax','cummin'}
-    ###   groupby_column: can be a string representing a single column or a list of multiple columns
-    ###               - it will groupby all the numeric features and compute aggregates by this.
+    ###   groupby_columns: can be a string representing a single column or a list of multiple columns
+    ###               - it will groupby all the numeric features using one groupby column at a time in a loop.
     ###   ignore_variables: list of variables to ignore among numeric variables in data since they may be ID variables.
     ###   test: (optional) a data frame  that you want features added to based on train
     ### Outputs:
@@ -1664,16 +1668,26 @@ def FE_add_groupby_features_aggregated_to_dataframe(train,
     ######################################################################################
     ###     Make sure you reduce correlated variables by using FE_remove_variables_using_SULOV_method()
     """
-    train = copy.deepcopy(train)
-    test = copy.deepcopy(test)
-    MGB = My_Groupby_Encoder(groupby_column, agg_types, ignore_variables)
-    trainm = MGB.fit_transform(train)
+    train_copy = copy.deepcopy(train)
+    test_copy = copy.deepcopy(test)
+    if isinstance(groupby_columns, str):
+        groupby_columns = [groupby_columns]
+    for groupby_column in groupby_columns:
+        MGB = My_Groupby_Encoder(groupby_column, agg_types, ignore_variables)
+        train1 = MGB.fit_transform(train)
+        addl_cols = left_subtract(train1.columns,train.columns)
+        train_copy = pd.concat([train_copy,train1[addl_cols]],axis=1)
+        if isinstance(test, str) or test is None:
+            pass
+        else:
+            test1 = MGB.transform(test)
+            addl_cols = left_subtract(test1.columns,test.columns)
+            test_copy = pd.concat([test_copy,test1[addl_cols]],axis=1)
+    ### return the dataframes ###########
     if isinstance(test, str) or test is None:
-        return trainm
+        return train_copy
     else:
-        testm = MGB.transform(test)
-        return trainm, testm
-
+        return train_copy, test_copy
 #####################################################################################################
 def FE_combine_rare_categories(train_df, categorical_features, test_df=""):
     """
@@ -2603,7 +2617,7 @@ from xgboost import XGBRegressor, XGBClassifier
 from sklearn.metrics import mean_squared_log_error, balanced_accuracy_score
 from scipy import stats
 
-def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype):
+def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,verbose=0):
     """
     Easy to use XGBoost model. Just send in X_train, y_train and what you want to predict, X_test
     It will automatically split X_train into multiple folds (10) and train and predict each time on X_test.
@@ -2674,8 +2688,9 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype):
             score = balanced_accuracy_score(y_test, preds)
             print('Balanced Accuracy score in fold %d = %0.1f%%' %(folds+1, score*100))
         scores.append(score)
-    plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
-                        modeltype=modeltype)
+    if verbose:
+        plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
+                            modeltype=modeltype)
     print('final predictions', pred_xgbs)
     print("Average scores are: ", np.sum(scores)/len(scores))
     return pred_xgbs
@@ -2706,4 +2721,36 @@ def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype):
     if modeltype == 'Regression':
         ax2=plt.subplot(2, 2, 2)
         pd.Series(y_preds).plot(ax=ax2, color='b');
+##################################################################################
+from sklearn.preprocessing import KBinsDiscretizer
+def FE_discretize_numeric_variables(df, bin_dict, strategy='kmeans',verbose=0):
+    """
+    This handy function discretizes numeric variables into binned variables using kmeans algorithm.
+    You need to provide the names of the variables and the numbers of bins for each variable in a dictionary.
+    It will return the same dataframe with new binned variables that it has created.
+
+    Inputs:
+    ----------
+    df : pandas dataframe - please ensure it is a dataframe. No arrays please.
+    bin_dict: dictionary of names of variables and the bins that you want for each variable.
+    strategy: default is 'kmeans': but you can choose any one of {‘uniform’, ‘quantile’, ‘kmeans’}
+
+    Outputs:
+    ----------
+    df: pandas dataframe with new variables with names such as:  variable+'_discrete'
+    """
+    num_cols = len(bin_dict)
+    nrows = int((num_cols/2)+0.5)
+    print('nrows',nrows)
+    if verbose:
+        fig = plt.figure(figsize=(10,3*num_cols))
+    for i, (col, binvalue) in enumerate(bin_dict.items()):
+        kbd = KBinsDiscretizer(n_bins=binvalue, encode='ordinal', strategy=strategy)
+        new_col = col+'_discrete'
+        df[new_col] = kbd.fit_transform(df[[col]]).astype(int)
+        if verbose:
+            ax1 = plt.subplot(nrows,2,i+1)
+            ax1.scatter(df[col],df[new_col])
+            ax1.set_title(new_col)
+    return df
 ##################################################################################

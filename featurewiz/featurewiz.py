@@ -2638,11 +2638,39 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,verbose=0):
     """
 
     if modeltype == 'Regression':
-        xgb=XGBRegressor(learning_rate=0.03,max_depth=7,min_child_weight=1,
-                     n_estimators=200,subsample=0.7)
+         xgb = XGBRegressor(
+                          colsample_bytree=0.5,
+                          alpha=0.01563,
+                          #gamma=0.0,
+                          learning_rate=0.1,
+                          max_depth=15,
+                          min_child_weight=2,
+                          n_estimators=4000,
+                          #reg_alpha=0.9,
+                          reg_lambda=0.003,
+                          subsample=0.7,
+                          random_state=2020,
+                          #metric_period=100,
+                          verbosity = 0,
+                          n_jobs=-1,
+                          silent = True)
     else:
-        xgb=XGBClassifier(learning_rate=0.03,max_depth=7,min_child_weight=1,
-                     n_estimators=200,subsample=0.7)
+        xgb = XGBClassifier(
+                         colsample_bytree=0.5,
+                         alpha=0.01563,
+                         #gamma=0.0,
+                         learning_rate=0.1,
+                         max_depth=15,
+                         min_child_weight=2,
+                         n_estimators=4000,
+                         #reg_alpha=0.9,
+                         reg_lambda=0.003,
+                         subsample=0.7,
+                         random_state=2020,
+                         #metric_period=100,
+                         n_jobs=-1,
+                         verbosity = 0,
+                         silent = True)
 
     #testing for xgbregressor
     n_splits = 10
@@ -2661,7 +2689,8 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,verbose=0):
             y_train, y_test = Y_XGB.values[train_index], Y_XGB.values[test_index]
 
         model = xgb
-        model.fit(x_train, y_train)
+        model.fit(x_train, y_train, early_stopping_rounds=6,
+                        eval_set=[(x_test, np.log(y_test))], verbose=0)
         if modeltype == 'Regression':
             preds = np.exp(model.predict(x_test))
         else:
@@ -2723,7 +2752,9 @@ def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype):
         pd.Series(y_preds).plot(ax=ax2, color='b');
 ##################################################################################
 from sklearn.preprocessing import KBinsDiscretizer
-def FE_discretize_numeric_variables(df, bin_dict, strategy='kmeans',verbose=0):
+from sklearn.mixture import GaussianMixture
+
+def FE_discretize_numeric_variables(train, bin_dict, test='', strategy='kmeans',verbose=0):
     """
     This handy function discretizes numeric variables into binned variables using kmeans algorithm.
     You need to provide the names of the variables and the numbers of bins for each variable in a dictionary.
@@ -2733,7 +2764,51 @@ def FE_discretize_numeric_variables(df, bin_dict, strategy='kmeans',verbose=0):
     ----------
     df : pandas dataframe - please ensure it is a dataframe. No arrays please.
     bin_dict: dictionary of names of variables and the bins that you want for each variable.
-    strategy: default is 'kmeans': but you can choose any one of {‘uniform’, ‘quantile’, ‘kmeans’}
+    strategy: default is 'kmeans': but you can choose: {'gauusian','uniform', 'quantile', 'kmeans'}
+
+    Outputs:
+    ----------
+    df: pandas dataframe with new variables with names such as:  variable+'_discrete'
+    """
+    df = copy.deepcopy(train)
+    test = copy.deepcopy(test)
+    num_cols = len(bin_dict)
+    nrows = int((num_cols/2)+0.5)
+    #print('nrows',nrows)
+    if verbose:
+        fig = plt.figure(figsize=(10,3*num_cols))
+    for i, (col, binvalue) in enumerate(bin_dict.items()):
+        new_col = col+'_discrete'
+        if strategy == 'gaussian':
+            kbd = GaussianMixture(n_components=binvalue, random_state=99)
+            df[new_col] = kbd.fit_predict(df[[col]]).astype(int)
+            if not isinstance(test, str):
+                test[new_col] = kbd.predict(test[[col]]).astype(int)
+        else:
+            kbd = KBinsDiscretizer(n_bins=binvalue, encode='ordinal', strategy=strategy)
+            df[new_col] = kbd.fit_transform(df[[col]]).astype(int)
+            if not isinstance(test, str):
+                test[new_col] = kbd.transform(test[[col]]).astype(int)
+        if verbose:
+            ax1 = plt.subplot(nrows,2,i+1)
+            ax1.scatter(df[col],df[new_col])
+            ax1.set_title(new_col)
+    if not isinstance(test, str):
+        return df, test
+    else:
+        return df
+##################################################################################
+def FE_transform_numeric_columns(df, bin_dict, verbose=0):
+    """
+    This handy function discretizes numeric variables into binned variables using kmeans algorithm.
+    You need to provide the names of the variables and the numbers of bins for each variable in a dictionary.
+    It will return the same dataframe with new binned variables that it has created.
+
+    Inputs:
+    ----------
+    df : pandas dataframe - please ensure it is a dataframe. No arrays please.
+    bin_dict: dictionary of names of variables and the kind of transformation you want
+        default is 'log': but you can choose: {'log','log10', 'sqrt', 'max-abs'}
 
     Outputs:
     ----------
@@ -2741,16 +2816,28 @@ def FE_discretize_numeric_variables(df, bin_dict, strategy='kmeans',verbose=0):
     """
     num_cols = len(bin_dict)
     nrows = int((num_cols/2)+0.5)
-    print('nrows',nrows)
     if verbose:
         fig = plt.figure(figsize=(10,3*num_cols))
     for i, (col, binvalue) in enumerate(bin_dict.items()):
-        kbd = KBinsDiscretizer(n_bins=binvalue, encode='ordinal', strategy=strategy)
-        new_col = col+'_discrete'
-        df[new_col] = kbd.fit_transform(df[[col]]).astype(int)
+        new_col = col+'_'+binvalue
+        if binvalue == 'log':
+            df[new_col] = np.log(df[col]).values
+        elif binvalue == 'log10':
+            df[new_col] = np.log10(df[col]).values
+        elif binvalue == 'sqrt':
+            df[new_col] = np.sqrt(df[col]).values
+        elif binvalue == 'max-abs':
+            col_max = df[col].max()
+            if col_max == 0:
+                col_max = 1
+            df[new_col] = (df[col]/col_max).values
+        else:
+            df[new_col] = np.log(df[col]).values
         if verbose:
             ax1 = plt.subplot(nrows,2,i+1)
-            ax1.scatter(df[col],df[new_col])
-            ax1.set_title(new_col)
+            df[col].plot.kde(ax=ax1, label=col,alpha=0.5,color='r')
+            ax2 = ax1.twiny()
+            df[new_col].plot.kde(ax=ax2,label=new_col,alpha=0.5,color='b')
+            plt.legend();
     return df
-##################################################################################
+#################################################################################
