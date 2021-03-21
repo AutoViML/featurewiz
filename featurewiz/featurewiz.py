@@ -367,7 +367,7 @@ import time
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
 from sklearn.feature_selection import SelectKBest
 ##################################################################################
-def load_file_dataframe(dataname, sep=",", header=0, verbose=0):
+def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all'):
     start_time = time.time()
     ###########################  This is where we load file or data frame ###############
     if isinstance(dataname,str):
@@ -376,7 +376,10 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0):
             codex = ['utf-8', 'iso-8859-1', 'cp1252', 'latin1']
             for code in codex:
                 try:
-                    dfte = pd.read_csv(dataname,sep=sep,index_col=None,encoding=code)
+                    if isinstance(nrows, str):
+                        dfte = pd.read_csv(dataname,sep=sep,index_col=None,encoding=code)
+                    else:
+                        dfte = pd.read_csv(dataname,sep=sep,index_col=None,encoding=code, nrows=nrows)
                     print('    Encoder %s chosen to read CSV file' %code)
                     print('Shape of your Data Set loaded: %s' %(dfte.shape,))
                     if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
@@ -388,7 +391,10 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0):
                     continue
         elif dataname.endswith(('xlsx','xls','txt')):
             #### It's very important to get header rows in Excel since people put headers anywhere in Excel#
-            dfte = pd.read_excel(dataname,header=header)
+            if isinstance(nrows, str):
+                dfte = pd.read_excel(dataname,header=header)
+            else:
+                dfte = pd.read_excel(dataname,header=header, nrows=nrows)
             print('Shape of your Data Set loaded: %s' %(dfte.shape,))
             return dfte
         else:
@@ -845,11 +851,12 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     else:
         print('Skipping category encoding since no category encoders specified in input...')
     ##################    L O A D     D A T A N A M E   ########################
-    train = load_file_dataframe(dataname, sep, header, verbose)
+    train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=1000)
     train_index = train.index
     if isinstance(test_data, str):
         if test_data != '':  ### if test data is not an empty string, then load it as a file
-            test = load_file_dataframe(test_data, sep, header, verbose)
+            test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose,
+                                        nrows=1000)
             test_index = test.index
         else:
             test = None ### set test as None so that it can be skipped processing
@@ -858,7 +865,23 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         test_index = test.index
     else:
         test = None ### If it is none of the above, set test as None
-    #############    X G B O O S T     F E A T U R E    S E L E C T I O N ######
+    #############    C L A S S I F Y    F E A T U R E S      ####################
+    features_dict = classify_features(train, target)
+    if len(features_dict['date_vars']) > 0:
+        #### If there are date-time variables in datatset, it is best to load them using pandas
+        date_time_vars = features_dict['date_vars']
+        train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose,
+                                nrows='all', parse_dates=date_time_vars)
+        if test is None:
+            test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose,
+                                    nrows='all', parse_dates=date_time_vars)
+    else:
+        train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows='all')
+        train_index = train.index
+        if test is None:
+            test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose,
+                                        nrows='all')
+            test_index = test.index
     #### If there are more than 30 categorical variables in a data set, it is worth reducing features.
     ####  Otherwise. XGBoost is pretty good at finding the best features whether cat or numeric !
     start_time = time.time()
@@ -1245,8 +1268,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     print('    Time taken (in seconds) = %0.0f' %(time.time()-start_time))
     if isinstance(test, str) or test is None:
         print(f'Returning list of {len(important_features)} important features and dataframe.')
-        train = train_ids.join(train)
-        return important_features, train[idcols+important_features+target]
+        if len(np.intersect1d(train_ids.columns.tolist(),train.columns.tolist())) > 0:
+            return important_features, train[important_features+target]
+        else:
+            train = train_ids.join(train)
+            return important_features, train[idcols+important_features+target]
     else:
         print('Returning 2 dataframes: train and test with %d important features.' %len(important_features))
         if feature_gen or feature_type:
@@ -1416,22 +1442,22 @@ def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list='',
     it into as many fields as you want in the new_names_list.
 
     Inputs:
-    dft: pandas DataFrame
-    field: name of string column that you want to split using the splitter string specified
-    splitter: specify what string to split on using the splitter argument.
-    filler: You can also fill Null values that may happen due to your splitting by specifying a filler.
-    new_names_list: If no new_names_list is given, then we use the name of the field itself to split.
-    add_count_field: False (default). If True, it will count the number of items in
-        the "field" column before the split. This may be needed in nested dictionary fields.
+        dft: pandas DataFrame
+        field: name of string column that you want to split using the splitter string specified
+        splitter: specify what string to split on using the splitter argument.
+        filler: You can also fill Null values that may happen due to your splitting by specifying a filler.
+        new_names_list: If no new_names_list is given, then we use the name of the field itself to create new columns.
+        add_count_field: False (default). If True, it will count the number of items in
+            the "field" column before the split. This may be needed in nested dictionary fields.
 
     Outputs:
-    dft: original dataframe with additional columns created by splitting the field.
+        dft: original dataframe with additional columns created by splitting the field.
+        new_names_list: the list of new columns created by this function
     ######################################################################################
     """
-    import warnings
-    warnings.filterwarnings("ignore")
     df = df.copy()
     ### First print the maximum number of things in that field
+    df[field] = df[field].fillna(filler)
     max_things = df[field].map(lambda x: len(x.split(splitter))).max()
     if len(new_names_list) == 0:
         print('    Max. columns created by splitting %s field is %d.' %(
@@ -1452,16 +1478,15 @@ def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list='',
             new_names_list = [field+'_'+str(i) for i in range(1,max_things+1)]
         else:
             new_names_list = [new_names_list]
-    try:
-        for i in range(len(new_names_list)):
-            df[field].fillna(filler, inplace=True)
-            df.loc[df[field] == splitter, field] = filler
+    for i in range(len(new_names_list)):
+        df[field].fillna(filler, inplace=True)
+        df.loc[df[field] == splitter, field] = filler
+        try:
             df[new_names_list[i]] = df[field].map(lambda x: x.split(splitter)[i]
                                           if splitter in x else x)
-    except:
-        ### Check if the column is a string column. If not, give an error message.
-        print('Cannot split the column. Getting an error. Check the column again')
-        return df
+        except:
+            df[new_names_list[i]] = filler
+            continue
     return df, new_names_list
 ###########################################################################
 import copy
@@ -1569,7 +1594,11 @@ class My_Groupby_Encoder(TransformerMixin):
 
             #### This is the main part where we create aggregated columns ######
             dft_full = dft_cont.groupby(self.groupby_column).agg(self.agg_types)
-            cols = [x+'_'+y for (x,y) in dft_full.columns]
+            if len(self.groupby_column) == 1:
+                str_col = self.groupby_column[0]
+            else:
+                str_col = "_".join(self.groupby_column)
+            cols =  [x+'_by_'+str_col+'_'+y for (x,y) in dft_full.columns]
             dft_full.columns = cols
             dft_full = dft_full.reset_index()
 
@@ -1689,10 +1718,42 @@ def create_ts_features(df, tscol):
         df[tscol+'_quarter'] = df[tscol].dt.quarter.fillna(0).astype(int)
         dt_adds.append(tscol+'_quarter')
         df[tscol+'_month'] = df[tscol].dt.month.fillna(0).astype(int)
-        MONTHS = dict(zip(range(12),['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul',
+        MONTHS = dict(zip(range(1,13),['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul',
                                     'Aug', 'Sep', 'Oct', 'Nov', 'Dec']))
         df[tscol+'_month'] = df[tscol+'_month'].map(MONTHS)
         dt_adds.append(tscol+'_month')
+        #### Add some features for months ########################################
+        festives = ['Oct','Nov','Dec']
+        name_col = tscol+"_is_festive"
+        df[name_col] = 0
+        df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in festives else 0).values
+        df[name_col].fillna(0,inplace=True)
+        dt_adds.append(name_col)
+        summer = ['Jun','Jul','Aug']
+        name_col = tscol+"_is_summer"
+        df[name_col] = 0
+        df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in summer else 0).values
+        df[name_col].fillna(0,inplace=True)
+        dt_adds.append(name_col)
+        winter = ['Dec','Jan','Feb']
+        name_col = tscol+"_is_winter"
+        df[name_col] = 0
+        df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in winter else 0).values
+        df[name_col].fillna(0,inplace=True)
+        dt_adds.append(name_col)
+        cold = ['Oct','Nov','Dec','Jan','Feb','Mar']
+        name_col = tscol+"_is_cold"
+        df[name_col] = 0
+        df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in cold else 0).values
+        df[name_col].fillna(0,inplace=True)
+        dt_adds.append(name_col)
+        warm = ['Apr','May','Jun','Jul','Aug','Sep']
+        name_col = tscol+"_is_warm"
+        df[name_col] = 0
+        df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in warm else 0).values
+        df[name_col].fillna(0,inplace=True)
+        dt_adds.append(name_col)
+        #########################################################################
         if tscol+'_dayofweek' in dt_adds:
             df.loc[:,tscol+'_month_dayofweek_cross'] = df[tscol+'_month'] +" "+ df[tscol+'_dayofweek']
             dt_adds.append(tscol+'_month_dayofweek_cross')
@@ -1716,6 +1777,7 @@ def create_ts_features(df, tscol):
             dt_adds.append(tscol+'_month_typeofday_cross')
     except:
         print('    Error in creating date time derived features. Continuing...')
+    print('    Added %d columns from %s column' %(len(dt_adds),tscol))
     return df
 ################################################################
 from dateutil.relativedelta import relativedelta
@@ -1773,6 +1835,7 @@ def FE_create_time_series_features(dtf, ts_column):
         else:
             dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
         dtf = create_ts_features(dtf,ts_column)
+        dtf.drop(ts_column, axis=1, inplace=True)
     except:
         print('Error in Processing %s column for date time features. Continuing...' %ts_column)
     return dtf
@@ -2195,9 +2258,41 @@ def EDA_find_outliers(df, col, thresh=5):
     mask_outliers = is_outlier(df[col],thresh=thresh).astype(int)
     return df.loc[np.where(mask_outliers>0)]
 ###################################################################################
+def outlier_determine_threshold(df, col):
+    """
+    This function automatically determines the right threshold for the dataframe and column.
+    Threshold is used to determine how many outliers we should detect in the series.
+    A low threshold will result in too many outliers and a very high threshold will not find any.
+    This loops until it finds less than 10 times or maximum 1% of data being outliers.
+    """
+    df = df.copy(deep=True)
+    keep_looping = True
+    number_of_loops = 1
+    thresh = 5
+    while keep_looping:
+        if number_of_loops >= 10:
+            break
+        mask_outliers = is_outlier(df[col], thresh=thresh).astype(int)
+        dfout_index = df.loc[np.where(mask_outliers>0)].index
+        pct_outliers = len(dfout_index)/len(df)
+        if pct_outliers == 0:
+            if thresh > 5:
+                thresh = thresh - 5
+            elif thresh == 5:
+                return thresh
+            else:
+                thresh = thresh - 1
+        elif  pct_outliers <= 0.01:
+            keep_looping = False
+        else:
+            thresh_multiplier = int((pct_outliers/0.01)*0.5)
+            thresh = thresh*thresh_multiplier
+        number_of_loops += 1
+    print('    %s Outlier threshold = %d' %(col, thresh))
+    return thresh
+
 from collections import Counter
-def FE_find_and_cap_outliers(df, features, thresh=5,
-                                         drop=False, verbose=False):
+def FE_find_and_cap_outliers(df, features, drop=False, verbose=False):
     """
     FE at the beginning of function name stands for Feature Engineering. FE functions add or drop features.
     #########################################################################################
@@ -2206,12 +2301,9 @@ def FE_find_and_cap_outliers(df, features, thresh=5,
         MADD: Median Absolute Deviation Method - it's a fast and easy method to find outliers.
     In addition, this utility helps you select the value to cap it at.
     The value to be capped is based on "n" that you input.
-    thresh represents how far away from median the data point needs to be for it to called an outlier.
-         -- the higher the thresh number, the fewer the outliers. So use 5 or higher to find outliers.
-
-    Notice that it does not put a floor under minimums. You have to do that yourself.
-    "cap_at_nth_largest" specifies the max number below the largest (max) number in your column to cap that feature.
-    Optionally, you can drop certain observations that have too many outliers in at least 3 columns.
+    It automatically determines how far away from median the data point needs to be for it to called an outlier.
+         -- it uses a thresh number: the lower it is, more outliers. It starts at 5 or higher as threshold value.
+    Notice that it does not use a lower bound to find too low outliers. That you have to do that yourself.
     #########################################################################################
     Inputs:
     df : pandas DataFrame
@@ -2235,6 +2327,7 @@ def FE_find_and_cap_outliers(df, features, thresh=5,
     # iterate over features(columns)
     for col in features:
         # Determine a list of indices of outliers for feature col
+        thresh = outlier_determine_threshold(df, col)
         mask_outliers = is_outlier(df[col], thresh=thresh).astype(int)
         dfout_index = df.loc[np.where(mask_outliers>0)].index
 
@@ -2477,4 +2570,140 @@ def split_data_n_ways(df, target, n_splits, test_size=0.2, modeltype=None,**kwar
         else:
             print('Number of splits must be 2, 3, 4 or 6')
             return
+##################################################################################
+def FE_concatenate_multiple_columns(df, cols, filler=" ", drop=True):
+    """
+    This handy function combines multiple string columns into a single NLP text column.
+    You can do further pre-processing on such a combined column with TFIDF or BERT style embedding.
+
+    Inputs
+    ---------
+        df: pandas dataframe
+        cols: string columns that you want to concatenate into a single combined column
+        filler: string (default: " "): you can input any string that you want to combine them with.
+        drop: default True. If True, drop the columns input. If False, keep the columns.
+
+    Outputs:
+    ----------
+        df: there will be a new column called ['combined'] that will be added to your dataframe.
+    """
+    df = df.copy(deep=True)
+    df['combined'] = df[cols].apply(lambda row: filler.join(row.values.astype(str)), axis=1)
+    if drop:
+        df.drop(cols, axis=1, inplace=True)
+    return df
+##################################################################################
+from sklearn.model_selection import KFold, cross_val_score,StratifiedKFold
+import seaborn as sns
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder, label_binarize
+import csv
+import re
+from lightgbm import plot_importance,LGBMRegressor
+from xgboost import XGBRegressor, XGBClassifier
+from sklearn.metrics import mean_squared_log_error, balanced_accuracy_score
+from scipy import stats
+
+def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype):
+    """
+    Easy to use XGBoost model. Just send in X_train, y_train and what you want to predict, X_test
+    It will automatically split X_train into multiple folds (10) and train and predict each time on X_test.
+    It will then use average (or use mode) to combine the results and give you a y_test.
+    You just need to give the modeltype as "Regression" or 'Classification'
+
+    Inputs:
+    ------------
+    X_XGB: pandas dataframe only: do not send in numpy arrays. This is the X_train of your dataset.
+    Y_XGB: pandas Series or DataFrame only: do not send in numpy arrays. This is the y_train of your dataset.
+    X_XGB_test: pandas dataframe only: do not send in numpy arrays. This is the X_test of your dataset.
+    modeltype: can only be 'Regression' or 'Classification'
+
+    Outputs:
+    ------------
+    y_preds: Predicted values for your X_XGB_test dataframe.
+        It has been averaged after repeatedly predicting on X_XGB_test. So likely to be better than one model.
+    """
+
+    if modeltype == 'Regression':
+        xgb=XGBRegressor(learning_rate=0.03,max_depth=7,min_child_weight=1,
+                     n_estimators=200,subsample=0.7)
+    else:
+        xgb=XGBClassifier(learning_rate=0.03,max_depth=7,min_child_weight=1,
+                     n_estimators=200,subsample=0.7)
+
+    #testing for xgbregressor
+    n_splits = 10
+    ls=[]
+    if modeltype == 'Regression':
+        fold = KFold(n_splits=n_splits)
+    else:
+        fold = StratifiedKFold(shuffle=True, n_splits=n_splits, random_state=99)
+    scores=[]
+    pred_xgbs = np.zeros(len(X_XGB_test))
+    for folds, (train_index, test_index) in enumerate(fold.split(X_XGB,Y_XGB)):
+        x_train, x_test = X_XGB.values[train_index], X_XGB.values[test_index]
+        if modeltype == 'Regression':
+            y_train, y_test = np.log(Y_XGB.values[train_index]), Y_XGB.values[test_index]
+        else:
+            y_train, y_test = Y_XGB.values[train_index], Y_XGB.values[test_index]
+
+        model = xgb
+        model.fit(x_train, y_train)
+        if modeltype == 'Regression':
+            preds = np.exp(model.predict(x_test))
+        else:
+            preds = model.predict(x_test)
+        feature_importances = pd.DataFrame(model.feature_importances_,
+                                           index = X_XGB.columns,
+                                            columns=['importance'])
+        sum_all=feature_importances.values
+        ls.append(sum_all)
+        ######  Time to consolidate the predictions on test data #########
+        if modeltype == 'Regression':
+            pred_xgb=np.exp(model.predict(X_XGB_test.values))
+            pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
+            pred_xgbs = pred_xgbs.mean(axis=0)
+            score = np.sqrt(mean_squared_log_error(y_test, preds))
+            print('RMSE score in fold %d = %s' %(folds+1, score))
+        else:
+            pred_xgb=model.predict(X_XGB_test.values)
+            if folds == 0:
+                pred_xgbs = copy.deepcopy(pred_xgb)
+            else:
+                pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
+                pred_xgbs = stats.mode(pred_xgbs, axis=0)[0][0]
+            score = balanced_accuracy_score(y_test, preds)
+            print('Balanced Accuracy score in fold %d = %0.1f%%' %(folds+1, score*100))
+        scores.append(score)
+    plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
+                        modeltype=modeltype)
+    print('final predictions', pred_xgbs)
+    print("Average scores are: ", np.sum(scores)/len(scores))
+    return pred_xgbs
+
+def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype):
+    add_items=0
+    for item in ls:
+        add_items +=item
+    df_cv=pd.DataFrame(add_items/len(ls),index=train_set.columns,columns=["importance"]).sort_values('importance', ascending=False)
+    df_cv=df_cv.reset_index()
+    feat_imp = pd.Series(df_cv.importance.values, index=df_cv.drop(["importance"], axis=1)).sort_values(axis='index',ascending=False)
+    #
+    feat_imp2=feat_imp[feat_imp>0.00005]
+    imp_columns=[]
+    for item in pd.DataFrame(feat_imp2).reset_index()["index"].tolist():
+        fcols=re.sub("[(),]","",str(item))
+        try:
+            columns= int(re.sub("['']","",fcols))
+            imp_columns.append(columns)
+        except:
+            columns= re.sub("['']","",fcols)
+            imp_columns.append(columns)
+    # X_UPDATED=X_GB[imp_columns]
+    len(imp_columns)
+    fig = plt.figure(figsize=(15,8))
+    ax1=plt.subplot(2, 2, 1)
+    feat_imp.nlargest(5).plot(kind='barh', ax=ax1)
+    if modeltype == 'Regression':
+        ax2=plt.subplot(2, 2, 2)
+        pd.Series(y_preds).plot(ax=ax2, color='b');
 ##################################################################################
