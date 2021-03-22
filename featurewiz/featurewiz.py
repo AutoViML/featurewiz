@@ -2689,11 +2689,13 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,verbose=0):
             y_train, y_test = Y_XGB.values[train_index], Y_XGB.values[test_index]
 
         model = xgb
-        model.fit(x_train, y_train, early_stopping_rounds=6,
-                        eval_set=[(x_test, np.log(y_test))], verbose=0)
         if modeltype == 'Regression':
+            model.fit(x_train, y_train, early_stopping_rounds=6,
+                        eval_set=[(x_test, np.log(y_test))], verbose=0)
             preds = np.exp(model.predict(x_test))
         else:
+            model.fit(x_train, y_train, early_stopping_rounds=6,
+                            eval_set=[(x_test, y_test)], verbose=0)
             preds = model.predict(x_test)
         feature_importances = pd.DataFrame(model.feature_importances_,
                                            index = X_XGB.columns,
@@ -2841,3 +2843,18 @@ def FE_transform_numeric_columns(df, bin_dict, verbose=0):
             plt.legend();
     return df
 #################################################################################
+def FE_create_interaction_vars(df, intxn_vars):
+    """
+    This handy function creates interaction variables among pairs of numeric vars you send in.
+    Your input must be a dataframe and a list of tuples. Each tuple must contain a pair of variables.
+    All variables must be numeric. Double check your input before sending them in.
+    """
+    df = df.copy(deep=True)
+    for (each_intxn1,each_intxn2)  in intxn_vars:
+        new_col = each_intxn1 + '_x_' + each_intxn2
+        try:
+            df[new_col] = df[each_intxn1] * df[each_intxn2]
+        except:
+            continue
+    return df
+##################################################################################
