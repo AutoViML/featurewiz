@@ -2846,8 +2846,10 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,log_y=False, GPU_fl
     scores=[]
     if not isinstance(X_XGB_test, str):
         pred_xgbs = np.zeros(len(X_XGB_test))
+        pred_probas = np.zeros(len(X_XGB_test))
     else:
         pred_xgbs = []
+        pred_probas = []
     #### First convert test data into numeric using train data ###
     if not isinstance(X_XGB_test, str):
         _, X_XGB_test_enc,__ = data_transform(X_XGB, Y_XGB, X_XGB_test,
@@ -2923,20 +2925,28 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,log_y=False, GPU_fl
         else:
             if not isinstance(X_XGB_test, str):
                 pred_xgb=model.predict(X_XGB_test_enc[columns])
+                pred_proba = model.predict_proba(X_XGB_test_enc[columns])
                 if folds == 0:
                     pred_xgbs = copy.deepcopy(pred_xgb)
+                    pred_probas = copy.deepcopy(pred_proba)
                 else:
                     pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
                     pred_xgbs = stats.mode(pred_xgbs, axis=0)[0][0]
+                    pred_probas = np.mean( np.array([ pred_probas, pred_proba ]), axis=0 )
             score = balanced_accuracy_score(y_test, preds)
             print('Balanced Accuracy score in fold %d = %0.1f%%' %(folds+1, score*100))
         scores.append(score)
     if verbose:
         plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
                             modeltype=modeltype)
-    print('final predictions', pred_xgbs)
     print("Average scores are: ", np.sum(scores)/len(scores))
-    return pred_xgbs
+    if modeltype == 'Regression':
+        print('final predictions', pred_xgbs)
+        return pred_xgbs
+    else:
+        print('final predictions', pred_xgbs)
+        print('sample of predicted probabilities', pred_probas[:3])
+        return (pred_xgbs, pred_probas)
 ##################################################################################
 def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype):
     add_items=0
