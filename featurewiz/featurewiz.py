@@ -1309,7 +1309,7 @@ def check_if_GPU_exists():
     try:
         from tensorflow.python.client import device_lib
         dev_list = device_lib.list_local_devices()
-        print('Number of GPUs = %d' %len(dev_list))
+        print('Number of processors on machine = %d' %len(dev_list))
         for i in range(len(dev_list)):
             if 'GPU' == dev_list[i].device_type:
                 GPU_exists = True
@@ -2607,17 +2607,149 @@ def FE_concatenate_multiple_columns(df, cols, filler=" ", drop=True):
         df.drop(cols, axis=1, inplace=True)
     return df
 ##################################################################################
+from tqdm.notebook import tqdm
+from pathlib import Path
+
+#sklearn data_preprocessing
+from sklearn.preprocessing import StandardScaler
+#sklearn categorical encoding
+import category_encoders as ce
+
+#sklearn modelling
+from sklearn.model_selection import KFold
+from collections import Counter, defaultdict
+from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
+
+# boosting library
+import xgboost as xgb
+
+import warnings
+warnings.filterwarnings("ignore")
+
+#################################################################################
+class My_LabelEncoder(TransformerMixin):
+    """
+    ################################################################################################
+    ######  This Label Encoder class works just like sklearn's Label Encoder!  #####################
+    #####  You can label encode any column in a data frame using this new class. But unlike sklearn,
+    the beauty of this function is that it can take care of NaN's and unknown (future) values.
+    It uses the same fit() and fit_transform() methods of sklearn's LabelEncoder class.
+    ################################################################################################
+    Usage:
+          MLB = My_LabelEncoder()
+          train[column] = MLB.fit_transform(train[column])
+          test[column] = MLB.transform(test[column])
+    """
+    def __init__(self):
+        self.transformer = defaultdict(str)
+        self.inverse_transformer = defaultdict(str)
+
+    def fit(self,testx):
+        if isinstance(testx, pd.Series):
+            pass
+        elif isinstance(testx, np.ndarray):
+            testx = pd.Series(testx)
+        else:
+            return testx
+        outs = np.unique(testx.factorize()[0])
+        ins = np.unique(testx.factorize()[1]).tolist()
+        if -1 in outs:
+            ins.insert(0,np.nan)
+        self.transformer = dict(zip(ins,outs.tolist()))
+        self.inverse_transformer = dict(zip(outs.tolist(),ins))
+        return self
+
+    def transform(self, testx):
+        if isinstance(testx, pd.Series):
+            pass
+        elif isinstance(testx, np.ndarray):
+            testx = pd.Series(testx)
+        else:
+            return testx
+        ins = np.unique(testx.factorize()[1]).tolist()
+        missing = [x for x in ins if x not in self.transformer.keys()]
+        if len(missing) > 0:
+            for each_missing in missing:
+                max_val = np.max(list(self.transformer.values())) + 1
+                self.transformer[each_missing] = max_val
+                self.inverse_transformer[max_val] = each_missing
+        ### now convert the input to transformer dictionary values
+        outs = testx.map(self.transformer).values
+        return outs
+
+    def inverse_transform(self, testx):
+        ### now convert the input to transformer dictionary values
+        if isinstance(testx, pd.Series):
+            outs = testx.map(self.inverse_transformer).values
+        elif isinstance(testx, np.ndarray):
+            outs = pd.Series(testx).map(self.inverse_transformer).values
+        else:
+            outs = testx[:]
+        return outs
+#################################################################################
+from sklearn.impute import SimpleImputer
+def data_transform(X_train, y_train, X_test="", enc_method='label', scaler = StandardScaler()):
+    X_train_encoded = X_train.copy()
+    X_test_encoded= copy.deepcopy(X_test)
+    # Set up feature to encode
+    feature_to_encode = X_train.columns[X_train.dtypes == 'O'].tolist()
+    #print('features to label encode: %s' %feature_to_encode)
+    #### Do label encoding now #################
+    if enc_method == 'label':
+        for feat in feature_to_encode:
+            # Initia the encoder model
+            lbEncoder = My_LabelEncoder()
+            # fit the train data
+            lbEncoder.fit(X_train[feat])
+            # transform training set
+            X_train_encoded[feat] = lbEncoder.transform(X_train[feat])
+            # transform test set
+            if not isinstance(X_test_encoded, str):
+                X_test_encoded[feat] = lbEncoder.transform(X_test[feat])
+    elif enc_method == 'glmm':
+        # Initialize the encoder model
+        GLMMEncoder = ce.glmm.GLMMEncoder(verbose=0 ,binomial_target=False)
+        # fit the train data
+        GLMMEncoder.fit(X_train[feature_to_encode],y_train)
+        # transform training set
+        X_train_encoded[feature_to_encode] = GLMMEncoder.transform(X_train[feature_to_encode])
+        # transform test set
+        if not isinstance(X_test_encoded, str):
+            X_test_encoded[feature_to_encode] = GLMMEncoder.transform(X_test[feature_to_encode])
+    else:
+    	raise 'No encoding method stated'
+
+    ### make sure there are no missing values ###
+    try:
+        imputer = SimpleImputer(strategy='constant', fill_value=0, verbose=0, add_indicator=True)
+        imputer.fit_transform(X_train_encoded)
+        if not isinstance(X_test_encoded, str):
+            imputer.transform(X_test_encoded)
+    except:
+        X_train_encoded.fillna(0, inplace=True)
+        if not isinstance(X_test_encoded, str):
+            X_test_encoded.fillna(0, inplace=True)
+
+    # fit the scaler to the entire train and transform the test set
+    scaler.fit(X_train_encoded)
+    # transform training set
+    X_train_scaled = pd.DataFrame(scaler.transform(X_train_encoded), columns=X_train_encoded.columns, index=X_train_encoded.index)
+    # transform test set
+    if not isinstance(X_test_encoded, str):
+        X_test_scaled = pd.DataFrame(scaler.transform(X_test_encoded), columns=X_test_encoded.columns, index=X_test_encoded.index)
+    return X_train_scaled, X_test_scaled, feature_to_encode
+##################################################################################
 from sklearn.model_selection import KFold, cross_val_score,StratifiedKFold
 import seaborn as sns
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder, label_binarize
 import csv
 import re
-from lightgbm import plot_importance,LGBMRegressor
 from xgboost import XGBRegressor, XGBClassifier
-from sklearn.metrics import mean_squared_log_error, balanced_accuracy_score
+from sklearn.metrics import mean_squared_log_error, mean_squared_error,balanced_accuracy_score
 from scipy import stats
 
-def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,verbose=0):
+def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,log_y=False, GPU_flag=False,
+                                scaler = StandardScaler(), enc_method='label',verbose=0):
     """
     Easy to use XGBoost model. Just send in X_train, y_train and what you want to predict, X_test
     It will automatically split X_train into multiple folds (10) and train and predict each time on X_test.
@@ -2630,49 +2762,81 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,verbose=0):
     Y_XGB: pandas Series or DataFrame only: do not send in numpy arrays. This is the y_train of your dataset.
     X_XGB_test: pandas dataframe only: do not send in numpy arrays. This is the X_test of your dataset.
     modeltype: can only be 'Regression' or 'Classification'
+    log_y: default = False: If True, it means use the log of the target variable "y" to train and test.
+    GPU_flag: if your machine has a GPU set this flag and it will use XGBoost GPU to speed up processing.
+    scaler : default is StandardScaler(). But you can send in MinMaxScaler() as input to change it or any other scaler.
+    enc_method: default is 'label' encoding. But you can choose 'glmm' as an alternative. But those are the only two.
+    verbose: default = 0. Choosing 1 will give you lot more output.
 
     Outputs:
     ------------
     y_preds: Predicted values for your X_XGB_test dataframe.
         It has been averaged after repeatedly predicting on X_XGB_test. So likely to be better than one model.
     """
-
+    columns =  X_XGB.columns
+    #########     G P U     P R O C E S S I N G      B E G I N S    ############
+    ###### This is where we set the CPU and GPU parameters for XGBoost
+    if GPU_flag:
+        GPU_exists = check_if_GPU_exists()
+    else:
+        GPU_exists = False
+    #####   Set the Scoring Parameters here based on each model and preferences of user ###
+    cpu_params = {}
+    param = {}
+    cpu_params['tree_method'] = 'hist'
+    cpu_params['gpu_id'] = 0
+    cpu_params['updater'] = 'grow_colmaker'
+    cpu_params['predictor'] = 'cpu_predictor'
+    if GPU_exists:
+        param['tree_method'] = 'gpu_hist'
+        param['gpu_id'] = 0
+        param['updater'] = 'grow_gpu_hist' #'prune'
+        param['predictor'] = 'gpu_predictor'
+        print('    Running XGBoost using GPU parameters')
+    else:
+        param = copy.deepcopy(cpu_params)
+        print('    Running XGBoost using CPU parameters')
+    #################################################################################
     if modeltype == 'Regression':
-         xgb = XGBRegressor(
+        if log_y:
+            Y_XGB.loc[Y_XGB==0] = 1e-15  ### just set something that is zero to a very small number
+        xgb = XGBRegressor(
+                          booster = 'gbtree',
                           colsample_bytree=0.5,
-                          alpha=0.01563,
-                          #gamma=0.0,
+                          alpha=0.015,
+                          gamma=4,
                           learning_rate=0.1,
                           max_depth=15,
                           min_child_weight=2,
-                          n_estimators=4000,
-                          #reg_alpha=0.9,
-                          reg_lambda=0.003,
+                          n_estimators=1000,
+                          reg_lambda=0.5,
+          	              #reg_alpha=8,
                           subsample=0.7,
-                          random_state=2020,
-                          #metric_period=100,
+                          random_state=99,
+                          objective='reg:squarederror',
+          	              eval_metric='rmse',
                           verbosity = 0,
                           n_jobs=-1,
                           silent = True)
     else:
         xgb = XGBClassifier(
+                         booster = 'gbtree',
                          colsample_bytree=0.5,
-                         alpha=0.01563,
-                         #gamma=0.0,
+                         alpha=0.015,
+                         gamma=4,
                          learning_rate=0.1,
                          max_depth=15,
                          min_child_weight=2,
-                         n_estimators=4000,
-                         #reg_alpha=0.9,
-                         reg_lambda=0.003,
+                         n_estimators=1000,
+                         reg_lambda=0.5,
+         	             #reg_alpha=8,
                          subsample=0.7,
-                         random_state=2020,
-                         #metric_period=100,
+                         random_state=99,
                          n_jobs=-1,
                          verbosity = 0,
                          silent = True)
 
-    #testing for xgbregressor
+    #testing for GPU
     n_splits = 10
     ls=[]
     if modeltype == 'Regression':
@@ -2680,23 +2844,63 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,verbose=0):
     else:
         fold = StratifiedKFold(shuffle=True, n_splits=n_splits, random_state=99)
     scores=[]
-    pred_xgbs = np.zeros(len(X_XGB_test))
-    for folds, (train_index, test_index) in enumerate(fold.split(X_XGB,Y_XGB)):
-        x_train, x_test = X_XGB.values[train_index], X_XGB.values[test_index]
+    if not isinstance(X_XGB_test, str):
+        pred_xgbs = np.zeros(len(X_XGB_test))
+    else:
+        pred_xgbs = []
+    #### First convert test data into numeric using train data ###
+    if not isinstance(X_XGB_test, str):
+        _, X_XGB_test_enc,__ = data_transform(X_XGB, Y_XGB, X_XGB_test,
+                                scaler=scaler, enc_method=enc_method)
+    #### now run all the folds each one by one ##################################
+    for folds, (train_index, test_index) in tqdm(enumerate(fold.split(X_XGB,Y_XGB))):
+        x_train, x_test = X_XGB.iloc[train_index], X_XGB.iloc[test_index]
         if modeltype == 'Regression':
-            y_train, y_test = np.log(Y_XGB.values[train_index]), Y_XGB.values[test_index]
+            if log_y:
+                y_train, y_test = np.log(Y_XGB.iloc[train_index]), Y_XGB.iloc[test_index]
+            else:
+                y_train, y_test = Y_XGB.iloc[train_index], Y_XGB.iloc[test_index]
         else:
-            y_train, y_test = Y_XGB.values[train_index], Y_XGB.values[test_index]
+            y_train, y_test = Y_XGB.iloc[train_index], Y_XGB.iloc[test_index]
 
-        model = xgb
-        if modeltype == 'Regression':
-            model.fit(x_train, y_train, early_stopping_rounds=6,
-                        eval_set=[(x_test, np.log(y_test))], verbose=0)
-            preds = np.exp(model.predict(x_test))
-        else:
-            model.fit(x_train, y_train, early_stopping_rounds=6,
+        ##  scale the x_train and x_test values - use all columns -
+        x_train, x_test,__ = data_transform(x_train, y_train, x_test,
+                                scaler=scaler, enc_method=enc_method)
+
+        model = xgb.set_params(**param)
+        try:
+            if modeltype == 'Regression':
+                if log_y:
+                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
+                            eval_set=[(x_test, np.log(y_test))], verbose=0)
+                else:
+                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
                             eval_set=[(x_test, y_test)], verbose=0)
+            else:
+                model.fit(x_train, y_train, early_stopping_rounds=6,
+                                eval_set=[(x_test, y_test)], verbose=0)
+        except:
+            print('GPU is present but not turned on. Please restart after that. Currently using CPU...')
+            model = xgb.set_params(**cpu_params)
+            if modeltype == 'Regression':
+                if log_y:
+                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
+                            eval_set=[(x_test, np.log(y_test))], verbose=0)
+                else:
+                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
+                            eval_set=[(x_test, y_test)], verbose=0)
+            else:
+                model.fit(x_train, y_train, early_stopping_rounds=6,
+                                eval_set=[(x_test, y_test)], verbose=0)
+        #### now make predictions on validation data ##
+        if modeltype == 'Regression':
+            if log_y:
+                preds = np.exp(model.predict(x_test))
+            else:
+                preds = model.predict(x_test)
+        else:
             preds = model.predict(x_test)
+
         feature_importances = pd.DataFrame(model.feature_importances_,
                                            index = X_XGB.columns,
                                             columns=['importance'])
@@ -2704,18 +2908,26 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,verbose=0):
         ls.append(sum_all)
         ######  Time to consolidate the predictions on test data #########
         if modeltype == 'Regression':
-            pred_xgb=np.exp(model.predict(X_XGB_test.values))
-            pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
-            pred_xgbs = pred_xgbs.mean(axis=0)
-            score = np.sqrt(mean_squared_log_error(y_test, preds))
+            if not isinstance(X_XGB_test, str):
+                if log_y:
+                    pred_xgb=np.exp(model.predict(X_XGB_test_enc[columns]))
+                else:
+                    pred_xgb=model.predict(X_XGB_test_enc[columns])
+                pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
+                pred_xgbs = pred_xgbs.mean(axis=0)
+            if log_y:
+                score = np.sqrt(mean_squared_log_error(y_test, preds))
+            else:
+                score = np.sqrt(mean_squared_error(y_test, preds))
             print('RMSE score in fold %d = %s' %(folds+1, score))
         else:
-            pred_xgb=model.predict(X_XGB_test.values)
-            if folds == 0:
-                pred_xgbs = copy.deepcopy(pred_xgb)
-            else:
-                pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
-                pred_xgbs = stats.mode(pred_xgbs, axis=0)[0][0]
+            if not isinstance(X_XGB_test, str):
+                pred_xgb=model.predict(X_XGB_test_enc[columns])
+                if folds == 0:
+                    pred_xgbs = copy.deepcopy(pred_xgb)
+                else:
+                    pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
+                    pred_xgbs = stats.mode(pred_xgbs, axis=0)[0][0]
             score = balanced_accuracy_score(y_test, preds)
             print('Balanced Accuracy score in fold %d = %0.1f%%' %(folds+1, score*100))
         scores.append(score)
@@ -2725,7 +2937,7 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,verbose=0):
     print('final predictions', pred_xgbs)
     print("Average scores are: ", np.sum(scores)/len(scores))
     return pred_xgbs
-
+##################################################################################
 def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype):
     add_items=0
     for item in ls:
@@ -2816,6 +3028,7 @@ def FE_transform_numeric_columns(df, bin_dict, verbose=0):
     ----------
     df: pandas dataframe with new variables with names such as:  variable+'_discrete'
     """
+    df = copy.deepcopy(df)
     num_cols = len(bin_dict)
     nrows = int((num_cols/2)+0.5)
     if verbose:
@@ -2823,18 +3036,30 @@ def FE_transform_numeric_columns(df, bin_dict, verbose=0):
     for i, (col, binvalue) in enumerate(bin_dict.items()):
         new_col = col+'_'+binvalue
         if binvalue == 'log':
-            df[new_col] = np.log(df[col]).values
+            print('Warning: Negative values in %s have been made positive before log transform!' %col)
+            df.loc[df[col]==0,col] = 1e-15  ### make it a small number
+            df[new_col] = np.abs(df[col].values)
+            df[new_col] = np.log(df[new_col]).values
         elif binvalue == 'log10':
-            df[new_col] = np.log10(df[col]).values
+            print('Warning: Negative values in %s have been made positive before log10 transform!' %col)
+            df.loc[df[col]==0,col] = 1e-15  ### make it a small number
+            df[new_col] = np.abs(df[col].values)
+            df[new_col] = np.log10(df[new_col]).values
         elif binvalue == 'sqrt':
-            df[new_col] = np.sqrt(df[col]).values
+            print('Warning: Negative values in %s have been made positive before sqrt transform!' %col)
+            df[new_col] = np.abs(df[col].values)  ### make it a small number
+            df[new_col] = np.sqrt(df[new_col]).values
         elif binvalue == 'max-abs':
-            col_max = df[col].max()
+            print('Warning: Negative values in %s have been made positive before max-abs transform!' %col)
+            col_max = max(np.abs(df[col].values))
             if col_max == 0:
                 col_max = 1
-            df[new_col] = (df[col]/col_max).values
+            df[new_col] = np.abs(df[col].values)/col_max
         else:
-            df[new_col] = np.log(df[col]).values
+            print('Warning: Negative values in %s have been made positive before log transform!' %col)
+            df.loc[df[col]==0,col] = 1e-15  ### make it a small number
+            df[new_col] = np.abs(df[col].values)
+            df[new_col] = np.log(df[new_col]).values
         if verbose:
             ax1 = plt.subplot(nrows,2,i+1)
             df[col].plot.kde(ax=ax1, label=col,alpha=0.5,color='r')

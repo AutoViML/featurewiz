@@ -9,3 +9,4 @@ networkx
 category_encoders
 xlrd
 imbalanced-learn>=0.7
+tqdm
