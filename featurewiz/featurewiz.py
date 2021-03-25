@@ -2737,7 +2737,7 @@ def data_transform(X_train, y_train, X_test="", enc_method='label', scaler = Sta
     # transform test set
     if not isinstance(X_test_encoded, str):
         X_test_scaled = pd.DataFrame(scaler.transform(X_test_encoded), columns=X_test_encoded.columns, index=X_test_encoded.index)
-    return X_train_scaled, X_test_scaled, feature_to_encode
+    return X_train_scaled, X_test_scaled
 ##################################################################################
 from sklearn.model_selection import KFold, cross_val_score,StratifiedKFold
 import seaborn as sns
@@ -2747,8 +2747,59 @@ import re
 from xgboost import XGBRegressor, XGBClassifier
 from sklearn.metrics import mean_squared_log_error, mean_squared_error,balanced_accuracy_score
 from scipy import stats
-
-def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,log_y=False, GPU_flag=False,
+from sklearn.model_selection import RandomizedSearchCV
+import scipy as sp
+import time
+##################################################################################
+def xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, params, cpu_params):
+    start_time = time.time()
+    if str(model).split("(")[0] == 'RandomizedSearchCV':
+        model.fit(x_train, y_train)
+        print('Time take for Hyper Param tuning of XGB (in minutes) = %0.1f' %(
+                                        (time.time()-start_time)/60))
+    else:
+        try:
+            if modeltype == 'Regression':
+                if log_y:
+                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
+                            eval_set=[(x_test, np.log(y_test))], verbose=0)
+                else:
+                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
+                            eval_set=[(x_test, y_test)], verbose=0)
+            else:
+                if y_train.nunique() <= 2:
+                    objective='binary:logistic'
+                    eval_metric = 'logloss'
+                else:
+                    objective='multi:softmax'
+                    eval_metric = 'mlogloss'
+                model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric = eval_metric,
+                                eval_set=[(x_test, y_test)], verbose=0)
+        except:
+            print('GPU is present but not turned on. Please restart after that. Currently using CPU...')
+            if str(model).split("(")[0] == 'RandomizedSearchCV':
+                xgb = model.estimator_
+                xgb.set_params(**cpu_params)
+                model = RandomizedSearchCV(xgb,
+                                                   param_distributions = params,
+                                                   n_iter = 10,
+                                                   n_jobs=-1,
+                                                   cv=5)
+            else:
+                model = model.set_params(**cpu_params)
+            if modeltype == 'Regression':
+                if log_y:
+                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
+                            eval_set=[(x_test, np.log(y_test))], verbose=0)
+                else:
+                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
+                            eval_set=[(x_test, y_test)], verbose=0)
+            else:
+                model.fit(x_train, y_train, early_stopping_rounds=6,eval_metric=eval_metric,
+                                eval_set=[(x_test, y_test)], verbose=0)
+    return model
+#################################################################################
+def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_flag=False,
                                 scaler = StandardScaler(), enc_method='label',verbose=0):
     """
     Easy to use XGBoost model. Just send in X_train, y_train and what you want to predict, X_test
@@ -2819,6 +2870,12 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,log_y=False, GPU_fl
                           n_jobs=-1,
                           silent = True)
     else:
+        if Y_XGB.nunique() <= 2:
+            objective='binary:logistic'
+            eval_metric = 'logloss'
+        else:
+            objective='multi:softmax'
+            eval_metric = 'mlogloss'
         xgb = XGBClassifier(
                          booster = 'gbtree',
                          colsample_bytree=0.5,
@@ -2829,7 +2886,7 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,log_y=False, GPU_fl
                          min_child_weight=2,
                          n_estimators=1000,
                          reg_lambda=0.5,
-         	             #reg_alpha=8,
+                         objective=objective,
                          subsample=0.7,
                          random_state=99,
                          n_jobs=-1,
@@ -2837,6 +2894,51 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,log_y=False, GPU_fl
                          silent = True)
 
     #testing for GPU
+    model = xgb.set_params(**param)
+    if X_XGB.shape[0] >= 1000000:
+        hyper_frac = 0.1
+    elif X_XGB.shape[0] >= 100000:
+        hyper_frac = 0.2
+    elif X_XGB.shape[0] >= 10000:
+        hyper_frac = 0.3
+    else:
+        hyper_frac = 0.4
+    #### now select a random sample from X_XGB ##
+    if modeltype == 'Regression':
+        X_XGB_sample = X_XGB[:int(hyper_frac*X_XGB.shape[0])]
+        Y_XGB_sample = Y_XGB[:int(hyper_frac*X_XGB.shape[0])]
+    else:
+        X_XGB_sample = X_XGB.sample(frac=hyper_frac, random_state=99)
+        Y_XGB_sample = Y_XGB.sample(frac=hyper_frac, random_state=99)
+    #########  Now set the number of rows we need to tune hyper params ###
+    nums = int(X_XGB_sample.shape[0]*0.9)
+    X_train = X_XGB_sample[:nums]
+    X_valid = X_XGB_sample[nums:]
+    Y_train = Y_XGB_sample[:nums]
+    Y_valid = Y_XGB_sample[nums:]
+    scoreFunction = { "precision": "precision_weighted","recall": "recall_weighted"}
+    params = {
+        'learning_rate': sp.stats.uniform(scale=1),
+        'gamma': sp.stats.randint(0, 32),
+       'n_estimators': sp.stats.randint(100,500),
+        "max_depth": sp.stats.randint(3, 15),
+            },
+    model = RandomizedSearchCV(xgb.set_params(**param),
+                                       param_distributions = params,
+                                       n_iter = 10,
+                                       return_train_score = True,
+                                       random_state = 99,
+                                       n_jobs=-1,
+                                       #cv = 3,
+                                        verbose = False)
+
+    X_train, X_valid = data_transform(X_train, Y_train, X_valid,
+                                scaler=scaler, enc_method=enc_method)
+
+    gbm_model = xgb_model_fit(model, X_train, Y_train, X_valid, Y_valid, modeltype,
+                         log_y, params, cpu_params)
+    model = gbm_model.best_estimator_
+    #############################################################################
     n_splits = 10
     ls=[]
     if modeltype == 'Regression':
@@ -2852,9 +2954,10 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,log_y=False, GPU_fl
         pred_probas = []
     #### First convert test data into numeric using train data ###
     if not isinstance(X_XGB_test, str):
-        _, X_XGB_test_enc,__ = data_transform(X_XGB, Y_XGB, X_XGB_test,
+        _, X_XGB_test_enc = data_transform(X_XGB, Y_XGB, X_XGB_test,
                                 scaler=scaler, enc_method=enc_method)
     #### now run all the folds each one by one ##################################
+    start_time = time.time()
     for folds, (train_index, test_index) in tqdm(enumerate(fold.split(X_XGB,Y_XGB))):
         x_train, x_test = X_XGB.iloc[train_index], X_XGB.iloc[test_index]
         if modeltype == 'Regression':
@@ -2866,34 +2969,13 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,log_y=False, GPU_fl
             y_train, y_test = Y_XGB.iloc[train_index], Y_XGB.iloc[test_index]
 
         ##  scale the x_train and x_test values - use all columns -
-        x_train, x_test,__ = data_transform(x_train, y_train, x_test,
+        x_train, x_test = data_transform(x_train, y_train, x_test,
                                 scaler=scaler, enc_method=enc_method)
 
-        model = xgb.set_params(**param)
-        try:
-            if modeltype == 'Regression':
-                if log_y:
-                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
-                            eval_set=[(x_test, np.log(y_test))], verbose=0)
-                else:
-                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
-                            eval_set=[(x_test, y_test)], verbose=0)
-            else:
-                model.fit(x_train, y_train, early_stopping_rounds=6,
-                                eval_set=[(x_test, y_test)], verbose=0)
-        except:
-            print('GPU is present but not turned on. Please restart after that. Currently using CPU...')
-            model = xgb.set_params(**cpu_params)
-            if modeltype == 'Regression':
-                if log_y:
-                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
-                            eval_set=[(x_test, np.log(y_test))], verbose=0)
-                else:
-                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
-                            eval_set=[(x_test, y_test)], verbose=0)
-            else:
-                model.fit(x_train, y_train, early_stopping_rounds=6,
-                                eval_set=[(x_test, y_test)], verbose=0)
+        model = gbm_model.best_estimator_
+        model = xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype,
+                                log_y, params, cpu_params)
+
         #### now make predictions on validation data ##
         if modeltype == 'Regression':
             if log_y:
@@ -2936,17 +3018,21 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype,log_y=False, GPU_fl
             score = balanced_accuracy_score(y_test, preds)
             print('Balanced Accuracy score in fold %d = %0.1f%%' %(folds+1, score*100))
         scores.append(score)
+    print('    Time take for training XGB (in minutes) = %0.1f' %(
+             (time.time()-start_time)/60))
     if verbose:
         plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
                             modeltype=modeltype)
     print("Average scores are: ", np.sum(scores)/len(scores))
+    print('\nReturning the following:')
+    print('    Model = %s' %model)
     if modeltype == 'Regression':
-        print('final predictions', pred_xgbs)
-        return pred_xgbs
+        print('    final predictions', pred_xgbs[:10])
+        return (pred_xgbs, model)
     else:
-        print('final predictions', pred_xgbs)
-        print('sample of predicted probabilities', pred_probas[:3])
-        return (pred_xgbs, pred_probas)
+        print('    final predictions', pred_xgbs[:10])
+        print('    predicted probabilities', pred_probas[:1])
+        return (pred_xgbs, pred_probas, model)
 ##################################################################################
 def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype):
     add_items=0
