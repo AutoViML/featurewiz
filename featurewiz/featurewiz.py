@@ -62,6 +62,7 @@ from io import BytesIO
 import base64
 from functools import reduce
 import copy
+
 #######################################################################################################
 def classify_features(dfte, depVar, verbose=0):
     dfte = copy.deepcopy(dfte)
@@ -765,6 +766,7 @@ from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_
 from sklearn.feature_selection import SelectKBest
 from .databunch import DataBunch
 from .encoders import FrequencyEncoder
+
 from sklearn.model_selection import train_test_split
 def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                       test_data='', feature_engg='', category_encoders='', **kwargs):
@@ -880,7 +882,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     else:
         train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows='all')
         train_index = train.index
-        if test is None:
+        if test is not None:
             test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose,
                                         nrows='all')
             test_index = test.index
@@ -1171,7 +1173,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     X_train, X_cv, y_train, y_cv = X[:train_part],X[train_part:],y[:train_part],y[train_part:]
                 else:
                     X_train, X_cv, y_train, y_cv = train_test_split(X, y,
-                                                                test_size=test_size, random_state=seed)
+                                            test_size=test_size, random_state=seed, stratify=y)
                 try:
                     if settings.multi_label:
                         eval_set = [(X_train.values,y_train.values),(X_cv.values,y_cv.values)]
@@ -1220,7 +1222,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     X_train, X_cv, y_train, y_cv = X[:train_part],X[train_part:],y[:train_part],y[train_part:]
                 else:
                     X_train, X_cv, y_train, y_cv = train_test_split(X, y,
-                                                                test_size=test_size, random_state=seed)
+                                                    test_size=test_size, random_state=seed, stratify=y)
                 ### set the validation data as arrays in multi-label case #####
                 if settings.multi_label:
                     eval_set = [(X_train.values,y_train.values),(X_cv.values,y_cv.values)]

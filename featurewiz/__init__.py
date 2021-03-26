@@ -21,6 +21,7 @@ from .featurewiz import FE_kmeans_resampler, FE_find_and_cap_outliers, EDA_find_
 from .featurewiz import split_data_n_ways, FE_concatenate_multiple_columns
 from .featurewiz import simple_XGBoost_model, FE_discretize_numeric_variables, data_transform
 from .featurewiz import FE_transform_numeric_columns, FE_create_interaction_vars
+from .stacking_models import Stacking_Classifier, Blending_Regressor
 ################################################################################
 if __name__ == "__main__":
     module_type = 'Running'
