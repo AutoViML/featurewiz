@@ -429,36 +429,39 @@ class DataBunch(object):
                 self.binary_features_names.append(feature)
 
         # Convert all Category features "Category" type variables if no encoding is specified
-        if encodet_features_names:
-            if cat_encoder_names is None:
-                for feature in encodet_features_names:
-                    data[feature] = data[feature].astype('category').cat.codes
-                    if test_data is not None:
-                        test_data[feature] = test_data[feature].astype('category').cat.codes
-            else:
-                #### If an encoder is specified, then use that encoder to transform categorical variables
-                if verbose > 0:
-                    print('> Generate Categorical Encoded features')
-
-                copy_cat_encoder_names = copy.deepcopy(cat_encoder_names)
-                for encoder_name in copy_cat_encoder_names:
+        cat_only_encoders = [x for x in self.cat_encoder_names if x in self.cat_encoders_names]
+        if len(cat_only_encoders) > 0:
+            ### Just skip if this encoder is not in the list of category encoders ##
+            if encodet_features_names:
+                if cat_encoder_names is None:
+                    for feature in encodet_features_names:
+                        data[feature] = data[feature].astype('category').cat.codes
+                        if test_data is not None:
+                            test_data[feature] = test_data[feature].astype('category').cat.codes
+                else:
+                    #### If an encoder is specified, then use that encoder to transform categorical variables
                     if verbose > 0:
-                        print(' + To know more, click: %s' %self.cat_encoders_names[encoder_name][1])
-                    data_encodet, train_encoder = self.gen_cat_encodet_features(data[encodet_features_names],
-                                                                encoder_name)
-                    if not isinstance(data_encodet, str):
-                        data = data.join(data_encodet)
-                    if test_data is not None:
-                        test_encodet, _ = self.gen_cat_encodet_features(test_data[encodet_features_names],
-                                                                train_encoder)
-                        if not isinstance(test_encodet, str):
-                            test_data = test_data.join(test_encodet)
+                        print('> Generate Categorical Encoded features')
 
-                    if verbose > 0:
+                    copy_cat_encoder_names = copy.deepcopy(cat_encoder_names)
+                    for encoder_name in copy_cat_encoder_names:
+                        if verbose > 0:
+                            print(' + To know more, click: %s' %self.cat_encoders_names[encoder_name][1])
+                        data_encodet, train_encoder = self.gen_cat_encodet_features(data[encodet_features_names],
+                                                                    encoder_name)
                         if not isinstance(data_encodet, str):
-                            addl_features = data_encodet.shape[1] - original_number_features
-                            count_number_features += addl_features
-                            print(' + added ', addl_features, ' additional Features using',encoder_name)
+                            data = data.join(data_encodet)
+                        if test_data is not None:
+                            test_encodet, _ = self.gen_cat_encodet_features(test_data[encodet_features_names],
+                                                                    train_encoder)
+                            if not isinstance(test_encodet, str):
+                                test_data = test_data.join(test_encodet)
+
+                        if verbose > 0:
+                            if not isinstance(data_encodet, str):
+                                addl_features = data_encodet.shape[1] - original_number_features
+                                count_number_features += addl_features
+                                print(' + added ', addl_features, ' additional Features using',encoder_name)
 
         # Generate Target related Encoder features for cat variables:
         target_encoders = [x for x in self.cat_encoder_names if x in self.target_encoders_names_list]
