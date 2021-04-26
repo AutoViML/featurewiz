@@ -713,6 +713,7 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
     ######################################################################################
     """
     train = copy.deepcopy(train)
+    test = copy.deepcopy(test)
     #### This is to fill all numeric columns with a missing number ##########
     nums = train.select_dtypes('number').columns.tolist()
     if len(nums) == 0:
@@ -2272,7 +2273,7 @@ def EDA_find_outliers(df, col, thresh=5):
     ####### Dataframe refers to the input dataframe and threshold refers to how far from the median a value is
     ####### I am using the Median Absolute Deviation Method (MADD) to find Outliers here
     mask_outliers = is_outlier(df[col],thresh=thresh).astype(int)
-    return df.loc[np.where(mask_outliers>0)]
+    return df.iloc[np.where(mask_outliers>0)]
 ###################################################################################
 def outlier_determine_threshold(df, col):
     """
@@ -2289,7 +2290,7 @@ def outlier_determine_threshold(df, col):
         if number_of_loops >= 10:
             break
         mask_outliers = is_outlier(df[col], thresh=thresh).astype(int)
-        dfout_index = df.loc[np.where(mask_outliers>0)].index
+        dfout_index = df.iloc[np.where(mask_outliers>0)].index
         pct_outliers = len(dfout_index)/len(df)
         if pct_outliers == 0:
             if thresh > 5:
@@ -2315,8 +2316,8 @@ def FE_find_and_cap_outliers(df, features, drop=False, verbose=False):
     Typically we think of outliers as being observations beyond the 1.5 Inter Quartile Range (IQR)
     But this function will allow you to cap any observation using MADD method:
         MADD: Median Absolute Deviation Method - it's a fast and easy method to find outliers.
-    In addition, this utility helps you select the value to cap it at.
-    The value to be capped is based on "n" that you input.
+    In addition, this utility automatically selects the value to cap it at.
+         -- The value to be capped is based on maximum 1% of data being outliers.
     It automatically determines how far away from median the data point needs to be for it to called an outlier.
          -- it uses a thresh number: the lower it is, more outliers. It starts at 5 or higher as threshold value.
     Notice that it does not use a lower bound to find too low outliers. That you have to do that yourself.
@@ -2345,7 +2346,7 @@ def FE_find_and_cap_outliers(df, features, drop=False, verbose=False):
         # Determine a list of indices of outliers for feature col
         thresh = outlier_determine_threshold(df, col)
         mask_outliers = is_outlier(df[col], thresh=thresh).astype(int)
-        dfout_index = df.loc[np.where(mask_outliers>0)].index
+        dfout_index = df.iloc[np.where(mask_outliers>0)].index
 
         df['anomaly1'] = 0
         df.loc[dfout_index ,'anomaly1'] = 1
@@ -3181,3 +3182,22 @@ def FE_create_interaction_vars(df, intxn_vars):
             continue
     return df
 ##################################################################################
+import matplotlib.pyplot as plt
+def EDA_binning_numeric_column_displaying_bins(dft, target, bins=4):
+    prices = pd.qcut(dft[target].dropna(axis=0),q=bins, retbins=True, duplicates='drop')[1]
+    nrows = int(len(prices)/2 + 1)
+    plt.figure(figsize=(15,nrows*3))
+    plt.subplots_adjust(hspace=.5)
+    collect_bins = []
+    for i in range(len(prices)):
+        if i == 0:
+            continue
+        else:
+            dftc = dft[(dft[target]>prices[i-1]) & (dft[target]<=prices[i])]
+            collect_bins.append(dftc)
+            ax1 = plt.subplot(nrows, 2, i)
+            dftc[target].hist(bins=30, ax=ax1)
+            ax1.set_title('bin %d: size: %d, %s %0.2f to %0.2f' %(i, dftc.shape[0], target,
+                                                                  prices[i-1], prices[i]))
+    return collect_bins
+#########################################################################################
