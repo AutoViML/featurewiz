@@ -1371,70 +1371,83 @@ def FE_start_end_date_time_features(smalldf, startTime, endTime, splitter_date_s
     """
     smalldf = smalldf.copy()
     add_cols = []
-    start_date = 'processing'+startTime+'_start_date'
-    smalldf[start_date] = smalldf[startTime].map(lambda x: x.split(" ")[0])
-    add_cols.append(start_date)
-    try:
-        start_time = 'processing'+startTime+'_start_time'
-        smalldf[start_time] = smalldf[startTime].map(lambda x: x.split(" ")[1])
-        add_cols.append(start_time)
-    except:
-        ### there is no hour-minutes part of this date time stamp field. You can just skip it if it is not there
-        pass
-    end_date = 'processing'+endTime+'_end_date'
-    smalldf[end_date] = smalldf[endTime].map(lambda x: x.split(" ")[0])
-    add_cols.append(end_date)
-    try:
-        end_time = 'processing'+endTime+'_end_time'
-        smalldf[end_time] = smalldf[endTime].map(lambda x: x.split(" ")[1])
-        add_cols.append(end_time)
-    except:
-        ### there is no hour-minutes part of this date time stamp field. You can just skip it if it is not there
-        pass
-    view_days = 'processing'+startTime+'_elapsed_days'
-    smalldf[view_days] = (pd.to_datetime(smalldf[end_date]) - pd.to_datetime(smalldf[start_date])).values.astype(int)
-    add_cols.append(view_days)
-    try:
+    date_time_variable_flag = False
+    if smalldf[startTime].dtype in ['datetime64[ns]','datetime16[ns]','datetime32[ns]']:
+        print('%s variable is a date-time variable' %startTime)
+        date_time_variable_flag = True
+    if date_time_variable_flag:
+        view_days = 'processing'+startTime+'_elapsed_days'
+        smalldf[view_days] = (smalldf[endTime] - smalldf[startTime]).astype('timedelta64[s]')/(60*60*24)
+        smalldf[view_days] = smalldf[view_days].astype(int)
+        add_cols.append(view_days)
         view_time = 'processing'+startTime+'_elapsed_time'
-        smalldf[view_time] = (pd.to_datetime(smalldf[end_time]) - pd.to_datetime(smalldf[start_time])).astype('timedelta64[s]').values
+        smalldf[view_time] = (smalldf[endTime] - smalldf[startTime]).astype('timedelta64[s]').values
         add_cols.append(view_time)
-    except:
-        ### In some date time fields this gives an error so skip it in that case
-        pass
-    #### The reason we chose endTime here is that startTime is usually taken care of by another library. So better to do this alone.
-    year = 'processing'+endTime+'_end_year'
-    smalldf[year] = smalldf[end_date].map(lambda x: str(x).split(splitter_date_string)[0]).values
-    add_cols.append(year)
-    #### The reason we chose endTime here is that startTime is usually taken care of by another library. So better to do this alone.
-    month = 'processing'+endTime+'_end_month'
-    smalldf[month] = smalldf[end_date].map(lambda x: str(x).split(splitter_date_string)[1]).values
-    add_cols.append(month)
-    try:
+    else:
+        start_date = 'processing'+startTime+'_start_date'
+        smalldf[start_date] = smalldf[startTime].map(lambda x: x.split(" ")[0])
+        add_cols.append(start_date)        
+        try:
+            start_time = 'processing'+startTime+'_start_time'
+            smalldf[start_time] = smalldf[startTime].map(lambda x: x.split(" ")[1])
+            add_cols.append(start_time)
+        except:
+            ### there is no hour-minutes part of this date time stamp field. You can just skip it if it is not there
+            pass
+        end_date = 'processing'+endTime+'_end_date'
+        smalldf[end_date] = smalldf[endTime].map(lambda x: x.split(" ")[0])
+        add_cols.append(end_date)
+        try:
+            end_time = 'processing'+endTime+'_end_time'
+            smalldf[end_time] = smalldf[endTime].map(lambda x: x.split(" ")[1])
+            add_cols.append(end_time)
+        except:
+            ### there is no hour-minutes part of this date time stamp field. You can just skip it if it is not there
+            pass
+        view_days = 'processing'+startTime+'_elapsed_days'
+        smalldf[view_days] = (pd.to_datetime(smalldf[end_date]) - pd.to_datetime(smalldf[start_date])).values.astype(int)
+        add_cols.append(view_days)
+        try:
+            view_time = 'processing'+startTime+'_elapsed_time'
+            smalldf[view_time] = (pd.to_datetime(smalldf[end_time]) - pd.to_datetime(smalldf[start_time])).astype('timedelta64[s]').values
+            add_cols.append(view_time)
+        except:
+            ### In some date time fields this gives an error so skip it in that case
+            pass
         #### The reason we chose endTime here is that startTime is usually taken care of by another library. So better to do this alone.
-        daynum = 'processing'+endTime+'_end_day_number'
-        smalldf[daynum] = smalldf[end_date].map(lambda x: str(x).split(splitter_date_string)[2]).values
-        add_cols.append(daynum)
-    except:
-        ### In some date time fields the day number is not there. If not, just skip it ####
-        pass
-    #### In some date time fields, the hour and minute is not there, so skip it in that case if it errors!
-    try:
-        start_hour = 'processing'+startTime+'_start_hour'
-        smalldf[start_hour] = smalldf[start_time].map(lambda x: str(x).split(splitter_hour_string)[0]).values
-        add_cols.append(start_hour)
-        start_min = 'processing'+startTime+'_start_hour'
-        smalldf[start_min] = smalldf[start_time].map(lambda x: str(x).split(splitter_hour_string)[1]).values
-        add_cols.append(start_min)
-    except:
-        ### If it errors, skip it
-        pass
-    #### Check if there is a weekday and weekends in date time columns using endTime only
-    weekday_num = 'processing'+endTime+'_end_weekday_number'
-    smalldf[weekday_num] = pd.to_datetime(smalldf[end_date]).dt.weekday.values
-    add_cols.append(weekday_num)
-    weekend = 'processing'+endTime+'_end_weekend_flag'
-    smalldf[weekend] = smalldf[weekday_num].map(lambda x: 1 if x in[5,6] else 0)
-    add_cols.append(weekend)
+        year = 'processing'+endTime+'_end_year'
+        smalldf[year] = smalldf[end_date].map(lambda x: str(x).split(splitter_date_string)[0]).values
+        add_cols.append(year)
+        #### The reason we chose endTime here is that startTime is usually taken care of by another library. So better to do this alone.
+        month = 'processing'+endTime+'_end_month'
+        smalldf[month] = smalldf[end_date].map(lambda x: str(x).split(splitter_date_string)[1]).values
+        add_cols.append(month)
+        try:
+            #### The reason we chose endTime here is that startTime is usually taken care of by another library. So better to do this alone.
+            daynum = 'processing'+endTime+'_end_day_number'
+            smalldf[daynum] = smalldf[end_date].map(lambda x: str(x).split(splitter_date_string)[2]).values
+            add_cols.append(daynum)
+        except:
+            ### In some date time fields the day number is not there. If not, just skip it ####
+            pass
+        #### In some date time fields, the hour and minute is not there, so skip it in that case if it errors!
+        try:
+            start_hour = 'processing'+startTime+'_start_hour'
+            smalldf[start_hour] = smalldf[start_time].map(lambda x: str(x).split(splitter_hour_string)[0]).values
+            add_cols.append(start_hour)
+            start_min = 'processing'+startTime+'_start_hour'
+            smalldf[start_min] = smalldf[start_time].map(lambda x: str(x).split(splitter_hour_string)[1]).values
+            add_cols.append(start_min)
+        except:
+            ### If it errors, skip it
+            pass
+        #### Check if there is a weekday and weekends in date time columns using endTime only
+        weekday_num = 'processing'+endTime+'_end_weekday_number'
+        smalldf[weekday_num] = pd.to_datetime(smalldf[end_date]).dt.weekday.values
+        add_cols.append(weekday_num)
+        weekend = 'processing'+endTime+'_end_weekend_flag'
+        smalldf[weekend] = smalldf[weekday_num].map(lambda x: 1 if x in[5,6] else 0)
+        add_cols.append(weekend)
     #### If everything works well, there should be 13 new columns added by module. All the best!
     print('%d columns added using start date=%s and end date=%s processing...' %(len(add_cols),startTime,endTime))
     return smalldf
@@ -3183,21 +3196,39 @@ def FE_create_interaction_vars(df, intxn_vars):
     return df
 ##################################################################################
 import matplotlib.pyplot as plt
-def EDA_binning_numeric_column_displaying_bins(dft, target, bins=4):
-    prices = pd.qcut(dft[target].dropna(axis=0),q=bins, retbins=True, duplicates='drop')[1]
-    nrows = int(len(prices)/2 + 1)
+def EDA_binning_numeric_column_displaying_bins(dft, target, bins=4, test=""):
+    """
+    This splits the data column into the number of bins specified and returns labels, bins, and dataframe.
+    Outputs:
+       labels = the names of the bins
+       edges = the edges of the bins
+       dft = the dataframe with an added column called "binned_"+name of the column you sent in
+    """
+    dft = copy.deepcopy(dft)
+    _, edges = pd.qcut(dft[target].dropna(axis=0),q=bins, retbins=True, duplicates='drop')
+    ### now we create artificial labels to match the bins edges ####
+    ls = []
+    for i, x in enumerate(edges):
+        #print('i = %s, next i = %s' %(i,i+1))
+        if i < len(edges)-1:
+            ls.append('from_'+str(round(edges[i],3))+'_to_'+str(round(edges[i+1],3)))
+    ##### Next we add a column to hold the bins created by above ###############
+    dft['binned_'+target] = pd.cut(dft[target], bins=edges, retbins=False, labels=ls, include_lowest=True).values.tolist()
+    if not isinstance(test, str):
+        test['binned_'+target] = pd.cut(test[target], bins=edges, retbins=False, labels=ls, include_lowest=True).values.tolist()
+    nrows = int(len(edges)/2 + 1)
     plt.figure(figsize=(15,nrows*3))
     plt.subplots_adjust(hspace=.5)
     collect_bins = []
-    for i in range(len(prices)):
+    for i in range(len(edges)):
         if i == 0:
             continue
         else:
-            dftc = dft[(dft[target]>prices[i-1]) & (dft[target]<=prices[i])]
+            dftc = dft[(dft[target]>edges[i-1]) & (dft[target]<=edges[i])]
             collect_bins.append(dftc)
             ax1 = plt.subplot(nrows, 2, i)
             dftc[target].hist(bins=30, ax=ax1)
             ax1.set_title('bin %d: size: %d, %s %0.2f to %0.2f' %(i, dftc.shape[0], target,
-                                                                  prices[i-1], prices[i]))
-    return collect_bins
+                                                                  edges[i-1], edges[i]))
+    return ls, edges, dft, test
 #########################################################################################
