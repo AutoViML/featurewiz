@@ -3232,3 +3232,56 @@ def EDA_binning_numeric_column_displaying_bins(dft, target, bins=4, test=""):
                                                                   edges[i-1], edges[i]))
     return ls, edges, dft, test
 #########################################################################################
+from tqdm import tqdm
+import pdb
+def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, category_col, test2):
+    """
+    ######    F E A T U R E    E N G G    F O R    T I M E    S E R I E S     D A T A  ############
+    This handy function adds the mean of lagged values for target column based on date and a category.
+    For each date in date column, it collects all target values prior to that date and calculates mean.
+    The collected target values are in same category as current category in each row.
+    This function enables a model to learn average of prior target (values) grouped by a category. 
+    It also calculates same values for test using values in train data 9(by using it as look up tables)
+    ############    I N P U T S    A N D      O U T P U T S     #####################################
+    Inputs:
+        train2: a training dataframe
+        target_col: name of target variable you want the mean of the lagged values before a certain date
+        date_col: name of the 
+        category_col: name of category column prior target values are grouped by (and mean calculated)
+
+    Outputs:
+        new_col: new column in train and test 
+        - representing average of prior target values by category before each date in a row
+    #################################################################################################
+    """
+    new_col = target_col+'_array'
+    train2[new_col] = 0
+    i = 0
+    for index, each_train in tqdm(train2.iterrows(), total=train2.shape[0]):
+        before_grp = train2.loc[train2.index<index]
+        if len(before_grp.loc[(before_grp[category_col] == each_train[category_col])]) > 0:
+            price_val = before_grp.loc[(before_grp[category_col] == each_train[category_col]),target_col].values.tolist()
+        else:
+            price_val = [0]
+        #price_val = f"{price_val}"
+        price_val = np.mean(price_val)
+        #print(' i = ', i+1, price_val)
+        train2.iloc[i,-1] = price_val
+        i += 1
+    if not isinstance(test2, str):
+        test2[new_col] = 0
+        i = 0
+        for index1, each_test in tqdm(test2.iterrows(), total=test2.shape[0]):
+            prim = each_test[category_col]
+            mask = train2.loc[(train2[category_col] == prim) & (train2.index == index1)]
+            mask2 = train2.loc[(train2[category_col] == prim)]
+            if len(mask) > 0:
+                price_val = mask[new_col].values.tolist()[0]
+            else:
+                price_val = mask2[new_col].median()
+            #print(' i = ', i+1, price_val)
+            test2.iloc[i,-1] = price_val
+            i += 1
+    return train2, test2
+#############################################################################################
+
