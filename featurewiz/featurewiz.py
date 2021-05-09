@@ -1473,7 +1473,7 @@ def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list='',
         new_names_list: the list of new columns created by this function
     ######################################################################################
     """
-    df = df.copy()
+    df = df.copy(deep=True)
     ### First print the maximum number of things in that field
     df[field] = df[field].fillna(filler)
     max_things = df[field].map(lambda x: len(x.split(splitter))).max()
@@ -1487,24 +1487,29 @@ def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list='',
     ### This creates a new field that counts the number of things that are in that field.
     if add_count_field:
         num_products_viewed = 'count_things_in_'+field
-        df[num_products_viewed] = df[field].map(lambda x: len(x.split(";"))).values
+        df[num_products_viewed] = df[field].map(lambda x: len(x.split(splitter))).values
     ### Clean up the field such that it has the right number of split chars otherwise add to it
-    df[field] = df[field].map(lambda x: x+splitter*(max_things-len(x.split(";"))) if len(x.split(";")) < max_things else x)
+    ### This fills up the field with empty strings between each splitter. You can't do much about it.
+    #### Leave this as it is. It is not something you can do right now. It works.
+    df[field] = df[field].map(lambda x: x+splitter*(max_things-len(x.split(splitter))) if len(x.split(splitter)) < max_things else x)
     ###### Now you create new fields by split the one large field ########
     if isinstance(new_names_list, str):
         if new_names_list == '':
             new_names_list = [field+'_'+str(i) for i in range(1,max_things+1)]
         else:
             new_names_list = [new_names_list]
+    ### First fill empty spaces or NaNs with filler ###
+    df[field].fillna(filler, inplace=True)
+    df.loc[df[field] == splitter, field] = filler
     for i in range(len(new_names_list)):
-        df[field].fillna(filler, inplace=True)
-        df.loc[df[field] == splitter, field] = filler
         try:
             df[new_names_list[i]] = df[field].map(lambda x: x.split(splitter)[i]
-                                          if splitter in x else x)
+                                          if splitter in x else filler)
         except:
             df[new_names_list[i]] = filler
             continue
+    ### there is really nothing you can do to fill up since they are filled with empty strings.
+    #### Leave this as it is. It is not something you can do right now. It works.
     return df, new_names_list
 ###########################################################################
 import copy
@@ -2627,7 +2632,7 @@ from tqdm.notebook import tqdm
 from pathlib import Path
 
 #sklearn data_preprocessing
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 #sklearn categorical encoding
 import category_encoders as ce
 
@@ -2816,7 +2821,7 @@ def xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, par
     return model
 #################################################################################
 def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_flag=False,
-                                scaler = StandardScaler(), enc_method='label',verbose=0):
+                                scaler = '', enc_method='label',verbose=0):
     """
     Easy to use XGBoost model. Just send in X_train, y_train and what you want to predict, X_test
     It will automatically split X_train into multiple folds (10) and train and predict each time on X_test.
@@ -2841,6 +2846,15 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_f
         It has been averaged after repeatedly predicting on X_XGB_test. So likely to be better than one model.
     """
     columns =  X_XGB.columns
+    if isinstance(scaler, str):
+        if not scaler == '':
+            scaler = scaler.lower()
+    if scaler == 'standard':
+        scaler = StandardScaler()
+    elif scaler == 'minmax':
+        scaler = MinMaxScaler()
+    else:
+        scaler = StandardScaler()
     #########     G P U     P R O C E S S I N G      B E G I N S    ############
     ###### This is where we set the CPU and GPU parameters for XGBoost
     if GPU_flag:
@@ -3034,7 +3048,7 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_f
             score = balanced_accuracy_score(y_test, preds)
             print('Balanced Accuracy score in fold %d = %0.1f%%' %(folds+1, score*100))
         scores.append(score)
-    print('    Time take for training XGB (in minutes) = %0.1f' %(
+    print('    Time taken for training XGB (in minutes) = %0.1f' %(
              (time.time()-start_time)/60))
     if verbose:
         plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
@@ -3284,4 +3298,391 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
             i += 1
     return train2, test2
 #############################################################################################
+"""
+Copyright 2020 Google LLC. This software is provided as-is, without warranty or
+representation for any use or purpose. Your use of it is subject to your
+agreement with Google.
+"""
+import numpy as np
+import pandas as pd
+from pathlib import Path
+import matplotlib.pyplot as plt
+import seaborn as sns
+from datetime import datetime, date
+from sklearn.metrics import mean_squared_error, roc_auc_score
+from sklearn.preprocessing import minmax_scale
+#### This is where we add other libraries to form a pipeline ###
+import copy
+import time
+import pdb
+import re
+from scipy.ndimage import convolve
+from sklearn import  datasets, metrics
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import KFold, StratifiedShuffleSplit
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+###########################################################################################
+from sklearn.base import TransformerMixin
+from collections import defaultdict
+class NLP_Pipeline(TransformerMixin):
+    """
+    ################################################################################################
+    ######  This Auto_NLP_Pipeline class works just like sklearn's Pipelines!  #####################
+    #####  You can transform any NLP column in a pandas data frame using this new class. But unlike
+    sklearn the beauty of this function is that it can take care of NaN's in your NLP column values.
+    It uses the same fit() and fit_transform() methods of sklearn's models. You can add embeddings 
+    from any data set with an NLP column and a target variable using GloVe
+    ################################################################################################
+    ####   MOST IMPORTANT: YOU MUST DOWNLOAD THE GLOVE VECTOR AND UNZIP IT IN YOUR MACHINE ###
+    Example of a glove_filename_with_path is this: './Glove/glove.twitter.27B.200d.txt'
+    #######      ONCE UNZIPPED YOU MUST PROVIDE THE PATH AND NAME OF TXT FILE ABOVE ################
+    This utility uses pretrained Global Vectors for Word Representation (GloVe) provided by the 
+    Stanford NLP group with the IMDB review dataset. Glove is a word vector trained on large datasets, 
+    similar to the weights for pretrained deep learning models (an example of transfer learning).
+    #########################################  I N P U T S   #######################################
+    data: DataFrame
+    nlp_column: name of the NLP column in DataFrame
+    target: name of target variable in the DataFrame
+    glovefile: exact location in your local machine including path and name of glove.txt file.
+    glove_dimension: specify dimension of the glove vector - usually found in name of glove txt file.
+           Make sure your glove_dimension input does not exceed dimension specified in glove.txt file!
+    max_length: This is maximum length of each paragraph or sentence or piece of text you are feeding.
+    ############################# O U T P U T S ####################################################
+    tokenized: This is the tokenizer that was used to split the words in data set. 
+                    This must be used later.
+    vocab_size: This is the size of train vocabulary that was based on the words in data set. 
+                    This must be used later.
+    glove_dimension: This is the size of the glove .txt dimension that was acted on the data set. 
+                    This must be used later.
+    embedding_matrix: This is the final matrix that was created from the words in data set. 
+                This must be used later.
+    ##################################################################################################
+    Usage:
+          NLP = Auto_NLP_Pipeline()
+          train[column] = NLP.fit_transform(train[nlp_column])
+          test[column] = MLB.transform(test[nlp_column])
+    ################################################################################################
+    """
+    def __init__(self, glovefile, glove_dimension="", max_length=""):
+        self.glovefile = glovefile
+        self.fit_flag = False
+        self.vocab_size = 10000
+        self.rnn_path = 'models/'
+        self.rnn = ''
+        self.data = pd.DataFrame()
+        self.data_padded = np.array([])
+        self.tokenizer = ""
+        self.embedding_matrix = np.array([])
+        self.word_index = []
+        self.MAX_NUM_WORDS = 1000000        ## make the max word size  to be one million ####
+        if max_length:
+            self.max_length = max_length
+        else:
+            self.max_length = ""
+        if not glove_dimension:
+            self.glove_dimension = int(re.findall(r'\d+', glovefile)[-1])
+        else:
+            self.glove_dimension = glove_dimension
+        try:
+            Path(self.glovefile).open(encoding='latin1')
+            print('Glove txt file found and loaded. Glove dimension = %s' %self.glove_dimension)
+        except:
+            print('No Glove txt file found in the given path. Doublecheck your path and try again')
+            return
+
+
+    def fit(self, data, nlp_column):
+        """
+        The dataframe is fit to learn embeddings using specified glove dimension.
+        X_train_padded: the train dataframe with dimension specified in max_length
+        y_train: the target vector using data and target column
+        X_test_padded:  the test dataframe with dimension specified in max_length
+        """
+        if not isinstance(nlp_column, str):
+            print('Error: format of fit is .fit(data, nlp_column). Please check your input and try again')
+            return self
+        if isinstance(data, pd.Series) or isinstance(data, pd.DataFrame):
+            self.data = data
+            self.nlp_column = nlp_column
+        elif isinstance(data, np.ndarray):
+            print('Input data is an array. It must be a pandas dataframe with a column name')
+            return self
+        else:
+            print('Input data is of unknown type. It must be a pandas dataframe with a column name')
+            return self
+        #### This is where we  create the embedding matrix after tokenizing the data  ##
+        print('Length of data set:', self.data.shape[0])
+        if not self.max_length:
+            self.max_length = self.data[self.nlp_column].map(lambda x: len(x.split(" "))).max()
+            print('    Current max length of your text is %s' %self.max_length)
+            self.max_length = int(1.2*self.max_length)  ### add 20% for out-of-vocab words
+            print('        recommended max length of your text is %s' %self.max_length)
+        ##### collect the word index from the train data only. Do not do this on test data ##########
+        if not self.word_index:
+            #### You do this only if the word_index is not already there. Otherwise, you don't.######
+            self.tokenizer = Tokenizer(num_words=self.MAX_NUM_WORDS,
+                      lower=True,
+                      oov_token=2)
+            self.tokenizer.fit_on_texts(data[nlp_column])
+            self.word_index = self.tokenizer.word_index
+            self.vocab_size = min(self.MAX_NUM_WORDS, len(self.word_index) + 1)
+            print('    Vocabulary size = %s' %self.vocab_size)
+        self.embedding_matrix, self.glove_dimension = load_embeddings(self.tokenizer, self.glovefile,
+                                                        self.vocab_size, self.glove_dimension)
+        self.fit_flag = True
+        return self
+
+    def transform(self, train_data):
+        if self.fit_flag:
+            train_index = train_data.index
+            ### Encode Train data text into sequences
+            train_data_encoded = self.tokenizer.texts_to_sequences(train_data[self.nlp_column])
+            ### Pad_Sequences function is used to make lists of unequal length to stacked sets of padded and truncated arrays
+            ### Pad Sequences for Train
+            X_train_padded = pad_sequences(train_data_encoded,
+                                        maxlen=self.max_length,
+                                        padding='post',
+                                       truncating='post')
+            print('Data shape after padding = %s' %(X_train_padded.shape,))
+            new_cols = ['glove_dim_' + str(x+1) for x in range(X_train_padded.shape[1])]
+            X_train_padded = pd.DataFrame(X_train_padded, columns=new_cols, index=train_index)
+            return X_train_padded
+        else:
+            print('Fit the Auto_NLP_Pipeline class with some train data before doing transform')
+            return self
+############################################################################################################
+def add_text_paddings(train_data,nlp_column,glove_filename_with_path,tokenized,
+                            fit_flag=True,
+                            max_length=100):
+    """
+    ##################################################################################################
+    This function uses a GloVe pre-trained model to add embeddings to your data set.
+    ########  I N P U T ##############################:
+    data: DataFrame
+    nlp_column: name of the NLP column in the DataFrame
+    target: name of the target variable in the DataFrame
+    glovefile: location of where the glove.txt file is. You must give the full path to that file.
+    max_length: specify the dimension of the glove vector  you can have upto the dimension of the glove txt file.
+           Make sure you don't exceed the dimension specified in the glove.txt file. Otherwise, error result.
+    ####### O U T P U T #############################
+    The dataframe is split into train and test and are modified into the specified vector dimension of max_length
+    X_train_padded: the train dataframe with dimension specified in max_length
+    y_train: the target vector using data and target column
+    X_test_padded:  the test dataframe with dimension specified in max_length
+    tokenized: This is the tokenizer that was used to split the words in data set. This must be used later.
+    ##################################################################################################
+    """
+    train_index = train_data.index
+    ### Encode Train data text into sequences
+    train_data_encoded = tokenized.texts_to_sequences(train_data[nlp_column])
+    ### Pad_Sequences function is used to make lists of unequal length to stacked sets of padded and truncated arrays
+    ### Pad Sequences for Train
+    X_train_padded = pad_sequences(train_data_encoded,
+                                maxlen=max_length,
+                                padding='post',
+                               truncating='post')
+    print('    Data shape after padding = %s' %(X_train_padded.shape,))
+    new_cols = ['glove_dim_' + str(x+1) for x in range(X_train_padded.shape[1])]
+    X_train_padded = pd.DataFrame(X_train_padded, columns=new_cols, index=train_index)
+    if fit_flag:
+        return X_train_padded, tokenized, vocab_size
+    else:
+        return X_train_padded
+#####################################################################################################
+def load_embeddings(tokenized,glove_filename_with_path,vocab_size,glove_dimension):
+    """
+    ##################################################################################################
+    # glove_filename_with_path: Make sure u have downloaded and unzipped the GloVe ".txt" file to the location here.
+    # we now create a dictionary that maps GloVe tokens to 100, or 200- or 300-dimensional real-valued vectors
+    # Then we load the whole embedding into memory. Make sure you have plenty of memory in your machine!
+    ##################################################################################################
+    """
+    MAX_NUM_WORDS = 100000
+    glove_path = Path(glove_filename_with_path)
+    print('    Creating embeddings. This will take time...')
+    embeddings_index = dict()
+    for line in glove_path.open(encoding='latin1'):
+        values = line.split()
+        word = values[0]
+        try:
+            coefs = np.asarray(values[1:], dtype='float32')
+        except:
+            continue
+        embeddings_index[word] = coefs
+    print('Loaded {:,d} Glove vectors.'.format(len(embeddings_index)))
+    #There are around 340,000 word vectors that we use to create an embedding matrix
+    # that matches the vocabulary so that the RNN model can access embeddings by the token index
+    # prepare embedding matrix
+    word_index = tokenized.word_index
+    embedding_matrix = np.zeros((vocab_size, glove_dimension))
+    print('Preparing embedding matrix.')
+    for word, i in word_index.items():
+        if i >= MAX_NUM_WORDS:
+            continue
+        embedding_vector = embeddings_index.get(word)
+        if embedding_vector is not None:
+            # words not found in embedding index will be all-zeros.
+            embedding_matrix[i] = embedding_vector
+    print('    Completed.')
+    return embedding_matrix, glove_dimension
+#####################################################################################################
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
+from tensorflow.keras.datasets import imdb
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.layers import Dense, LSTM, GRU, Input, concatenate, Embedding, Reshape, Activation
+from tensorflow.python.keras.utils import np_utils
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.preprocessing.text import Tokenizer
+import tensorflow.keras.backend as K
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.wrappers.scikit_learn import KerasClassifier
+from tensorflow.keras.models import model_from_json
+from tensorflow.keras.models import load_model
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, BatchNormalization, Dropout
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.layers import Dense, Input, GlobalMaxPooling1D, Concatenate
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, Embedding, Flatten
+from tensorflow.keras.models import Model
+from tensorflow.keras.initializers import Constant
+#print('Tensorflow loaded. Version = %s' %tf.__version__)
+
+def get_keras_model(modeltype, num_predicts, NLP):
+    """
+    This function builds a simple keras CNN model for both regression and classification problems.
+    You just need to provide the model type and the number of outputs (num_predicts).
+    It also requires the NLP_Pipeline class object which is used to figure out vocab size etc.
+    """
+    ################################### Set model and glove defaults here ##########################
+    # define model
+    kernel_size = 5
+    embedding_layer = Embedding(input_dim=NLP.vocab_size,
+                                output_dim= NLP.glove_dimension,
+                                embeddings_initializer=Constant(NLP.embedding_matrix),
+                                input_length=NLP.max_length,
+                                trainable=False)
+    sequence_input = Input(shape=(NLP.max_length,), dtype='int32')
+    embedded_sequences = embedding_layer(sequence_input)
+    x = Conv1D(128, kernel_size, activation='relu')(embedded_sequences)
+    x = MaxPooling1D(kernel_size)(x)
+    x = Conv1D(128, kernel_size, activation='relu')(x)
+    x = MaxPooling1D(kernel_size)(x)
+    x = Conv1D(128, kernel_size, activation='relu')(x)
+    x = GlobalMaxPooling1D()(x)
+    x = Dense(128, activation='relu')(x)
+    if modeltype == 'Regression':
+        output_activation = "linear"
+        loss = "mae"
+        metric = "mae"
+    else:
+        output_activation = 'softmax'
+        loss = 'sparse_categorical_crossentropy'
+        metric = 'accuracy'
+    preds = Dense(num_predicts, activation=output_activation)(x)
+    model = Model(sequence_input, preds)
+    print(model.summary())
+    model.compile(loss=loss,
+                  optimizer='rmsprop',
+                  metrics=[metric])
+    return model
+###################################################################################
+from sklearn.model_selection import cross_val_predict
+from sklearn.model_selection import KFold
+import copy
+import pdb
+def TF_cross_val_predict_using_embeddings(glovefile, nlp_column, modeltype, X, y, test="",epochs=50,loc_flag=True):
+    """
+    This handy function is similar to Cross_Val_Predict function in sklearn.
+    It performs 5-fold cross validation using the NLP column in your dataframe given by X and y.
+    It uses the NLP column to make GloVE embeddings using GloVE model which you must download first.
+    Do not run this function without downloading GloVE txt model from either Kaggle or TFHub or anywhere.
+    You can also specify the modeltype so it can build a Keras CNN model to make cross val predictions.
+    It is primarily designed to make predictions on the same dataset X which you send as input.
+    But optionally, you can send in a test dataframe and it will make predictions on test after training on X.
+    The loc_flag is needed since in many dataframes there is no index and it uses index to make a KFold split.
+    The number of epochs to run training is determined by the epochs input. Default is 50 epochs.
+    ########################    I N P U T S       ################################################
+    glovefile: You must provide the filename and path to your GloVE txt model which you have downloaded.
+    nlp_column: name of NLP column in your dataframe X which you want to use to make Embeddings using GloVE
+    
+    """
+    X = copy.deepcopy(X)
+    NLP = NLP_Pipeline(glovefile)
+    train_emb = NLP.fit_transform(X, nlp_column)
+    print('Train embeddings shape = ', train_emb.shape)
+    if not isinstance(test, str):
+        test_emb = NLP.transform(test)
+        print('    Test embeddings shape = ', test_emb.shape)
+    ### this contains only the embeddings and hence you must only use it for Emebedding layer in keras
+    print('NLP.embedding_matrix.shape = ',NLP.embedding_matrix.shape)
+    print('NLP.vocab_size = ', NLP.vocab_size)
+    print('NLP.max_length = ', NLP.max_length)
+    print('NLP.glove_dimension = ',NLP.glove_dimension)
+    #### now perform the model generation here using embeddings #####
+    test = test.copy(deep=True)
+    KF = KFold(n_splits=5)
+    train_copy = copy.deepcopy(train_emb)
+    y = copy.deepcopy(y)
+    if modeltype != 'Regression':
+        #You need to convert y since y happens to be a binary or multi-class variable
+        yten, idex = tf.unique(y)
+        rev_dicti = dict(zip(range(len(yten)),yten.numpy()))
+        dicti = dict([(v,k) for (k,v) in rev_dicti.items()])
+        num_predicts = len(yten)
+    else:
+        num_predicts = 1
+    best_pipe = get_keras_model(modeltype, num_predicts, NLP)
+    model2 = best_pipe
+    nlp_col = 'cross_val_predictions_glove'
+    if not loc_flag:
+        train_emb[nlp_col] = 0
+    for fold, (t_, v_) in enumerate(KF.split(train_emb,y)):
+        if loc_flag:
+            trainm = train_copy.loc[t_]
+            y_train_copy = y[t_]
+            testm = train_copy.loc[v_]
+        else:
+            trainm = train_copy.iloc[t_]
+            y_train_copy = y[t_]
+            testm = train_copy.iloc[v_]
+        #### Now let us do the model fitting #####            
+        if modeltype != 'Regression':
+            y_train_copy = pd.Series(y_train_copy).map(dicti).values
+        best_pipe.fit(trainm, y_train_copy, epochs=epochs, steps_per_epoch=10, verbose=1)
+        if modeltype == 'Regression':
+            testm = best_pipe.predict(testm).ravel()
+        else:
+            testm = best_pipe.predict(testm).argmax(axis=1).astype(int)
+        if loc_flag:
+            train_emb.loc[v_, nlp_col] = testm
+        else:
+            train_emb.iloc[v_, -1] = testm
+        print('    Predictions for fold %d completed' %(fold+1))
+    ## This is where we apply the transformer on train data and test ##
+    if modeltype == 'Regression':
+         y_train = train_emb[nlp_col].values
+    else:
+        y_train = train_emb[nlp_col].map(rev_dicti).values
+    tf.keras.backend.clear_session()
+    if not isinstance(test, str):
+        print('    Returning predictions on test data...')
+        if modeltype == 'Regression':
+            model2.fit(train_copy, y)
+            y_pred = model2.predict(test_emb).ravel()
+            test[nlp_col] = y_pred
+        else:
+            y = pd.Series(y).map(dicti).values
+            model2.fit(train_copy, y)
+            y_pred = model2.predict(test_emb).argmax(axis=1).astype(int)
+            test[nlp_col] = y_pred
+            y_pred = test[nlp_col].map(rev_dicti)
+    else:
+        y_pred = ""
+        test = ""
+    print('cross val predictions train and test completed')
+    return y_train, y_pred
+###################################################################################
 
