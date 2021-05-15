@@ -3242,6 +3242,9 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
     The collected target values are in same category as current category in each row.
     This function enables a model to learn average of prior target (values) grouped by a category. 
     It also calculates same values for test using values in train data 9(by using it as look up tables)
+    1. In Train data, we select rows prior to the current row's date and match category. We calculate mean.
+    2. In Test, we select rows matching the category and any row prior to the current row's date. Again mean.
+    3. In both cases, if there is no match, we just select all rows prior to the current row's date and find their mean.
     ############    I N P U T S    A N D      O U T P U T S     #####################################
     Inputs:
         train2: a training dataframe
@@ -3254,15 +3257,22 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
         - representing average of prior target values by category before each date in a row
     #################################################################################################
     """
+    train2 = copy.deepcopy(train2)
+    test2 = copy.deepcopy(test2)
     new_col = target_col+'_array'
     train2[new_col] = 0
     i = 0
+    train2.reset_index(drop=False, inplace=True)  # index column will be called 'index'
+    train2 = train2.set_index(pd.to_datetime(train2.pop(date_col)))
+    train2.sort_index(inplace=True)
     for index, each_train in tqdm(train2.iterrows(), total=train2.shape[0]):
-        before_grp = train2.loc[train2.index<index]
-        if len(before_grp.loc[(before_grp[category_col] == each_train[category_col])]) > 0:
-            price_val = before_grp.loc[(before_grp[category_col] == each_train[category_col]),target_col].values.tolist()
+        before_grp = train2.loc[train2.index < index]
+        prim = each_train[category_col]
+        mask = (before_grp[category_col] == prim)
+        if len(before_grp.loc[mask]) > 0:
+            price_val = before_grp.loc[mask,target_col].values.tolist()
         else:
-            price_val = [0]
+            price_val = before_grp[target_col].values.tolist()
         #price_val = f"{price_val}"
         price_val = np.mean(price_val)
         #print(' i = ', i+1, price_val)
@@ -3271,17 +3281,20 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
     if not isinstance(test2, str):
         test2[new_col] = 0
         i = 0
+        test2.reset_index(drop=False, inplace=True)  # index column will be called 'index'
+        test2 = test2.set_index(pd.to_datetime(test2.pop(date_col)))
+        test2.sort_index(inplace=True)
         for index1, each_test in tqdm(test2.iterrows(), total=test2.shape[0]):
+            before_grp = train2.loc[train2.index < index1]
             prim = each_test[category_col]
-            mask = train2.loc[(train2[category_col] == prim) & (train2.index == index1)]
-            mask2 = train2.loc[(train2[category_col] == prim)]
-            if len(mask) > 0:
-                price_val = mask[new_col].values.tolist()[0]
+            mask = (before_grp[category_col] == prim)
+            if len(before_grp.loc[mask]) > 0:
+                price_val = before_grp.loc[mask,target_col].values.tolist()
             else:
-                price_val = mask2[new_col].median()
-            #print(' i = ', i+1, price_val)
+                price_val = before_grp[target_col].values.tolist()
+            price_val = np.mean(price_val)
             test2.iloc[i,-1] = price_val
             i += 1
-    return train2, test2
+    return train2.set_index('index'), test2.set_index('index')
 #############################################################################################
 
