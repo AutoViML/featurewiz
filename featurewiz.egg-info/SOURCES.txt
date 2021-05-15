@@ -1,0 +1,14 @@
+README.md
+setup.py
+featurewiz/__init__.py
+featurewiz/__version__.py
+featurewiz/databunch.py
+featurewiz/encoders.py
+featurewiz/featurewiz.py
+featurewiz/settings.py
+featurewiz/stacking_models.py
+featurewiz.egg-info/PKG-INFO
+featurewiz.egg-info/SOURCES.txt
+featurewiz.egg-info/dependency_links.txt
+featurewiz.egg-info/requires.txt
+featurewiz.egg-info/top_level.txt

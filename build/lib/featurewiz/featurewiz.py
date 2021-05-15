@@ -1452,7 +1452,7 @@ def FE_start_end_date_time_features(smalldf, startTime, endTime, splitter_date_s
     print('%d columns added using start date=%s and end date=%s processing...' %(len(add_cols),startTime,endTime))
     return smalldf
 ###########################################################################
-def FE_split_one_field_into_many(df_in, field, splitter, filler, new_names_list='', add_count_field=False):
+def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list='', add_count_field=False):
     """
     FE stands for Feature Engineering - it means this function performs feature engineering
     ######################################################################################
@@ -1473,34 +1473,25 @@ def FE_split_one_field_into_many(df_in, field, splitter, filler, new_names_list=
         new_names_list: the list of new columns created by this function
     ######################################################################################
     """
-    df_field = df_in[field].values
-    df = copy.deepcopy(df_in)
-    ### First copy  whatever is in that field so we can save it for later ###
-    df[field].fillna(filler, inplace=True)
-    if add_count_field:
-        ### there will be one extra field created when we count the number of contents in each field ###
-        max_things = df[field].map(lambda x: len(x.split(splitter))).max() + 1
-    else:
-        max_things = df[field].map(lambda x: len(x.split(splitter))).max()
+    df = df.copy(deep=True)
+    ### First print the maximum number of things in that field
+    df[field] = df[field].fillna(filler)
+    max_things = df[field].map(lambda x: len(x.split(splitter))).max()
     if len(new_names_list) == 0:
         print('    Max. columns created by splitting %s field is %d.' %(
                             field,max_things))
     else:
         if not max_things == len(new_names_list):
-            print("""    Max. columns created by splitting %s field is %d but you have given %d 
-                            variable names only. Selecting first %d""" %(
+            print('    Max. columns created by splitting %s field is %d but you have given %d variable names only. Selecting first %d' %(
                         field,max_things,len(new_names_list),len(new_names_list)))
     ### This creates a new field that counts the number of things that are in that field.
     if add_count_field:
-        #### this counts the number of contents after splitting each row which varies. Hence it helps.
-        num_products_viewed = 'Content_Count_in_'+field
+        num_products_viewed = 'count_things_in_'+field
         df[num_products_viewed] = df[field].map(lambda x: len(x.split(splitter))).values
     ### Clean up the field such that it has the right number of split chars otherwise add to it
     ### This fills up the field with empty strings between each splitter. You can't do much about it.
     #### Leave this as it is. It is not something you can do right now. It works.
-    fill_string = splitter + filler
-    df[field] = df[field].map(lambda x: x+fill_string*(max_things-len(x.split(splitter))) if len(
-                                    x.split(splitter)) < max_things else x)
+    df[field] = df[field].map(lambda x: x+splitter*(max_things-len(x.split(splitter))) if len(x.split(splitter)) < max_things else x)
     ###### Now you create new fields by split the one large field ########
     if isinstance(new_names_list, str):
         if new_names_list == '':
@@ -1508,6 +1499,7 @@ def FE_split_one_field_into_many(df_in, field, splitter, filler, new_names_list=
         else:
             new_names_list = [new_names_list]
     ### First fill empty spaces or NaNs with filler ###
+    df[field].fillna(filler, inplace=True)
     df.loc[df[field] == splitter, field] = filler
     for i in range(len(new_names_list)):
         try:
@@ -1518,7 +1510,6 @@ def FE_split_one_field_into_many(df_in, field, splitter, filler, new_names_list=
             continue
     ### there is really nothing you can do to fill up since they are filled with empty strings.
     #### Leave this as it is. It is not something you can do right now. It works.
-    df[field] = df_field
     return df, new_names_list
 ###########################################################################
 import copy
@@ -1661,10 +1652,7 @@ class My_Groupby_Encoder(TransformerMixin):
             for each_col in copy_cols:
                 MLB = self.MLB_dict[each_col]
                 dft[each_col] = MLB.inverse_transform(dft[each_col])
-        except Exception as inst:
-            print(type(inst))    # the exception instance
-            print(inst.args)     # arguments stored in .args
-            print(inst)          # __str__ allows args to be printed directly,
+        except:
             ### if for some reason, the groupby blows up, then just return the dataframe as is - no changes!
             print('Error in groupby function: returning dataframe as is')
             return dft
@@ -1717,7 +1705,10 @@ def FE_add_groupby_features_aggregated_to_dataframe(train,
             addl_cols = left_subtract(test1.columns,test.columns)
             test_copy = pd.concat([test_copy,test1[addl_cols]],axis=1)
     ### return the dataframes ###########
-    return train_copy, test_copy
+    if isinstance(test, str) or test is None:
+        return train_copy
+    else:
+        return train_copy, test_copy
 #####################################################################################################
 def FE_combine_rare_categories(train_df, categorical_features, test_df=""):
     """
@@ -3265,9 +3256,6 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
     The collected target values are in same category as current category in each row.
     This function enables a model to learn average of prior target (values) grouped by a category. 
     It also calculates same values for test using values in train data 9(by using it as look up tables)
-    1. In Train data, we select rows prior to the current row's date and match category. We calculate mean.
-    2. In Test, we select rows matching the category and any row prior to the current row's date. Again mean.
-    3. In both cases, if there is no match, we just select all rows prior to the current row's date and find their mean.
     ############    I N P U T S    A N D      O U T P U T S     #####################################
     Inputs:
         train2: a training dataframe
@@ -3280,22 +3268,15 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
         - representing average of prior target values by category before each date in a row
     #################################################################################################
     """
-    train2 = copy.deepcopy(train2)
-    test2 = copy.deepcopy(test2)
     new_col = target_col+'_array'
     train2[new_col] = 0
     i = 0
-    train2.reset_index(drop=False, inplace=True)  # index column will be called 'index'
-    train2 = train2.set_index(pd.to_datetime(train2.pop(date_col)))
-    train2.sort_index(inplace=True)
     for index, each_train in tqdm(train2.iterrows(), total=train2.shape[0]):
-        before_grp = train2.loc[train2.index < index]
-        prim = each_train[category_col]
-        mask = (before_grp[category_col] == prim)
-        if len(before_grp.loc[mask]) > 0:
-            price_val = before_grp.loc[mask,target_col].values.tolist()
+        before_grp = train2.loc[train2.index<index]
+        if len(before_grp.loc[(before_grp[category_col] == each_train[category_col])]) > 0:
+            price_val = before_grp.loc[(before_grp[category_col] == each_train[category_col]),target_col].values.tolist()
         else:
-            price_val = before_grp[target_col].values.tolist()
+            price_val = [0]
         #price_val = f"{price_val}"
         price_val = np.mean(price_val)
         #print(' i = ', i+1, price_val)
@@ -3304,21 +3285,18 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
     if not isinstance(test2, str):
         test2[new_col] = 0
         i = 0
-        test2.reset_index(drop=False, inplace=True)  # index column will be called 'index'
-        test2 = test2.set_index(pd.to_datetime(test2.pop(date_col)))
-        test2.sort_index(inplace=True)
         for index1, each_test in tqdm(test2.iterrows(), total=test2.shape[0]):
-            before_grp = train2.loc[train2.index < index1]
             prim = each_test[category_col]
-            mask = (before_grp[category_col] == prim)
-            if len(before_grp.loc[mask]) > 0:
-                price_val = before_grp.loc[mask,target_col].values.tolist()
+            mask = train2.loc[(train2[category_col] == prim) & (train2.index == index1)]
+            mask2 = train2.loc[(train2[category_col] == prim)]
+            if len(mask) > 0:
+                price_val = mask[new_col].values.tolist()[0]
             else:
-                price_val = before_grp[target_col].values.tolist()
-            price_val = np.mean(price_val)
+                price_val = mask2[new_col].median()
+            #print(' i = ', i+1, price_val)
             test2.iloc[i,-1] = price_val
             i += 1
-    return train2.set_index('index'), test2.set_index('index')
+    return train2, test2
 #############################################################################################
 """
 Copyright 2020 Google LLC. This software is provided as-is, without warranty or
@@ -3707,151 +3685,4 @@ def TF_cross_val_predict_using_embeddings(glovefile, nlp_column, modeltype, X, y
     print('cross val predictions train and test completed')
     return y_train, y_pred
 ###################################################################################
-import copy
-def FE_convert_mixed_datatypes_to_string(df):
-    df = copy.deepcopy(df)
-    for col in df.columns:
-        if len(df[col].apply(type).value_counts()) > 1:
-            print('Mixed data type detected in %s column. Converting all rows to string type now...' %col)
-            df[col] = df[col].map(lambda x: x if isinstance(x, str) else str(x)).values
-            if len(df[col].apply(type).value_counts()) == 1:
-                print('    completed.')
-            else:
-                print('    could not change column type. Fix it manually and then re-run EDA.')
-    return df
-##################################################################################
-def _create_ts_features(
-    df,
-    tscol,
-    drop_zero_var: bool = True,
-    return_original: bool = True) -> pd.DataFrame:
-    """
-    This takes in input a dataframe and a date variable.
-    It then creates time series features using the pandas .dt.weekday kind of syntax.
-    It also returns the data frame of added features with each variable as an integer variable.
 
-    :param drop_zero_var If True, it will drop any features that have zero variance
-    :type drop_zero_var bool
-
-    :param return_original If True, it will return the original dataframe concatenated with the derived features
-    else, it will just return the derived features
-    :type return_original bool
-
-    :rtype pd.DataFrame
-    """
-    df_org = copy.deepcopy(df)
-    dt_adds = []
-    try:
-        df[tscol+'_hour'] = df[tscol].dt.hour.astype(int)
-        dt_adds.append(tscol+'_hour')
-    except:
-        print('    Error in creating hour time feature. Continuing...')
-    try:
-        df[tscol+'_minute'] = df[tscol].dt.minute.astype(int)
-        dt_adds.append(tscol+'_minute')
-    except:
-        print('    Error in creating minute time feature. Continuing...')
-    try:
-        df[tscol+'_dayofweek'] = df[tscol].dt.dayofweek.astype(int)
-        dt_adds.append(tscol+'_dayofweek')
-        df[tscol+'_quarter'] = df[tscol].dt.quarter.astype(int)
-        dt_adds.append(tscol+'_quarter')
-        df[tscol+'_month'] = df[tscol].dt.month.astype(int)
-        dt_adds.append(tscol+'_month')
-        df[tscol+'_year'] = df[tscol].dt.year.astype(int)
-        dt_adds.append(tscol+'_year')
-        df[tscol+'_dayofyear'] = df[tscol].dt.dayofyear.astype(int)
-        dt_adds.append(tscol+'_dayofyear')
-        df[tscol+'_dayofmonth'] = df[tscol].dt.day.astype(int)
-        dt_adds.append(tscol+'_dayofmonth')
-        df[tscol+'_weekofyear'] = df[tscol].dt.weekofyear.astype(int)
-        dt_adds.append(tscol+'_weekofyear')
-        weekends = (df[tscol+'_dayofweek'] == 5) | (df[tscol+'_dayofweek'] == 6)
-        df[tscol+'_weekend'] = 0
-        df.loc[weekends, tscol+'_weekend'] = 1
-        df[tscol+'_weekend'] = df[tscol+'_weekend'].astype(int)
-        dt_adds.append(tscol+'_weekend')
-    except:
-        print('    Error in creating date time derived features. Continuing...')
-
-    derived = df[dt_adds].fillna(0).astype(int)
-
-    if drop_zero_var:
-        derived = derived[derived.columns[derived.describe().loc['std'] != 0]]
-
-    # print("==========AAA============")
-    # print("Derived")
-    # print(derived)
-
-    if return_original:
-        df = pd.concat([df_org, derived], axis=1)
-    else:
-        df = derived
-
-    # print("==========BBB============")
-    # print("DF")
-    # print(df)
-
-    return df
-#################################################################################
-def FE_add_time_series_features(dft, targets, ts_column=None, drop_zero_var= False):
-    """
-    This creates between 8 and 10 date time features for each date variable.
-    The number of features depends on whether it is just a year variable
-    or a year+month+day and whether it has hours and mins+secs. So this can
-    create all these features using just the date time column that you send in.
-    It returns the entire dataframe with added variables as output.
-    """
-    dft = copy.deepcopy(dft)
-    reset_index = False
-    time_preds = [x for x in list(dft) if x != targets]
-    dtf = dft[time_preds]
-    dtf_target = dft[[targets]]
-    try:
-        # ts_column = None assumes that that index is the time series index
-        reset_index = False
-        if ts_column is None:
-            reset_index = True
-            ts_column = dtf.index.name
-            dtf = dtf.reset_index()
-
-        ### In some extreme cases, date time vars are not processed yet and hence we must fill missing values here!
-        null_nums = dtf[ts_column].isnull().sum()
-        if  null_nums > 0:
-            # missing_flag = True
-            new_missing_col = ts_column + '_Missing_Flag'
-            dtf[new_missing_col] = 0
-            dtf.loc[dtf[ts_column].isnull(),new_missing_col]=1
-            dtf[ts_column] = dtf[ts_column].fillna(method='ffill')
-
-        if dtf[ts_column].dtype == float:
-            dtf[ts_column] = dtf[ts_column].astype(int)
-
-        ### if we have already found that it was a date time var, then leave it as it is. Thats good enough!
-        items = dtf[ts_column].apply(str).apply(len).values
-        #### In some extreme cases,
-        if all(items[0] == item for item in items):
-            if items[0] == 4:
-                ### If it is just a year variable alone, you should leave it as just a year!
-                dtf[ts_column] = pd.to_datetime(dtf[ts_column],format='%Y')
-            else:
-                ### if it is not a year alone, then convert it into a date time variable
-                dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
-        else:
-            dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
-            ### this is where you create the time series features 
-            dtf = _create_ts_features(df=dtf, tscol=ts_column, drop_zero_var=drop_zero_var, return_original=True)
-
-        # If you had reset the index earlier, set it back before returning
-        # to  make it consistent with the dataframe that was sent as input
-        if reset_index:
-            dtf = dtf.set_index(ts_column)
-    except Exception as e:
-        print(e)
-        print('Error in Processing %s column for date time features. Continuing...' %ts_column)
-    try:
-        dtf = dtf.join(dtf_target)
-    except:
-        print('Error in creating time-series features...Continuing')
-    return dtf
-#############################################################################
