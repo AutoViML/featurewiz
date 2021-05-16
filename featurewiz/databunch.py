@@ -101,9 +101,13 @@ class DataBunch(object):
         # check X_train, y_train, X_test
         if self.check_data_format(X_train):
             self.X_train_source = pd.DataFrame(X_train)
+            self.X_train_source = remove_duplicate_cols_in_dataset(self.X_train_source)
         if X_test is not None:
             if self.check_data_format(X_test):
                 self.X_test_source = pd.DataFrame(X_test)
+                self.X_test_source = remove_duplicate_cols_in_dataset(self.X_test_source)
+
+
         ### There is a chance for an error in this - so worth watching!
         if y_train is not None:
             le = LabelEncoder()
@@ -397,6 +401,8 @@ class DataBunch(object):
             X_test (pd.DataFrame)
 
         """
+        #### Sometimes there are duplicates in column names. You must remove them here. ###
+        cat_features = find_remove_duplicates(cat_features)
 
         # concat datasets for correct processing.
         df_train = X_train.copy()
@@ -406,7 +412,10 @@ class DataBunch(object):
             test_data = None ### Set test_data to None if X_test is None
         else:
             test_data = X_test.copy()
+            test_data = remove_duplicate_cols_in_dataset(test_data)
             data = copy.deepcopy(df_train)
+
+        data = remove_duplicate_cols_in_dataset(data)
 
         # object & num features
         object_features = list(data.columns[(data.dtypes == 'object') | (data.dtypes == 'category')])
@@ -421,7 +430,9 @@ class DataBunch(object):
         self.binary_features_names = []
 
         # LabelEncode all Binary Features - leave the rest alone
-        for feature in data.columns:
+        cols = data.columns.tolist()
+        #### This sometimes errors because there are duplicate columns in a dataset ###
+        for feature in cols:
             if (feature != 'test') and (data[feature].nunique(dropna=False) < 3):
                 data[feature] = data[feature].astype('category').cat.codes
                 if test_data is not None:
@@ -616,4 +627,23 @@ def left_subtract(l1,l2):
         if i not in l2:
             lst.append(i)
     return lst
+#################################################################################
+def remove_duplicate_cols_in_dataset(df):
+    df = copy.deepcopy(df)
+    cols = df.columns.tolist()
+    number_duplicates = df.columns.duplicated().astype(int).sum()
+    if  number_duplicates > 0:
+        print('Detected %d duplicate columns in dataset. Removing duplicates...' %number_duplicates)
+        df = df.loc[:,~df.columns.duplicated()]
+    return df
+###########################################################################
+# Removes duplicates from a list to return unique values - USED ONLYONCE
+def find_remove_duplicates(values):
+    output = []
+    seen = set()
+    for value in values:
+        if value not in seen:
+            output.append(value)
+            seen.add(value)
+    return output
 #################################################################################
