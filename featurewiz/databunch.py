@@ -609,6 +609,9 @@ class DataBunch(object):
             print('> Final Number of Features: ', (X_train.shape[1]))
             print('#'*50)
             print('New X_train shape: ', X_train.shape, '| X_test shape: ', X_test.shape)
+            if len(left_subtract(X_test.columns, X_train.columns)) > 0:
+                print("""There are more columns in test than train 
+                    due to missing columns being more in test than train. Continuing...""")
 
         return (X_train, X_test)
 ################################################################################

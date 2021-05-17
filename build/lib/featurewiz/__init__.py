@@ -23,7 +23,7 @@ from .featurewiz import simple_XGBoost_model, FE_discretize_numeric_variables, d
 from .featurewiz import FE_transform_numeric_columns, FE_create_interaction_vars
 from .stacking_models import Stacking_Classifier, Blending_Regressor
 from .featurewiz import EDA_binning_numeric_column_displaying_bins, FE_add_lagged_targets_by_date_category
-from .featurewiz import NLP_Pipeline
+from .featurewiz import NLP_Pipeline, FE_convert_mixed_datatypes_to_string
 ################################################################################
 if __name__ == "__main__":
     module_type = 'Running'

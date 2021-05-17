@@ -402,7 +402,7 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all',pars
             return dfte
         else:
             print('File not able to be loaded')
-            return
+            return None
     if isinstance(dataname,pd.DataFrame):
         #### this means they have given a dataframe name to use directly in processing #####
         dfte = copy.deepcopy(dataname)
@@ -413,7 +413,7 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all',pars
         return dfte
     else:
         print('Dataname input must be a filename with path to that file or a Dataframe')
-        return
+        return None
 ##################################################################################
 # Removes duplicates from a list to return unique values - USED ONLYONCE
 def find_remove_duplicates(values):
@@ -857,19 +857,13 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         print('Skipping category encoding since no category encoders specified in input...')
     ##################    L O A D     D A T A N A M E   ########################
     train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=1000)
+    train = remove_duplicate_cols_in_dataset(train)
     train_index = train.index
-    if isinstance(test_data, str):
-        if test_data != '':  ### if test data is not an empty string, then load it as a file
-            test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose,
+    test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose,
                                         nrows=1000)
-            test_index = test.index
-        else:
-            test = None ### set test as None so that it can be skipped processing
-    elif isinstance(test_data, pd.DataFrame): ### If it is a dataframe, simply copy it to test
-        test = copy.deepcopy(test_data)
+    if test is not None:
+        test = remove_duplicate_cols_in_dataset(test)
         test_index = test.index
-    else:
-        test = None ### If it is none of the above, set test as None
     #############    C L A S S I F Y    F E A T U R E S      ####################
     features_dict = classify_features(train, target)
     if len(features_dict['date_vars']) > 0:
@@ -877,7 +871,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         date_time_vars = features_dict['date_vars']
         train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose,
                                 nrows='all', parse_dates=date_time_vars)
-        if test is None:
+        if not test is None:
             test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose,
                                     nrows='all', parse_dates=date_time_vars)
     else:
@@ -962,21 +956,19 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         #### Do this only if date time columns exist in your data set!
         for date_col in date_cols:
             print('Processing %s column for date time features....' %date_col)
-            date_df_train = FE_create_time_series_features(train, date_col)
-            date_col_adds_train = left_subtract(date_df_train.columns.tolist(),date_col)
-            print('    Adding %d column(s) from date-time column %s in train' %(len(date_col_adds_train),date_col))
-            train.drop(date_col,axis=1,inplace=True)
-            train = train.join(date_df_train)
+            train, ts_adds = FE_create_time_series_features(train, date_col)
+            #date_col_adds_train = left_subtract(date_df_train.columns.tolist(),date_col)
+            #print('    Adding %d column(s) from date-time column %s in train' %(len(date_col_adds_train),date_col))
+            #train = train.join(date_df_train, rsuffix='2')
             if isinstance(test,str) or test is None:
                 ### do nothing ####
                 pass
             else:
                 print('        Adding same time series features to test data...')
-                date_df_test = FE_create_time_series_features(test, date_col)
-                date_col_adds_test = left_subtract(date_df_test.columns.tolist(),date_col)
+                test, _ = FE_create_time_series_features(test, date_col, ts_adds)
+                #date_col_adds_test = left_subtract(date_df_test.columns.tolist(),date_col)
                 ### Now time to remove the date time column from all further processing ##
-                test.drop(date_col,axis=1,inplace=True)
-                test = test.join(date_df_test)
+                #test = test.join(date_df_test, rsuffix='2')
     ### Now time to continue with our further processing ##
     idcols = features_dict['IDcols']
     if isinstance(test,str) or test is None:
@@ -989,11 +981,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     numvars = train[preds].select_dtypes(include = 'number').columns.tolist()
     if len(numvars) > max_nums:
         if feature_gen:
-            print('    Warning: Too many extra features will be generated by feature generation. This may take time...')
+            print('Warning: Too many extra features will be generated by featurewiz. This may take time...')
     catvars = left_subtract(preds, numvars)
     if len(catvars) > max_cats:
         if feature_type:
-            print('    Warning: Too many extra features will be generated by category encoding. This may take time...')
+            print('Warning: Too many extra features will be generated by category encoding. This may take time...')
     rem_vars = copy.deepcopy(catvars)
     ########## Now we need to select the right model to run repeatedly ####
     if target is None or len(target) == 0:
@@ -1452,7 +1444,7 @@ def FE_start_end_date_time_features(smalldf, startTime, endTime, splitter_date_s
     print('%d columns added using start date=%s and end date=%s processing...' %(len(add_cols),startTime,endTime))
     return smalldf
 ###########################################################################
-def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list='', add_count_field=False):
+def FE_split_one_field_into_many(df_in, field, splitter, filler, new_names_list='', add_count_field=False):
     """
     FE stands for Feature Engineering - it means this function performs feature engineering
     ######################################################################################
@@ -1473,25 +1465,34 @@ def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list='',
         new_names_list: the list of new columns created by this function
     ######################################################################################
     """
-    df = df.copy(deep=True)
-    ### First print the maximum number of things in that field
-    df[field] = df[field].fillna(filler)
-    max_things = df[field].map(lambda x: len(x.split(splitter))).max()
+    df_field = df_in[field].values
+    df = copy.deepcopy(df_in)
+    ### First copy  whatever is in that field so we can save it for later ###
+    df[field].fillna(filler, inplace=True)
+    if add_count_field:
+        ### there will be one extra field created when we count the number of contents in each field ###
+        max_things = df[field].map(lambda x: len(x.split(splitter))).max() + 1
+    else:
+        max_things = df[field].map(lambda x: len(x.split(splitter))).max()
     if len(new_names_list) == 0:
         print('    Max. columns created by splitting %s field is %d.' %(
                             field,max_things))
     else:
         if not max_things == len(new_names_list):
-            print('    Max. columns created by splitting %s field is %d but you have given %d variable names only. Selecting first %d' %(
+            print("""    Max. columns created by splitting %s field is %d but you have given %d 
+                            variable names only. Selecting first %d""" %(
                         field,max_things,len(new_names_list),len(new_names_list)))
     ### This creates a new field that counts the number of things that are in that field.
     if add_count_field:
-        num_products_viewed = 'count_things_in_'+field
+        #### this counts the number of contents after splitting each row which varies. Hence it helps.
+        num_products_viewed = 'Content_Count_in_'+field
         df[num_products_viewed] = df[field].map(lambda x: len(x.split(splitter))).values
     ### Clean up the field such that it has the right number of split chars otherwise add to it
     ### This fills up the field with empty strings between each splitter. You can't do much about it.
     #### Leave this as it is. It is not something you can do right now. It works.
-    df[field] = df[field].map(lambda x: x+splitter*(max_things-len(x.split(splitter))) if len(x.split(splitter)) < max_things else x)
+    fill_string = splitter + filler
+    df[field] = df[field].map(lambda x: x+fill_string*(max_things-len(x.split(splitter))) if len(
+                                    x.split(splitter)) < max_things else x)
     ###### Now you create new fields by split the one large field ########
     if isinstance(new_names_list, str):
         if new_names_list == '':
@@ -1499,7 +1500,6 @@ def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list='',
         else:
             new_names_list = [new_names_list]
     ### First fill empty spaces or NaNs with filler ###
-    df[field].fillna(filler, inplace=True)
     df.loc[df[field] == splitter, field] = filler
     for i in range(len(new_names_list)):
         try:
@@ -1510,6 +1510,7 @@ def FE_split_one_field_into_many(df, field, splitter, filler, new_names_list='',
             continue
     ### there is really nothing you can do to fill up since they are filled with empty strings.
     #### Leave this as it is. It is not something you can do right now. It works.
+    df[field] = df_field
     return df, new_names_list
 ###########################################################################
 import copy
@@ -1646,13 +1647,16 @@ class My_Groupby_Encoder(TransformerMixin):
 
 
             dft = dft.merge(dft_full, on=self.groupby_column, how='left')
-
+            
             #### Now change the label encoded columns back to original status ##
             copy_cols = copy.deepcopy(self.groupby_column)
             for each_col in copy_cols:
                 MLB = self.MLB_dict[each_col]
                 dft[each_col] = MLB.inverse_transform(dft[each_col])
-        except:
+        except Exception as inst:
+            print(type(inst))    # the exception instance
+            print(inst.args)     # arguments stored in .args
+            print(inst)          # __str__ allows args to be printed directly,
             ### if for some reason, the groupby blows up, then just return the dataframe as is - no changes!
             print('Error in groupby function: returning dataframe as is')
             return dft
@@ -1693,41 +1697,45 @@ def FE_add_groupby_features_aggregated_to_dataframe(train,
     test_copy = copy.deepcopy(test)
     if isinstance(groupby_columns, str):
         groupby_columns = [groupby_columns]
+    
     for groupby_column in groupby_columns:
+        train_copy_index = train_copy.index
         MGB = My_Groupby_Encoder(groupby_column, agg_types, ignore_variables)
         train1 = MGB.fit_transform(train)
         addl_cols = left_subtract(train1.columns,train.columns)
-        train_copy = pd.concat([train_copy,train1[addl_cols]],axis=1)
+        train1.index = train_copy_index
+        train_copy = pd.concat([train_copy,train1[addl_cols]], axis=1)
         if isinstance(test, str) or test is None:
             pass
         else:
+            test_copy_index = test_copy.index
             test1 = MGB.transform(test)
             addl_cols = left_subtract(test1.columns,test.columns)
+            test1.index = test_copy_index
             test_copy = pd.concat([test_copy,test1[addl_cols]],axis=1)
     ### return the dataframes ###########
-    if isinstance(test, str) or test is None:
-        return train_copy
-    else:
-        return train_copy, test_copy
+    return train_copy, test_copy
 #####################################################################################################
 def FE_combine_rare_categories(train_df, categorical_features, test_df=""):
     """
     In this function, we will select all rare classes having representation <1% of population and
     group them together under a new label called 'RARE'. We will apply this on train and test (optional)
     """
+    train_df = copy.deepcopy(train_df)
+    test_df = copy.deepcopy(test_df)
     train_df[categorical_features] = train_df[categorical_features].apply(
             lambda x: x.mask(x.map(x.value_counts())< (0.01*train_df.shape[0]), 'RARE'))
     for col in categorical_features:
         vals = list(train_df[col].unique())
         if isinstance(test_df, str) or test_df is None:
-            return train_df
+            return train_df, test_df
         else:
             test_df[col] = test_df[col].apply(lambda x: 'RARE' if x not in vals else x)
             return train_df, test_df
 
 #####################################################################################################
 import copy
-def create_ts_features(df, tscol):
+def _create_ts_features(df, tscol):
     """
     This takes in input a dataframe and a date variable.
     It then creates time series features using the pandas .dt.weekday kind of syntax.
@@ -1812,8 +1820,8 @@ def create_ts_features(df, tscol):
             dt_adds.append(tscol+'_month_typeofday_cross')
     except:
         print('    Error in creating date time derived features. Continuing...')
-    print('    Added %d columns from %s column' %(len(dt_adds),tscol))
-    return df
+    print('    created %d columns from time series %s column' %(len(dt_adds),tscol))
+    return df, dt_adds
 ################################################################
 from dateutil.relativedelta import relativedelta
 from datetime import date
@@ -1823,57 +1831,93 @@ def compute_age(year_string):
     age = relativedelta(today, year_string)
     return age.years
 #################################################################
-def FE_create_time_series_features(dtf, ts_column):
+def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
-    ######################################################################################
-    This creates between 8 and 10 date time features for each date variable. The number of features
-    depends on whether it is just a year variable or a year+month+day and whether it has hours and mins+secs.
-    So this can create all these features using just the date time column that you send in.
+    #######        B E W A R E  : H U G E   N U M B E R   O F  F E A T U R E S  ###########
+    This creates between 100 and 110 date time features for each date variable. The number 
+    of features depends on whether it is just a year variable or a year+month+day and 
+    whether it has hours and minutes or seconds. So this can create all these features 
+    using just the date time column that you send in. Optinally, you can send in a list 
+    of columns that you want returned. It will preserved those same columns and return them.
     ######################################################################################
     Inputs:
     dtf: pandas DataFrame
     ts_column: name of the time series column
+    ts_adds_in: list of time series columns you want in the returned dataframe. 
 
-    Oututs:
+    Outputs:
     dtf: pandas dataframe
-    Beware: It returns the entire dataframe with added variables as output.
     ######################################################################################
-    It also has the original time series column which you might want to drop later.
+    It returns the same dataframe with the added variables as output. It will return ts_adds_in
+    if you give it a list of columns to return. This is useful for matching test with train.
     """
-    dtf = copy.deepcopy(dtf)
-    #### If for some reason ts_column is just a number, make sure it is a string so it does not blow up and concatenated
-    if not isinstance(ts_column,str):
-        ts_column = str(ts_column)
+    dtf = copy.deepcopy(dft)
+    reset_index = False
     try:
+        # ts_column = None assumes that that index is the time series index
+        reset_index = False
+        if ts_column is None:
+            reset_index = True
+            ts_column = dtf.index.name
+            dtf = dtf.reset_index()
+
         ### In some extreme cases, date time vars are not processed yet and hence we must fill missing values here!
-        if dtf[ts_column].isnull().sum() > 0:
-            missing_flag = True
+        null_nums = dtf[ts_column].isnull().sum()
+        if  null_nums > 0:
+            # missing_flag = True
             new_missing_col = ts_column + '_Missing_Flag'
             dtf[new_missing_col] = 0
             dtf.loc[dtf[ts_column].isnull(),new_missing_col]=1
-            dtf[ts_column] = dtf[ts_column].fillna(method='ffill')
-        if dtf[ts_column].dtype in [np.float64,np.float32,np.float16]:
+            dtf[ts_column].fillna(method='ffill', inplace=True)
+            print('        adding %s column due to missing values in data' %new_missing_col)
+            if dtf[dtf[ts_column].isnull()].shape[0] > 0:
+                dtf[ts_column].fillna(method='bfill', inplace=True)
+
+        if dtf[ts_column].dtype == float:
             dtf[ts_column] = dtf[ts_column].astype(int)
+
         ### if we have already found that it was a date time var, then leave it as it is. Thats good enough!
-        date_items = dtf[ts_column].apply(str).apply(len).values
+        items = dtf[ts_column].apply(str).apply(len).values
         #### In some extreme cases,
-        if all(date_items[0] == item for item in date_items):
-            if date_items[0] == 4:
+        if all(items[0] == item for item in items):
+            if items[0] == 4:
                 ### If it is just a year variable alone, you should leave it as just a year!
-                age_col = ts_column+'_age_in_years'
-                dtf[age_col] = dtf[ts_column].map(lambda x: pd.to_datetime(x,format='%Y')).apply(compute_age).values
-                return dtf[[age_col]]
+                dtf[ts_column] = pd.to_datetime(dtf[ts_column],format='%Y')
+                ts_adds = []
             else:
                 ### if it is not a year alone, then convert it into a date time variable
                 dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
+                ### this is where you create the time series features #####
+                dtf, ts_adds = _create_ts_features(df=dtf, tscol=ts_column)
         else:
             dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
-        dtf = create_ts_features(dtf,ts_column)
-        dtf.drop(ts_column, axis=1, inplace=True)
-    except:
+            ### this is where you create the time series features #####
+            dtf, ts_adds = _create_ts_features(df=dtf, tscol=ts_column)
+        if not ts_adds_in:
+            ts_adds_copy = dtf[ts_adds].select_dtypes(include='number').columns.tolist()
+            ### drop those columns where all rows are same i.e. zero variance  ####
+            for col in ts_adds_copy:
+                if dtf[col].std() == 0:
+                    dtf.drop(col, axis=1, inplace=True)
+                    print('        dropping column due to zero variance in %s column' %col)
+                    ts_adds.remove(col)
+        else:
+            rem_cols = left_subtract(dtf.columns.tolist(), ts_adds_in)
+            dtf = dtf[rem_cols+ts_adds_in]
+
+        # If you had reset the index earlier, set it back before returning
+        # to  make it consistent with the dataframe that was sent as input
+        if reset_index:
+            dtf = dtf.set_index(ts_column)
+        elif ts_column in dtf.columns:
+            dtf.drop(ts_column, axis=1, inplace=True)
+        else:
+            pass
+    except Exception as e:
+        print(e)
         print('Error in Processing %s column for date time features. Continuing...' %ts_column)
-    return dtf
+    return dtf, ts_adds
 ######################################################################################
 def FE_get_latest_values_based_on_date_column(dft, id_col, date_col, cols, ascending=False):
     """
@@ -3256,6 +3300,9 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
     The collected target values are in same category as current category in each row.
     This function enables a model to learn average of prior target (values) grouped by a category. 
     It also calculates same values for test using values in train data 9(by using it as look up tables)
+    1. In Train data, we select rows prior to the current row's date and match category. We calculate mean.
+    2. In Test, we select rows matching the category and any row prior to the current row's date. Again mean.
+    3. In both cases, if there is no match, we just select all rows prior to the current row's date and find their mean.
     ############    I N P U T S    A N D      O U T P U T S     #####################################
     Inputs:
         train2: a training dataframe
@@ -3268,15 +3315,22 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
         - representing average of prior target values by category before each date in a row
     #################################################################################################
     """
+    train2 = copy.deepcopy(train2)
+    test2 = copy.deepcopy(test2)
     new_col = target_col+'_array'
     train2[new_col] = 0
     i = 0
+    train2.reset_index(drop=False, inplace=True)  # index column will be called 'index'
+    train2 = train2.set_index(pd.to_datetime(train2.pop(date_col)))
+    train2.sort_index(inplace=True)
     for index, each_train in tqdm(train2.iterrows(), total=train2.shape[0]):
-        before_grp = train2.loc[train2.index<index]
-        if len(before_grp.loc[(before_grp[category_col] == each_train[category_col])]) > 0:
-            price_val = before_grp.loc[(before_grp[category_col] == each_train[category_col]),target_col].values.tolist()
+        before_grp = train2.loc[train2.index < index]
+        prim = each_train[category_col]
+        mask = (before_grp[category_col] == prim)
+        if len(before_grp.loc[mask]) > 0:
+            price_val = before_grp.loc[mask,target_col].values.tolist()
         else:
-            price_val = [0]
+            price_val = before_grp[target_col].values.tolist()
         #price_val = f"{price_val}"
         price_val = np.mean(price_val)
         #print(' i = ', i+1, price_val)
@@ -3285,18 +3339,21 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
     if not isinstance(test2, str):
         test2[new_col] = 0
         i = 0
+        test2.reset_index(drop=False, inplace=True)  # index column will be called 'index'
+        test2 = test2.set_index(pd.to_datetime(test2.pop(date_col)))
+        test2.sort_index(inplace=True)
         for index1, each_test in tqdm(test2.iterrows(), total=test2.shape[0]):
+            before_grp = train2.loc[train2.index < index1]
             prim = each_test[category_col]
-            mask = train2.loc[(train2[category_col] == prim) & (train2.index == index1)]
-            mask2 = train2.loc[(train2[category_col] == prim)]
-            if len(mask) > 0:
-                price_val = mask[new_col].values.tolist()[0]
+            mask = (before_grp[category_col] == prim)
+            if len(before_grp.loc[mask]) > 0:
+                price_val = before_grp.loc[mask,target_col].values.tolist()
             else:
-                price_val = mask2[new_col].median()
-            #print(' i = ', i+1, price_val)
+                price_val = before_grp[target_col].values.tolist()
+            price_val = np.mean(price_val)
             test2.iloc[i,-1] = price_val
             i += 1
-    return train2, test2
+    return train2.set_index('index'), test2.set_index('index')
 #############################################################################################
 """
 Copyright 2020 Google LLC. This software is provided as-is, without warranty or
@@ -3685,4 +3742,25 @@ def TF_cross_val_predict_using_embeddings(glovefile, nlp_column, modeltype, X, y
     print('cross val predictions train and test completed')
     return y_train, y_pred
 ###################################################################################
-
+import copy
+def FE_convert_mixed_datatypes_to_string(df):
+    df = copy.deepcopy(df)
+    for col in df.columns:
+        if len(df[col].apply(type).value_counts()) > 1:
+            print('Mixed data type detected in %s column. Converting all rows to string type now...' %col)
+            df[col] = df[col].map(lambda x: x if isinstance(x, str) else str(x)).values
+            if len(df[col].apply(type).value_counts()) == 1:
+                print('    completed.')
+            else:
+                print('    could not change column type. Fix it manually and then re-run EDA.')
+    return df
+##################################################################################
+def remove_duplicate_cols_in_dataset(df):
+    df = copy.deepcopy(df)
+    cols = df.columns.tolist()
+    number_duplicates = df.columns.duplicated().astype(int).sum()
+    if  number_duplicates > 0:
+        print('Detected %d duplicate columns in dataset. Removing duplicates...' %number_duplicates)
+        df = df.loc[:,~df.columns.duplicated()]
+    return df
+###########################################################################
