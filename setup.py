@@ -28,7 +28,8 @@ setuptools.setup(
         "category_encoders",
         "xlrd",
         "imbalanced-learn>=0.7",
-        "tqdm"
+        "tqdm",
+        "dask>=2.30.0",
     ],
     classifiers=[
         "Programming Language :: Python :: 3",

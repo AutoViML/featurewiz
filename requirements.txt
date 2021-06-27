@@ -10,3 +10,4 @@ category_encoders
 xlrd
 imbalanced-learn>=0.7
 tqdm
+dask>=2.30.0

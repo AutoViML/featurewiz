@@ -62,7 +62,8 @@ from io import BytesIO
 import base64
 from functools import reduce
 import copy
-
+import dask
+import dask.dataframe as dd
 #######################################################################################################
 def classify_features(dfte, depVar, verbose=0):
     dfte = copy.deepcopy(dfte)
@@ -90,10 +91,10 @@ def classify_features(dfte, depVar, verbose=0):
     if len(IDcols+cols_delete+discrete_string_vars) == 0:
         print('        No variables removed since no ID or low-information variables found in data set')
     else:
-        print('        %d variable(s) removed since they were ID or low-information variables'
+        print('        %d variable(s) will be ignored since they are ID or low-information variables'
                                 %len(IDcols+cols_delete+discrete_string_vars))
         if verbose >= 1:
-            print('    List of variables removed: %s' %(IDcols+cols_delete+discrete_string_vars))
+            print('    List of variables ignored: %s' %(IDcols+cols_delete+discrete_string_vars))
     #############  Check if there are too many columns to visualize  ################
     ppt = pprint.PrettyPrinter(indent=4)
     if verbose==1 and len(cols_list) <= max_cols_analyzed:
@@ -378,11 +379,18 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all',pars
             for code in codex:
                 try:
                     if isinstance(nrows, str):
-                        dfte = pd.read_csv(dataname,sep=sep,index_col=None,encoding=code,
-                                        parse_dates=parse_dates)
+                        ### this reads the entire file  ################
+                        print('    Since number of rows specified is all, loading entire file into pandas for EDA')
+                        ### load a small sample of data into a pandas dataframe ##
+                        dfte = pd.read_csv(dataname, sep=sep, header=header, encoding=code, parse_dates=parse_dates) 
                     else:
-                        dfte = pd.read_csv(dataname,sep=sep,index_col=None,encoding=code,
-                                    nrows=nrows, parse_dates=parse_dates)
+                        ### first load a small sample of the dataframe and the entire target if it needs transform
+                        print('    Since nrows is given, loading random sample of %d rows into pandas...' %nrows)
+                        ### we randomly sample every 2nd row until we get 10000
+                        skip_function = lambda x: (x != 0) and x % 5 and x < nrows
+                        ### load a small sample of data into a pandas dataframe ##
+                        dfte = pd.read_csv(dataname, sep=sep, skiprows=skip_function, header=header,
+                                        encoding=code, nrows=nrows, parse_dates=parse_dates)
                     print('    Encoder %s chosen to read CSV file' %code)
                     print('Shape of your Data Set loaded: %s' %(dfte.shape,))
                     if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
@@ -390,7 +398,7 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all',pars
                         dfte = dfte[list(dfte.columns[~dfte.columns.duplicated(keep='first')])]
                     return dfte
                 except:
-                    print('Encoding codex %s does not work for this file' %code)
+                    print('    pandas %s encoder does not work for this file. Continuing...' %code)
                     continue
         elif dataname.endswith(('xlsx','xls','txt')):
             #### It's very important to get header rows in Excel since people put headers anywhere in Excel#
@@ -401,7 +409,7 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all',pars
             print('Shape of your Data Set loaded: %s' %(dfte.shape,))
             return dfte
         else:
-            print('File not able to be loaded')
+            print('    Filename is an empty string or file not able to be loaded')
             return None
     if isinstance(dataname,pd.DataFrame):
         #### this means they have given a dataframe name to use directly in processing #####
@@ -414,6 +422,31 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all',pars
     else:
         print('Dataname input must be a filename with path to that file or a Dataframe')
         return None
+##########################################################################################
+##### This function loads a time series data and sets the index as a time series
+def load_dask_data(filename, sep, ):
+    """
+    This function loads a given filename into a pandas dataframe and sets the
+    ts_column as a Time Series index. Note that filename should contain the full
+    path to the file.
+    """
+    if isinstance(filename, str):
+        print('First loading %s' % (filename))
+        try:
+            dft = pd.read_csv(filename,)
+            print('    Loaded %s into pandas dataframe.' % filename)
+        except:
+            dft = dd.read_csv(filename, blocksize='default')
+            print('    Too big to fit into pandas. Hence loaded file %s into a Dask dataframe ...' % filename)
+    else:
+        ### If filename is not a string, it must be a dataframe and can be loaded
+        if filename.shape[0] < 100000:
+            dft = copy.deepcopy(filename)
+            print('    Loaded pandas dataframe...')
+        else:
+            dft =   dd.from_pandas(filename, npartitions=1)
+            print('    Converted pandas dataframe into a Dask dataframe ...' )
+    return dft
 ##################################################################################
 # Removes duplicates from a list to return unique values - USED ONLYONCE
 def find_remove_duplicates(values):
@@ -729,12 +762,15 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
                 if not train[each_col].dtype in [np.float64,np.float32,np.float16]:
                     train[each_col] = train[each_col].astype(int)
                 if not isinstance(test, str):
-                    new_missing_col = each_col + '_Missing_Flag'
-                    test[new_missing_col] = 0
-                    test.loc[test[each_col].isnull(),new_missing_col]=1
-                    test[each_col] = test[each_col].fillna(-9999)
-                    if not test[each_col].dtype in [np.float64,np.float32,np.float16]:
-                        test[each_col] = test[each_col].astype(int)
+                    if test is None:
+                        pass
+                    else:
+                        new_missing_col = each_col + '_Missing_Flag'
+                        test[new_missing_col] = 0
+                        test.loc[test[each_col].isnull(),new_missing_col]=1
+                        test[each_col] = test[each_col].fillna(-9999)
+                        if not test[each_col].dtype in [np.float64,np.float32,np.float16]:
+                            test[each_col] = test[each_col].astype(int)
     ###### Now we convert all object columns to numeric ##########
     lis = []
     lis = train.select_dtypes('object').columns.tolist() + train.select_dtypes('category').columns.tolist()
@@ -835,6 +871,13 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     RANDOM_SEED = 42
     ############################################################################
     cat_encoders_list = list(settings.cat_encoders_names.keys())
+    if kwargs:
+        for key, value in zip(kwargs.keys(), kwargs.values()):
+            print('You supplied %s = %s' %(key, value))
+            if key == 'nrows':
+                nrows = value
+    else:
+        nrows = 'all'
     ######################################################################################
     #####      MAKING FEATURE_TYPE AND FEATURE_GEN SELECTIONS HERE           #############
     ######################################################################################
@@ -856,11 +899,10 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     else:
         print('Skipping category encoding since no category encoders specified in input...')
     ##################    L O A D     D A T A N A M E   ########################
-    train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=1000)
+    train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
     train = remove_duplicate_cols_in_dataset(train)
     train_index = train.index
-    test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose,
-                                        nrows=1000)
+    test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows)
     if test is not None:
         test = remove_duplicate_cols_in_dataset(test)
         test_index = test.index
@@ -869,17 +911,16 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if len(features_dict['date_vars']) > 0:
         #### If there are date-time variables in datatset, it is best to load them using pandas
         date_time_vars = features_dict['date_vars']
-        train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose,
-                                nrows='all', parse_dates=date_time_vars)
+        train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows,
+                             parse_dates=date_time_vars)
         if not test is None:
-            test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose,
-                                    nrows='all', parse_dates=date_time_vars)
+            test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows,
+                                 parse_dates=date_time_vars)
     else:
-        train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows='all')
+        train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
         train_index = train.index
         if test is not None:
-            test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose,
-                                        nrows='all')
+            test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows)
             test_index = test.index
     #### If there are more than 30 categorical variables in a data set, it is worth reducing features.
     ####  Otherwise. XGBoost is pretty good at finding the best features whether cat or numeric !
@@ -977,7 +1018,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         test_ids = test[idcols]
     train_ids = train[idcols] ### this saves the ID columns of train
     cols_to_remove = features_dict['cols_delete'] + idcols + features_dict['discrete_string_vars']
+    print('Removing %d columns from further processing since ID or low information variables' %len(cols_to_remove))
+    if verbose:
+        print('    columns removed: %s' %cols_to_remove)
     preds = [x for x in list(train) if x not in target+cols_to_remove]
+    print('    After removing redundant variables from further processing, features left = %d' %len(preds))
     numvars = train[preds].select_dtypes(include = 'number').columns.tolist()
     if len(numvars) > max_nums:
         if feature_gen:
@@ -1516,7 +1561,6 @@ def FE_split_one_field_into_many(df_in, field, splitter, filler, new_names_list=
 import copy
 from sklearn.base import TransformerMixin
 from collections import defaultdict
-import pdb
 class My_Groupby_Encoder(TransformerMixin):
     """
     #################################################################################################
@@ -1854,7 +1898,7 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
     """
     dtf = copy.deepcopy(dft)
     reset_index = False
-    try:
+    if not ts_adds_in:
         # ts_column = None assumes that that index is the time series index
         reset_index = False
         if ts_column is None:
@@ -1894,30 +1938,42 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
             dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
             ### this is where you create the time series features #####
             dtf, ts_adds = _create_ts_features(df=dtf, tscol=ts_column)
+    else:
+        dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
+        ### this is where you create the time series features #####
+        dtf, ts_adds = _create_ts_features(df=dtf, tscol=ts_column)
+    try:
         if not ts_adds_in:
-            ts_adds_copy = dtf[ts_adds].select_dtypes(include='number').columns.tolist()
+            ts_adds_copy = copy.deepcopy(ts_adds)
+            rem_cols = left_subtract(dtf.columns.tolist(), ts_adds_copy)
+            ts_adds_num = dtf[ts_adds].select_dtypes(include='number').columns.tolist()
             ### drop those columns where all rows are same i.e. zero variance  ####
-            for col in ts_adds_copy:
+            for col in ts_adds_num:
                 if dtf[col].std() == 0:
                     dtf.drop(col, axis=1, inplace=True)
-                    print('        dropping column due to zero variance in %s column' %col)
                     ts_adds.remove(col)
+            removed_ts_cols = left_subtract(ts_adds_copy, ts_adds)
+            print('        dropped %d time series added columns due to zero variance' %len(removed_ts_cols))
+            rem_ts_cols = ts_adds
+            dtf = dtf[rem_cols+rem_ts_cols]
         else:
             rem_cols = left_subtract(dtf.columns.tolist(), ts_adds_in)
             dtf = dtf[rem_cols+ts_adds_in]
-
+            rem_ts_cols = ts_adds_in
         # If you had reset the index earlier, set it back before returning
         # to  make it consistent with the dataframe that was sent as input
         if reset_index:
             dtf = dtf.set_index(ts_column)
         elif ts_column in dtf.columns:
+            print('        dropping %s column after time series done' %ts_column)
             dtf.drop(ts_column, axis=1, inplace=True)
         else:
             pass
+        print('    After dropping zero variance cols, shape of data: %s' %(dtf.shape,))
     except Exception as e:
         print(e)
         print('Error in Processing %s column for date time features. Continuing...' %ts_column)
-    return dtf, ts_adds
+    return dtf, rem_ts_cols
 ######################################################################################
 def FE_get_latest_values_based_on_date_column(dft, id_col, date_col, cols, ascending=False):
     """
@@ -2149,7 +2205,6 @@ def FE_capping_outliers_beyond_IQR_Range(df, features, cap_at_nth_largest=5, IQR
 #################################################################################
 from sklearn.base import TransformerMixin
 from collections import defaultdict
-import pdb
 class My_LabelEncoder(TransformerMixin):
     """
     ################################################################################################
@@ -2554,7 +2609,6 @@ def oversample_ADASYN(X,y):
 #############################################################################
 import numpy as np
 import pandas as pd
-import pdb
 from sklearn.model_selection import train_test_split
 def split_data_n_ways(df, target, n_splits, test_size=0.2, modeltype=None,**kwargs):
     """
@@ -3291,7 +3345,6 @@ def EDA_binning_numeric_column_displaying_bins(dft, target, bins=4, test=""):
     return ls, edges, dft, test
 #########################################################################################
 from tqdm import tqdm
-import pdb
 def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, category_col, test2):
     """
     ######    F E A T U R E    E N G G    F O R    T I M E    S E R I E S     D A T A  ############
@@ -3371,7 +3424,6 @@ from sklearn.preprocessing import minmax_scale
 #### This is where we add other libraries to form a pipeline ###
 import copy
 import time
-import pdb
 import re
 from scipy.ndimage import convolve
 from sklearn import  datasets, metrics
@@ -3649,7 +3701,6 @@ def get_keras_model(modeltype, num_predicts, NLP):
 from sklearn.model_selection import cross_val_predict
 from sklearn.model_selection import KFold
 import copy
-import pdb
 def TF_cross_val_predict_using_embeddings(glovefile, nlp_column, modeltype, X, y, test="",epochs=50,loc_flag=True):
     """
     This handy function is similar to Cross_Val_Predict function in sklearn.
