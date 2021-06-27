@@ -413,7 +413,7 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all',pars
             return None
     if isinstance(dataname,pd.DataFrame):
         #### this means they have given a dataframe name to use directly in processing #####
-        dfte = copy.deepcopy(dataname)
+        dfte = dataname.sample(n=nrows, replace=False, random_state=99)
         print('Shape of your Data Set loaded: %s' %(dfte.shape,))
         if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
             print('You have duplicate column names in your data set. Removing duplicate columns now...')
