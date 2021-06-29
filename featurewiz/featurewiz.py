@@ -413,7 +413,10 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all',pars
             return None
     if isinstance(dataname,pd.DataFrame):
         #### this means they have given a dataframe name to use directly in processing #####
-        dfte = dataname.sample(n=nrows, replace=False, random_state=99)
+        if isinstance(nrows, str):
+            dfte = dataname.sample(frac=1.0, random_state=99)
+        else:
+            dfte = dataname.sample(n=nrows, replace=False, random_state=99)
         print('Shape of your Data Set loaded: %s' %(dfte.shape,))
         if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
             print('You have duplicate column names in your data set. Removing duplicate columns now...')
@@ -871,12 +874,18 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     RANDOM_SEED = 42
     ############################################################################
     cat_encoders_list = list(settings.cat_encoders_names.keys())
+    ### Just set defaults here which can be overridden by user input ####
+    nrows = 'all'
+    cat_vars = []
     if kwargs:
         for key, value in zip(kwargs.keys(), kwargs.values()):
             print('You supplied %s = %s' %(key, value))
+            ###### Now test the next set of kwargs ###
             if key == 'nrows':
+                ### don't change it. It is needed when there is nrows but no cat_vars and other way around.
                 nrows = value
-            if key == 'cat+vars':
+            ###### Now test the next set of kwargs ###
+            if key == 'cat_vars':
                 if isinstance(value, list):
                     cat_vars = value
                 elif isinstance(value, str):
@@ -884,9 +893,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 else:
                     print('cat vars must be a list or a string')
                     return
-    else:
-        nrows = 'all'
-        cat_vars = []
     ######################################################################################
     #####      MAKING FEATURE_TYPE AND FEATURE_GEN SELECTIONS HERE           #############
     ######################################################################################
@@ -1026,6 +1032,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     else:
         test_ids = test[idcols]
     train_ids = train[idcols] ### this saves the ID columns of train
+    if cat_vars:
+        cols_in_both = [x for x in cat_vars if x in features_dict['cols_delete']]
+        cat_vars = left_subtract(cat_vars, features_dict['cols_delete'])
+        if len(cols_in_both) > 0:
+            print('Removing %s columns(s) which are in both cols to be deleted and cat vars given as input' %cols_in_both)
     cols_to_remove = features_dict['cols_delete'] + idcols + features_dict['discrete_string_vars']
     print('Removing %d columns from further processing since ID or low information variables' %len(cols_to_remove))
     if verbose:
@@ -1133,7 +1144,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         if cat_vars:
             #### if cat_vars input is given, use it!
             catvars = copy.deepcopy(cat_vars)
-            numvars = left_subtract(catvars)
+            numvars = left_subtract(preds, catvars)
         else:
             catvars = left_subtract(preds, numvars)
     ######################   I M P O R T A N T ##############################################
@@ -1209,6 +1220,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             #model_xgb = ClassifierChain(model_xgb)
     ####   This is where you start to Iterate on Finding Important Features ################
     save_xgb = copy.deepcopy(model_xgb)
+    #### Since Category Encoding took place, these cat variables are no longer in Train. So remove them!
+    if feature_gen or feature_type:
+        preds = left_subtract(preds, catvars)
     train_p = train[preds]
     if train_p.shape[1] < 10:
         iter_limit = 2
