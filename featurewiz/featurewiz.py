@@ -64,6 +64,7 @@ from functools import reduce
 import copy
 import dask
 import dask.dataframe as dd
+
 #######################################################################################################
 def classify_features(dfte, depVar, verbose=0):
     dfte = copy.deepcopy(dfte)
@@ -364,45 +365,57 @@ def classify_columns(df_preds, verbose=0):
             print(' Missing columns = %s' %left_subtract(list(train),flat_list))
     return sum_all_cols
 #################################################################################
+def lenopenreadlines(filename):
+    with open(filename) as f:
+        return len(f.readlines())
+#########################################################################################
 from collections import Counter
 import time
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
 from sklearn.feature_selection import SelectKBest
 ##################################################################################
-def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all',parse_dates=False):
+def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse_dates=False):
     start_time = time.time()
     ###########################  This is where we load file or data frame ###############
     if isinstance(dataname,str):
         #### this means they have given file name as a string to load the file #####
+        codex_flag = False
+        codex = ['ascii', 'utf-8', 'iso-8859-1', 'cp1252', 'latin1']
         if dataname != '' and dataname.endswith(('csv')):
-            codex = ['utf-8', 'iso-8859-1', 'cp1252', 'latin1']
-            for code in codex:
+            filesize = lenopenreadlines(dataname)
+            if filesize > 100000:
                 try:
-                    if isinstance(nrows, str):
-                        ### this reads the entire file  ################
-                        print('    Since number of rows specified is all, loading entire file into pandas for EDA')
-                        ### load a small sample of data into a pandas dataframe ##
-                        dfte = pd.read_csv(dataname, sep=sep, header=header, encoding=code, parse_dates=parse_dates) 
-                    else:
-                        ### first load a small sample of the dataframe and the entire target if it needs transform
-                        print('    Since nrows is given, loading random sample of %d rows into pandas...' %nrows)
-                        ### we randomly sample every 2nd row until we get 10000
-                        skip_function = lambda x: (x != 0) and x % 5 and x < nrows
-                        ### load a small sample of data into a pandas dataframe ##
-                        dfte = pd.read_csv(dataname, sep=sep, skiprows=skip_function, header=header,
-                                        encoding=code, nrows=nrows, parse_dates=parse_dates)
-                    print('    Encoder %s chosen to read CSV file' %code)
-                    print('Shape of your Data Set loaded: %s' %(dfte.shape,))
-                    if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
-                        print('You have duplicate column names in your data set. Removing duplicate columns now...')
-                        dfte = dfte[list(dfte.columns[~dfte.columns.duplicated(keep='first')])]
+                    dfte = load_dask_data(dataname, sep)
                     return dfte
                 except:
-                    print('    pandas %s encoder does not work for this file. Continuing...' %code)
-                    continue
+                    print('File could not be loaded into dask. Check the path or filename and try again')
+                    return None
+            try:
+                dfte = pd.read_csv(dataname, sep=sep, header=header, encoding=None, 
+                                parse_dates=parse_dates)
+                if not nrows is None:
+                    if nrows < dfte.shape[0]:
+                        print('    max_rows_analyzed is smaller than dataset shape %d...' %dfte.shape[0])
+                        dfte = dfte.sample(nrows, replace=False, random_state=99)
+                        print('        randomly sampled %d rows from read CSV file' %nrows)
+                print('Shape of your Data Set loaded: %s' %(dfte.shape,))
+                if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
+                    print('You have duplicate column names in your data set. Removing duplicate columns now...')
+                    dfte = dfte[list(dfte.columns[~dfte.columns.duplicated(keep='first')])]
+                return dfte
+            except:
+                codex_flag = True
+            if codex_flag:
+                for code in codex:
+                    try:
+                        dfte = pd.read_csv(dataname, sep=sep, header=header, encoding=None, nrows=nrows,
+                                        skiprows=skip_function, parse_dates=parse_dates) 
+                    except:
+                        print('    pandas %s encoder does not work for this file. Continuing...' %code)
+                        continue
         elif dataname.endswith(('xlsx','xls','txt')):
             #### It's very important to get header rows in Excel since people put headers anywhere in Excel#
-            if isinstance(nrows, str):
+            if nrows is None:
                 dfte = pd.read_excel(dataname,header=header, parse_dates=parse_dates)
             else:
                 dfte = pd.read_excel(dataname,header=header, nrows=nrows, parse_dates=parse_dates)
@@ -411,12 +424,16 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows='all',pars
         else:
             print('    Filename is an empty string or file not able to be loaded')
             return None
-    if isinstance(dataname,pd.DataFrame):
+    elif isinstance(dataname,pd.DataFrame):
         #### this means they have given a dataframe name to use directly in processing #####
-        if isinstance(nrows, str):
-            dfte = dataname.sample(frac=1.0, random_state=99)
+        if nrows is None:
+            dfte = copy.deepcopy(dataname)
         else:
-            dfte = dataname.sample(n=nrows, replace=False, random_state=99)
+            if nrows < dataname.shape[0]:
+                print('    Since nrows is smaller than dataset, loading random sample of %d rows into pandas...' %nrows)
+                dfte = dataname.sample(n=nrows, replace=False, random_state=99)
+            else:
+                dfte = copy.deepcopy(dataname)
         print('Shape of your Data Set loaded: %s' %(dfte.shape,))
         if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
             print('You have duplicate column names in your data set. Removing duplicate columns now...')
@@ -434,21 +451,12 @@ def load_dask_data(filename, sep, ):
     path to the file.
     """
     if isinstance(filename, str):
-        print('First loading %s' % (filename))
-        try:
-            dft = pd.read_csv(filename,)
-            print('    Loaded %s into pandas dataframe.' % filename)
-        except:
-            dft = dd.read_csv(filename, blocksize='default')
-            print('    Too big to fit into pandas. Hence loaded file %s into a Dask dataframe ...' % filename)
+        dft = dd.read_csv(filename, blocksize='default')
+        print('    Too big to fit into pandas. Hence loaded file %s into a Dask dataframe ...' % filename)
     else:
         ### If filename is not a string, it must be a dataframe and can be loaded
-        if filename.shape[0] < 100000:
-            dft = copy.deepcopy(filename)
-            print('    Loaded pandas dataframe...')
-        else:
-            dft =   dd.from_pandas(filename, npartitions=1)
-            print('    Converted pandas dataframe into a Dask dataframe ...' )
+        dft =   dd.from_pandas(filename, npartitions=1)
+        print('    Converted pandas dataframe into a Dask dataframe ...' )
     return dft
 ##################################################################################
 # Removes duplicates from a list to return unique values - USED ONLYONCE
@@ -510,6 +518,63 @@ def return_dictionary_list(lst_of_tuples):
     for key, val in lst_of_tuples:
         orDict[key].append(val)
     return orDict
+##################################################################################
+def EDA_find_columns_with_infinity(df):
+    """
+    This function finds all columns in a dataframe that have inifinite values (np.inf or -np.inf)
+    It returns a list of column names. If the list is empty, it means no columns were found.
+    """
+    add_cols = []
+    sum_cols = 0
+    for col in df.columns:
+        inf_sum1 = 0 
+        inf_sum2 = 0
+        inf_sum1 = len(df[df[col]==np.inf])
+        inf_sum2 = len(df[df[col]==-np.inf])
+        if (inf_sum1 > 0) or (inf_sum2 > 0):
+            add_cols.append(col)
+            sum_cols += inf_sum1
+            sum_cols += inf_sum2
+    return add_cols
+####################################################################################
+import copy
+def FE_drop_rows_with_infinity(df, cols_list, fill_value=None):
+    """
+    This feature engineering function will fill infinite values in your data with a fill_value.
+    You might need this function during deep_learning models where infinite values don't work.
+    You can also leave the fill_value as None which means we will drop the rows with infinity.
+    This function checks for both negative and positive infinity values to fill or remove.
+    """
+    # first you must drop rows that have inf in them ####
+    print('Shape of dataset initial: %s' %(df.shape[0]))
+    corr_list_copy = copy.deepcopy(cols_list)
+    init_rows = df.shape[0]
+    if fill_value:
+        for col in corr_list_copy:
+            ### Capping using the n largest value based on n given in input.
+            maxval = df[col].max()  ## what is the maximum value in this column?
+            minval = df[col].min()
+            if maxval == np.inf:
+                sorted_list = sorted(df[col].unique())
+                ### find the n_smallest values after the maximum value based on given input n
+                next_best_value_index = sorted_list.index(np.inf) - 1
+                capped_value = sorted_list[next_best_value_index]
+                df.loc[df[col]==maxval, col] =  capped_value ## maximum values are now capped
+            if minval == -np.inf:
+                sorted_list = sorted(df[col].unique())
+                ### find the n_smallest values after the maximum value based on given input n
+                next_best_value_index = sorted_list.index(-np.inf)+1
+                capped_value = sorted_list[next_best_value_index]
+                df.loc[df[col]==minval, col] =  capped_value ## maximum values are now capped
+        print('    capped all rows with infinite values in data')
+    else:
+        for col in corr_list_copy:
+            df = df[df[col]!=np.inf]
+            df = df[df[col]!=-np.inf]
+        dropped_rows = init_rows - df.shape[0]
+        print('Dropped %d rows due to infinite values in data' %dropped_rows)
+        print('Shape of dataset after dropping rows: %s' %(df.shape[0]))
+    return df
 ##################################################################################
 def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
                                 corr_limit = 0.70,verbose=0):
@@ -589,10 +654,13 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
             sel_function = mutual_info_classif
             fs = SelectKBest(score_func=sel_function, k=max_feats)
         ##### you must ensure there are no null values in corr_list df ##
+        # first you must drop rows that have inf in them ####
+        df_fit = FE_drop_rows_with_infinity(df[corr_list])
         try:
-            fs.fit(df[corr_list].astype(np.float16), df[target])
+            fs.fit(df_fit.astype(np.float16), df[target])
         except:
-            fs.fit(df[corr_list].astype(np.float32), df[target])
+            fs.fit(df_fit.astype(np.float32), df[target])
+        ##########################################################################
         try:
             mutual_info = dict(zip(corr_list,fs.scores_))
             #### The first variable in list has the highest correlation to the target variable ###
@@ -628,6 +696,7 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
                 print('    Following (%d) vars selected: %s' %(len(final_list),final_list))
         ##############    D R A W   C O R R E L A T I O N   N E T W O R K ##################
         selected = copy.deepcopy(final_list)
+        pdb.set_trace()
         try:
             import networkx as nx
         except:
@@ -1379,16 +1448,6 @@ def remove_highly_correlated_vars_fast(df, corr_limit=0.70):
 import os
 def check_if_GPU_exists():
     GPU_exists = False
-    try:
-        from tensorflow.python.client import device_lib
-        dev_list = device_lib.list_local_devices()
-        print('Number of processors on machine = %d' %len(dev_list))
-        for i in range(len(dev_list)):
-            if 'GPU' == dev_list[i].device_type:
-                GPU_exists = True
-                print('%s available' %dev_list[i].device_type)
-    except:
-        pass
     if not GPU_exists:
         try:
             os.environ['NVIDIA_VISIBLE_DEVICES']
@@ -1456,7 +1515,7 @@ def FE_start_end_date_time_features(smalldf, startTime, endTime, splitter_date_s
     else:
         start_date = 'processing'+startTime+'_start_date'
         smalldf[start_date] = smalldf[startTime].map(lambda x: x.split(" ")[0])
-        add_cols.append(start_date)        
+        add_cols.append(start_date)
         try:
             start_time = 'processing'+startTime+'_start_time'
             smalldf[start_time] = smalldf[startTime].map(lambda x: x.split(" ")[1])
@@ -1557,7 +1616,7 @@ def FE_split_one_field_into_many(df_in, field, splitter, filler, new_names_list=
                             field,max_things))
     else:
         if not max_things == len(new_names_list):
-            print("""    Max. columns created by splitting %s field is %d but you have given %d 
+            print("""    Max. columns created by splitting %s field is %d but you have given %d
                             variable names only. Selecting first %d""" %(
                         field,max_things,len(new_names_list),len(new_names_list)))
     ### This creates a new field that counts the number of things that are in that field.
@@ -1724,7 +1783,7 @@ class My_Groupby_Encoder(TransformerMixin):
 
 
             dft = dft.merge(dft_full, on=self.groupby_column, how='left')
-            
+
             #### Now change the label encoded columns back to original status ##
             copy_cols = copy.deepcopy(self.groupby_column)
             for each_col in copy_cols:
@@ -1774,7 +1833,7 @@ def FE_add_groupby_features_aggregated_to_dataframe(train,
     test_copy = copy.deepcopy(test)
     if isinstance(groupby_columns, str):
         groupby_columns = [groupby_columns]
-    
+
     for groupby_column in groupby_columns:
         train_copy_index = train_copy.index
         MGB = My_Groupby_Encoder(groupby_column, agg_types, ignore_variables)
@@ -1912,16 +1971,16 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
     #######        B E W A R E  : H U G E   N U M B E R   O F  F E A T U R E S  ###########
-    This creates between 100 and 110 date time features for each date variable. The number 
-    of features depends on whether it is just a year variable or a year+month+day and 
-    whether it has hours and minutes or seconds. So this can create all these features 
-    using just the date time column that you send in. Optinally, you can send in a list 
+    This creates between 100 and 110 date time features for each date variable. The number
+    of features depends on whether it is just a year variable or a year+month+day and
+    whether it has hours and minutes or seconds. So this can create all these features
+    using just the date time column that you send in. Optinally, you can send in a list
     of columns that you want returned. It will preserved those same columns and return them.
     ######################################################################################
     Inputs:
     dtf: pandas DataFrame
     ts_column: name of the time series column
-    ts_adds_in: list of time series columns you want in the returned dataframe. 
+    ts_adds_in: list of time series columns you want in the returned dataframe.
 
     Outputs:
     dtf: pandas dataframe
@@ -3384,7 +3443,7 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
     This handy function adds the mean of lagged values for target column based on date and a category.
     For each date in date column, it collects all target values prior to that date and calculates mean.
     The collected target values are in same category as current category in each row.
-    This function enables a model to learn average of prior target (values) grouped by a category. 
+    This function enables a model to learn average of prior target (values) grouped by a category.
     It also calculates same values for test using values in train data 9(by using it as look up tables)
     1. In Train data, we select rows prior to the current row's date and match category. We calculate mean.
     2. In Test, we select rows matching the category and any row prior to the current row's date. Again mean.
@@ -3393,11 +3452,11 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
     Inputs:
         train2: a training dataframe
         target_col: name of target variable you want the mean of the lagged values before a certain date
-        date_col: name of the 
+        date_col: name of the
         category_col: name of category column prior target values are grouped by (and mean calculated)
 
     Outputs:
-        new_col: new column in train and test 
+        new_col: new column in train and test
         - representing average of prior target values by category before each date in a row
     #################################################################################################
     """
@@ -3441,11 +3500,6 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
             i += 1
     return train2.set_index('index'), test2.set_index('index')
 #############################################################################################
-"""
-Copyright 2020 Google LLC. This software is provided as-is, without warranty or
-representation for any use or purpose. Your use of it is subject to your
-agreement with Google.
-"""
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -3463,138 +3517,7 @@ from sklearn import  datasets, metrics
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import KFold, StratifiedShuffleSplit
-from tensorflow.keras.preprocessing.text import Tokenizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-###########################################################################################
-from sklearn.base import TransformerMixin
-from collections import defaultdict
-class NLP_Pipeline(TransformerMixin):
-    """
-    ################################################################################################
-    ######  This Auto_NLP_Pipeline class works just like sklearn's Pipelines!  #####################
-    #####  You can transform any NLP column in a pandas data frame using this new class. But unlike
-    sklearn the beauty of this function is that it can take care of NaN's in your NLP column values.
-    It uses the same fit() and fit_transform() methods of sklearn's models. You can add embeddings 
-    from any data set with an NLP column and a target variable using GloVe
-    ################################################################################################
-    ####   MOST IMPORTANT: YOU MUST DOWNLOAD THE GLOVE VECTOR AND UNZIP IT IN YOUR MACHINE ###
-    Example of a glove_filename_with_path is this: './Glove/glove.twitter.27B.200d.txt'
-    #######      ONCE UNZIPPED YOU MUST PROVIDE THE PATH AND NAME OF TXT FILE ABOVE ################
-    This utility uses pretrained Global Vectors for Word Representation (GloVe) provided by the 
-    Stanford NLP group with the IMDB review dataset. Glove is a word vector trained on large datasets, 
-    similar to the weights for pretrained deep learning models (an example of transfer learning).
-    #########################################  I N P U T S   #######################################
-    data: DataFrame
-    nlp_column: name of the NLP column in DataFrame
-    target: name of target variable in the DataFrame
-    glovefile: exact location in your local machine including path and name of glove.txt file.
-    glove_dimension: specify dimension of the glove vector - usually found in name of glove txt file.
-           Make sure your glove_dimension input does not exceed dimension specified in glove.txt file!
-    max_length: This is maximum length of each paragraph or sentence or piece of text you are feeding.
-    ############################# O U T P U T S ####################################################
-    tokenized: This is the tokenizer that was used to split the words in data set. 
-                    This must be used later.
-    vocab_size: This is the size of train vocabulary that was based on the words in data set. 
-                    This must be used later.
-    glove_dimension: This is the size of the glove .txt dimension that was acted on the data set. 
-                    This must be used later.
-    embedding_matrix: This is the final matrix that was created from the words in data set. 
-                This must be used later.
-    ##################################################################################################
-    Usage:
-          NLP = Auto_NLP_Pipeline()
-          train[column] = NLP.fit_transform(train[nlp_column])
-          test[column] = MLB.transform(test[nlp_column])
-    ################################################################################################
-    """
-    def __init__(self, glovefile, glove_dimension="", max_length=""):
-        self.glovefile = glovefile
-        self.fit_flag = False
-        self.vocab_size = 10000
-        self.rnn_path = 'models/'
-        self.rnn = ''
-        self.data = pd.DataFrame()
-        self.data_padded = np.array([])
-        self.tokenizer = ""
-        self.embedding_matrix = np.array([])
-        self.word_index = []
-        self.MAX_NUM_WORDS = 1000000        ## make the max word size  to be one million ####
-        if max_length:
-            self.max_length = max_length
-        else:
-            self.max_length = ""
-        if not glove_dimension:
-            self.glove_dimension = int(re.findall(r'\d+', glovefile)[-1])
-        else:
-            self.glove_dimension = glove_dimension
-        try:
-            Path(self.glovefile).open(encoding='latin1')
-            print('Glove txt file found and loaded. Glove dimension = %s' %self.glove_dimension)
-        except:
-            print('No Glove txt file found in the given path. Doublecheck your path and try again')
-            return
 
-
-    def fit(self, data, nlp_column):
-        """
-        The dataframe is fit to learn embeddings using specified glove dimension.
-        X_train_padded: the train dataframe with dimension specified in max_length
-        y_train: the target vector using data and target column
-        X_test_padded:  the test dataframe with dimension specified in max_length
-        """
-        if not isinstance(nlp_column, str):
-            print('Error: format of fit is .fit(data, nlp_column). Please check your input and try again')
-            return self
-        if isinstance(data, pd.Series) or isinstance(data, pd.DataFrame):
-            self.data = data
-            self.nlp_column = nlp_column
-        elif isinstance(data, np.ndarray):
-            print('Input data is an array. It must be a pandas dataframe with a column name')
-            return self
-        else:
-            print('Input data is of unknown type. It must be a pandas dataframe with a column name')
-            return self
-        #### This is where we  create the embedding matrix after tokenizing the data  ##
-        print('Length of data set:', self.data.shape[0])
-        if not self.max_length:
-            self.max_length = self.data[self.nlp_column].map(lambda x: len(x.split(" "))).max()
-            print('    Current max length of your text is %s' %self.max_length)
-            self.max_length = int(1.2*self.max_length)  ### add 20% for out-of-vocab words
-            print('        recommended max length of your text is %s' %self.max_length)
-        ##### collect the word index from the train data only. Do not do this on test data ##########
-        if not self.word_index:
-            #### You do this only if the word_index is not already there. Otherwise, you don't.######
-            self.tokenizer = Tokenizer(num_words=self.MAX_NUM_WORDS,
-                      lower=True,
-                      oov_token=2)
-            self.tokenizer.fit_on_texts(data[nlp_column])
-            self.word_index = self.tokenizer.word_index
-            self.vocab_size = min(self.MAX_NUM_WORDS, len(self.word_index) + 1)
-            print('    Vocabulary size = %s' %self.vocab_size)
-        self.embedding_matrix, self.glove_dimension = load_embeddings(self.tokenizer, self.glovefile,
-                                                        self.vocab_size, self.glove_dimension)
-        self.fit_flag = True
-        return self
-
-    def transform(self, train_data):
-        if self.fit_flag:
-            train_index = train_data.index
-            ### Encode Train data text into sequences
-            train_data_encoded = self.tokenizer.texts_to_sequences(train_data[self.nlp_column])
-            ### Pad_Sequences function is used to make lists of unequal length to stacked sets of padded and truncated arrays
-            ### Pad Sequences for Train
-            X_train_padded = pad_sequences(train_data_encoded,
-                                        maxlen=self.max_length,
-                                        padding='post',
-                                       truncating='post')
-            print('Data shape after padding = %s' %(X_train_padded.shape,))
-            new_cols = ['glove_dim_' + str(x+1) for x in range(X_train_padded.shape[1])]
-            X_train_padded = pd.DataFrame(X_train_padded, columns=new_cols, index=train_index)
-            return X_train_padded
-        else:
-            print('Fit the Auto_NLP_Pipeline class with some train data before doing transform')
-            return self
-############################################################################################################
 def add_text_paddings(train_data,nlp_column,glove_filename_with_path,tokenized,
                             fit_flag=True,
                             max_length=100):
@@ -3670,162 +3593,6 @@ def load_embeddings(tokenized,glove_filename_with_path,vocab_size,glove_dimensio
     print('    Completed.')
     return embedding_matrix, glove_dimension
 #####################################################################################################
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
-from tensorflow.keras.datasets import imdb
-from tensorflow.keras.models import Sequential, Model
-from tensorflow.keras.layers import Dense, LSTM, GRU, Input, concatenate, Embedding, Reshape, Activation
-from tensorflow.python.keras.utils import np_utils
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.preprocessing.text import Tokenizer
-import tensorflow.keras.backend as K
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.wrappers.scikit_learn import KerasClassifier
-from tensorflow.keras.models import model_from_json
-from tensorflow.keras.models import load_model
-from tensorflow.keras.layers import Conv1D, MaxPooling1D, BatchNormalization, Dropout
-from tensorflow.keras.utils import to_categorical
-from tensorflow.keras.layers import Dense, Input, GlobalMaxPooling1D, Concatenate
-from tensorflow.keras.layers import Conv1D, MaxPooling1D, Embedding, Flatten
-from tensorflow.keras.models import Model
-from tensorflow.keras.initializers import Constant
-#print('Tensorflow loaded. Version = %s' %tf.__version__)
-
-def get_keras_model(modeltype, num_predicts, NLP):
-    """
-    This function builds a simple keras CNN model for both regression and classification problems.
-    You just need to provide the model type and the number of outputs (num_predicts).
-    It also requires the NLP_Pipeline class object which is used to figure out vocab size etc.
-    """
-    ################################### Set model and glove defaults here ##########################
-    # define model
-    kernel_size = 5
-    embedding_layer = Embedding(input_dim=NLP.vocab_size,
-                                output_dim= NLP.glove_dimension,
-                                embeddings_initializer=Constant(NLP.embedding_matrix),
-                                input_length=NLP.max_length,
-                                trainable=False)
-    sequence_input = Input(shape=(NLP.max_length,), dtype='int32')
-    embedded_sequences = embedding_layer(sequence_input)
-    x = Conv1D(128, kernel_size, activation='relu')(embedded_sequences)
-    x = MaxPooling1D(kernel_size)(x)
-    x = Conv1D(128, kernel_size, activation='relu')(x)
-    x = MaxPooling1D(kernel_size)(x)
-    x = Conv1D(128, kernel_size, activation='relu')(x)
-    x = GlobalMaxPooling1D()(x)
-    x = Dense(128, activation='relu')(x)
-    if modeltype == 'Regression':
-        output_activation = "linear"
-        loss = "mae"
-        metric = "mae"
-    else:
-        output_activation = 'softmax'
-        loss = 'sparse_categorical_crossentropy'
-        metric = 'accuracy'
-    preds = Dense(num_predicts, activation=output_activation)(x)
-    model = Model(sequence_input, preds)
-    print(model.summary())
-    model.compile(loss=loss,
-                  optimizer='rmsprop',
-                  metrics=[metric])
-    return model
-###################################################################################
-from sklearn.model_selection import cross_val_predict
-from sklearn.model_selection import KFold
-import copy
-def TF_cross_val_predict_using_embeddings(glovefile, nlp_column, modeltype, X, y, test="",epochs=50,loc_flag=True):
-    """
-    This handy function is similar to Cross_Val_Predict function in sklearn.
-    It performs 5-fold cross validation using the NLP column in your dataframe given by X and y.
-    It uses the NLP column to make GloVE embeddings using GloVE model which you must download first.
-    Do not run this function without downloading GloVE txt model from either Kaggle or TFHub or anywhere.
-    You can also specify the modeltype so it can build a Keras CNN model to make cross val predictions.
-    It is primarily designed to make predictions on the same dataset X which you send as input.
-    But optionally, you can send in a test dataframe and it will make predictions on test after training on X.
-    The loc_flag is needed since in many dataframes there is no index and it uses index to make a KFold split.
-    The number of epochs to run training is determined by the epochs input. Default is 50 epochs.
-    ########################    I N P U T S       ################################################
-    glovefile: You must provide the filename and path to your GloVE txt model which you have downloaded.
-    nlp_column: name of NLP column in your dataframe X which you want to use to make Embeddings using GloVE
-    
-    """
-    X = copy.deepcopy(X)
-    NLP = NLP_Pipeline(glovefile)
-    train_emb = NLP.fit_transform(X, nlp_column)
-    print('Train embeddings shape = ', train_emb.shape)
-    if not isinstance(test, str):
-        test_emb = NLP.transform(test)
-        print('    Test embeddings shape = ', test_emb.shape)
-    ### this contains only the embeddings and hence you must only use it for Emebedding layer in keras
-    print('NLP.embedding_matrix.shape = ',NLP.embedding_matrix.shape)
-    print('NLP.vocab_size = ', NLP.vocab_size)
-    print('NLP.max_length = ', NLP.max_length)
-    print('NLP.glove_dimension = ',NLP.glove_dimension)
-    #### now perform the model generation here using embeddings #####
-    test = test.copy(deep=True)
-    KF = KFold(n_splits=5)
-    train_copy = copy.deepcopy(train_emb)
-    y = copy.deepcopy(y)
-    if modeltype != 'Regression':
-        #You need to convert y since y happens to be a binary or multi-class variable
-        yten, idex = tf.unique(y)
-        rev_dicti = dict(zip(range(len(yten)),yten.numpy()))
-        dicti = dict([(v,k) for (k,v) in rev_dicti.items()])
-        num_predicts = len(yten)
-    else:
-        num_predicts = 1
-    best_pipe = get_keras_model(modeltype, num_predicts, NLP)
-    model2 = best_pipe
-    nlp_col = 'cross_val_predictions_glove'
-    if not loc_flag:
-        train_emb[nlp_col] = 0
-    for fold, (t_, v_) in enumerate(KF.split(train_emb,y)):
-        if loc_flag:
-            trainm = train_copy.loc[t_]
-            y_train_copy = y[t_]
-            testm = train_copy.loc[v_]
-        else:
-            trainm = train_copy.iloc[t_]
-            y_train_copy = y[t_]
-            testm = train_copy.iloc[v_]
-        #### Now let us do the model fitting #####            
-        if modeltype != 'Regression':
-            y_train_copy = pd.Series(y_train_copy).map(dicti).values
-        best_pipe.fit(trainm, y_train_copy, epochs=epochs, steps_per_epoch=10, verbose=1)
-        if modeltype == 'Regression':
-            testm = best_pipe.predict(testm).ravel()
-        else:
-            testm = best_pipe.predict(testm).argmax(axis=1).astype(int)
-        if loc_flag:
-            train_emb.loc[v_, nlp_col] = testm
-        else:
-            train_emb.iloc[v_, -1] = testm
-        print('    Predictions for fold %d completed' %(fold+1))
-    ## This is where we apply the transformer on train data and test ##
-    if modeltype == 'Regression':
-         y_train = train_emb[nlp_col].values
-    else:
-        y_train = train_emb[nlp_col].map(rev_dicti).values
-    tf.keras.backend.clear_session()
-    if not isinstance(test, str):
-        print('    Returning predictions on test data...')
-        if modeltype == 'Regression':
-            model2.fit(train_copy, y)
-            y_pred = model2.predict(test_emb).ravel()
-            test[nlp_col] = y_pred
-        else:
-            y = pd.Series(y).map(dicti).values
-            model2.fit(train_copy, y)
-            y_pred = model2.predict(test_emb).argmax(axis=1).astype(int)
-            test[nlp_col] = y_pred
-            y_pred = test[nlp_col].map(rev_dicti)
-    else:
-        y_pred = ""
-        test = ""
-    print('cross val predictions train and test completed')
-    return y_train, y_pred
-###################################################################################
 import copy
 def FE_convert_mixed_datatypes_to_string(df):
     df = copy.deepcopy(df)
