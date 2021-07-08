@@ -173,7 +173,7 @@ def classify_columns(df_preds, verbose=0):
     orig_cols_total = train.shape[1]
     #Types of columns
     cols_delete = [col for col in list(train) if (len(train[col].value_counts()) == 1
-                                   ) | (train[col].isnull().sum()/len(train) >= 0.90)]
+                                       ) | (train[col].isnull().sum()/len(train) >= 0.90)]
     train = train[left_subtract(list(train),cols_delete)]
     var_df = pd.Series(dict(train.dtypes)).reset_index(drop=False).rename(
                         columns={0:'type_of_column'})
@@ -382,14 +382,6 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse
         codex_flag = False
         codex = ['ascii', 'utf-8', 'iso-8859-1', 'cp1252', 'latin1']
         if dataname != '' and dataname.endswith(('csv')):
-            filesize = lenopenreadlines(dataname)
-            if filesize > 100000:
-                try:
-                    dfte = load_dask_data(dataname, sep)
-                    return dfte
-                except:
-                    print('File could not be loaded into dask. Check the path or filename and try again')
-                    return None
             try:
                 dfte = pd.read_csv(dataname, sep=sep, header=header, encoding=None, 
                                 parse_dates=parse_dates)
@@ -574,6 +566,12 @@ def FE_drop_rows_with_infinity(df, cols_list, fill_value=None):
         dropped_rows = init_rows - df.shape[0]
         print('        dropped %d rows due to infinite values in data' %dropped_rows)
         print('    Shape of dataset after dropping rows: %s' %(df.shape[0]))
+    ###  Double check that all columns have been fixed ###############
+    cols_with_infinity = EDA_find_columns_with_infinity(df)
+    if cols_with_infinity:
+        print('There are still %d columns with infinite values. Returning...' %len(cols_with_infinity))
+    else:
+        print('There are no columns with infinite values.')
     return df
 ##################################################################################
 def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
@@ -598,7 +596,7 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
     ### for some reason, doing a mass fillna of vars doesn't work! Hence doing it individually!
     null_vars = np.array(numvars)[df[numvars].isnull().sum()>0]
     for each_num in null_vars:
-        df[each_num].fillna(0,inplace=True)
+        df[each_num] = df[each_num].fillna(0)
     target = copy.deepcopy(target)
     print('Searching for highly correlated variables from %d variables using SULOV method' %len(numvars))
     print('#####  SULOV : Searching for Uncorrelated List Of Variables (takes time...) ############')
@@ -658,13 +656,20 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
         # first you must drop rows that have inf in them ####
         if cols_with_infinity:
             print('There are %d columns with infinite values in your dataset' %len(cols_with_infinity))
-            df_fit = FE_drop_rows_with_infinity(df[corr_list], corr_list, fill_value=True)
+            df_fit = FE_drop_rows_with_infinity(df[corr_list], cols_with_infinity, fill_value=True)
         else:
             df_fit = df[corr_list]
+        ### Now check if there are any NaN values in the dataset #####
+        if df_fit.isnull().sum().sum() > 0:
+            df_fit = df_fit.dropna()
+        else:
+            print('There are no null values in dataset.')
+        ##### Ready to perform fit and find mutual information score ####        
         try:
-            fs.fit(df_fit.astype(np.float16), df[target])
-        except:
             fs.fit(df_fit.astype(np.float32), df[target])
+        except:
+            print('Select K Best erroring. Returning with all variables...')
+            return corr_list
         ##########################################################################
         try:
             mutual_info = dict(zip(corr_list,fs.scores_))
@@ -701,7 +706,6 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
                 print('    Following (%d) vars selected: %s' %(len(final_list),final_list))
         ##############    D R A W   C O R R E L A T I O N   N E T W O R K ##################
         selected = copy.deepcopy(final_list)
-        pdb.set_trace()
         try:
             import networkx as nx
         except:
@@ -716,7 +720,7 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
         ######### This is where you calculate the size of each node to draw
         sizes = [mutual_info[x]*multiplier for x in list(gf.nodes())]
         ####  The sizes of the bubbles for each node is determined by its mutual information score value
-        corr = df[corr_list].corr()
+        corr = df_fit.corr()
         high_corr = corr[abs(corr)>corr_limit]
         ## high_corr is the dataframe of a few variables that are highly correlated to each other
         combos = combinations(corr_list,2)
@@ -987,18 +991,50 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             feature_type = category_encoders[:2] ### Only two will be allowed at a time
     else:
         print('Skipping category encoding since no category encoders specified in input...')
-    ##################    L O A D     D A T A N A M E   ########################
-    train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
+    ##################    L O A D     T R A I N   D A T A   ########################
+    print('Loading train data...')
+    if isinstance(dataname, str):
+        filesize = lenopenreadlines(dataname)
+        if filesize > 100000:
+            try:
+                train = load_dask_data(dataname, sep)
+                dataname = pd.read_csv(dataname, sep=sep, header=header)
+            except:
+                print('File could not be loaded into dask. Check the path or filename and try again')
+                return None
+        else:
+            train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
+            dataname = pd.read_csv(dataname, sep=sep, header=header)
+    else:
+        if dataname.shape[0] > 100000:
+            print('    since dataset size %s > 100K, loading into dask' %len(dataname))
+            train = load_dask_data(dataname, sep)
+        else:
+            train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
+    ##################    L O A D    T E S T   D A T A      ######################
     train = remove_duplicate_cols_in_dataset(train)
     train_index = train.index
+    print('Loading test data...')
     test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows)
     if test is not None:
         test = remove_duplicate_cols_in_dataset(test)
         test_index = test.index
     #############    C L A S S I F Y    F E A T U R E S      ####################
-    features_dict = classify_features(train, target)
+    if type(train) == dask.dataframe.core.DataFrame:
+        if isinstance(dataname, pd.DataFrame):
+            if dataname.shape[0] >= 100000:
+                print('    since data is in dask now, loading a small sample to classify features')
+            min_size = min(dataname.shape[0], 99000)
+            train_small = dataname.sample(min_size, random_state=99)
+            features_dict = classify_features(train_small, target)
+        else:
+            train_small = train.sample(frac=0.1)
+            train_small = train_small.compute() ## this converts it to a pandas dataframe
+            features_dict = classify_features(train_small, target)
+    else:
+        features_dict = classify_features(train, target)
     if len(features_dict['date_vars']) > 0:
-        #### If there are date-time variables in datatset, it is best to load them using pandas
+        print('Since there are date-time variables in datatset, it is best to load them using pandas')
         date_time_vars = features_dict['date_vars']
         train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows,
                              parse_dates=date_time_vars)
@@ -1006,10 +1042,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows,
                                  parse_dates=date_time_vars)
     else:
-        train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
         train_index = train.index
         if test is not None:
-            test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows)
             test_index = test.index
     #### If there are more than 30 categorical variables in a data set, it is worth reducing features.
     ####  Otherwise. XGBoost is pretty good at finding the best features whether cat or numeric !
@@ -1079,7 +1113,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ########     C L A S S I F Y    V A R I A B L E S           ##########################
     ###### Now we detect the various types of variables to see how to convert them to numeric
     ######################################################################################
-    features_dict = classify_features(train, target)
     if len(features_dict['date_vars']) > 0:
         date_time_vars = features_dict['date_vars']
         date_cols = copy.deepcopy(date_time_vars)
@@ -1456,10 +1489,10 @@ def check_if_GPU_exists():
     if not GPU_exists:
         try:
             os.environ['NVIDIA_VISIBLE_DEVICES']
-            print('    GPU active on this device')
+            print('GPU active on this device')
             return True
         except:
-            print('    No GPU active on this device')
+            print('No GPU active on this device')
             return False
     else:
         return True
@@ -1610,7 +1643,7 @@ def FE_split_one_field_into_many(df_in, field, splitter, filler, new_names_list=
     df_field = df_in[field].values
     df = copy.deepcopy(df_in)
     ### First copy  whatever is in that field so we can save it for later ###
-    df[field].fillna(filler, inplace=True)
+    df[field] = df[field].fillna(filler)
     if add_count_field:
         ### there will be one extra field created when we count the number of contents in each field ###
         max_things = df[field].map(lambda x: len(x.split(splitter))).max() + 1
@@ -1773,7 +1806,7 @@ class My_Groupby_Encoder(TransformerMixin):
                 copy_cols = copy.deepcopy(cols)
                 for each_col in cols:
                     if len(dft_full[each_col].value_counts()) == 1:
-                        dft_full.drop(each_col, axis=1, inplace=True)
+                        dft_full.drop = dft_full.drop(each_col, axis=1)
                 num_cols_created = dft_full.shape[1] - len(self.groupby_column)
                 print('%d new columns created for numeric data grouped by %s for aggregates %s' %(num_cols_created,
                                     self.groupby_column, self.agg_types))
@@ -1911,31 +1944,31 @@ def _create_ts_features(df, tscol):
         name_col = tscol+"_is_festive"
         df[name_col] = 0
         df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in festives else 0).values
-        df[name_col].fillna(0,inplace=True)
+        df[name_col] = df[name_col].fillna(0)
         dt_adds.append(name_col)
         summer = ['Jun','Jul','Aug']
         name_col = tscol+"_is_summer"
         df[name_col] = 0
         df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in summer else 0).values
-        df[name_col].fillna(0,inplace=True)
+        df[name_col] = df[name_col].fillna(0)
         dt_adds.append(name_col)
         winter = ['Dec','Jan','Feb']
         name_col = tscol+"_is_winter"
         df[name_col] = 0
         df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in winter else 0).values
-        df[name_col].fillna(0,inplace=True)
+        df[name_col] = df[name_col].fillna(0)
         dt_adds.append(name_col)
         cold = ['Oct','Nov','Dec','Jan','Feb','Mar']
         name_col = tscol+"_is_cold"
         df[name_col] = 0
         df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in cold else 0).values
-        df[name_col].fillna(0,inplace=True)
+        df[name_col] = df[name_col].fillna(0)
         dt_adds.append(name_col)
         warm = ['Apr','May','Jun','Jul','Aug','Sep']
         name_col = tscol+"_is_warm"
         df[name_col] = 0
         df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in warm else 0).values
-        df[name_col].fillna(0,inplace=True)
+        df[name_col] = df[name_col].fillna(0)
         dt_adds.append(name_col)
         #########################################################################
         if tscol+'_dayofweek' in dt_adds:
@@ -2010,10 +2043,10 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
             new_missing_col = ts_column + '_Missing_Flag'
             dtf[new_missing_col] = 0
             dtf.loc[dtf[ts_column].isnull(),new_missing_col]=1
-            dtf[ts_column].fillna(method='ffill', inplace=True)
+            dtf[ts_column] = dtf[ts_column].fillna(method='ffill')
             print('        adding %s column due to missing values in data' %new_missing_col)
             if dtf[dtf[ts_column].isnull()].shape[0] > 0:
-                dtf[ts_column].fillna(method='bfill', inplace=True)
+                dtf[ts_column] = dtf[ts_column].fillna(method='bfill')
 
         if dtf[ts_column].dtype == float:
             dtf[ts_column] = dtf[ts_column].astype(int)
@@ -2047,7 +2080,7 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
             ### drop those columns where all rows are same i.e. zero variance  ####
             for col in ts_adds_num:
                 if dtf[col].std() == 0:
-                    dtf.drop(col, axis=1, inplace=True)
+                    dtf = dtf.drop(col, axis=1)
                     ts_adds.remove(col)
             removed_ts_cols = left_subtract(ts_adds_copy, ts_adds)
             print('        dropped %d time series added columns due to zero variance' %len(removed_ts_cols))
@@ -2063,7 +2096,7 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
             dtf = dtf.set_index(ts_column)
         elif ts_column in dtf.columns:
             print('        dropping %s column after time series done' %ts_column)
-            dtf.drop(ts_column, axis=1, inplace=True)
+            dtf = dtf.drop(ts_column, axis=1)
         else:
             pass
         print('    After dropping zero variance cols, shape of data: %s' %(dtf.shape,))
@@ -2295,7 +2328,7 @@ def FE_capping_outliers_beyond_IQR_Range(df, features, cap_at_nth_largest=5, IQR
     if drop:
         print('Shape of dataframe before outliers being dropped: %s' %(df.shape,))
         number_of_rows = df.shape[0]
-        df.drop(multiple_outliers, axis=0, inplace=True)
+        df = df.drop(multiple_outliers, axis=0)
         print('Shape of dataframe after outliers being dropped: %s' %(df.shape,))
         print('\nNumber_of_rows with multiple outliers in more than 3 columns which were dropped = %d' %(number_of_rows-df.shape[0]))
     return df
@@ -2591,11 +2624,11 @@ def FE_find_and_cap_outliers(df, features, drop=False, verbose=False):
     outlier_indices = Counter(outlier_indices)
     multiple_outliers = list( k for k, v in outlier_indices.items() if v > 3 )
     ### now drop these rows altogether ####
-    df.drop([idcol,'anomaly1'], axis=1, inplace=True)
+    df = df.drop([idcol,'anomaly1'], axis=1)
     if drop:
         print('Shape of dataframe before outliers being dropped: %s' %(df.shape,))
         number_of_rows = df.shape[0]
-        df.drop(multiple_outliers, axis=0, inplace=True)
+        df = df.drop(multiple_outliers, axis=0)
         print('Shape of dataframe after outliers being dropped: %s' %(df.shape,))
         print('\nNumber_of_rows with multiple outliers in more than 3 columns which were dropped = %d' %(number_of_rows-df.shape[0]))
     return df
@@ -2660,7 +2693,7 @@ def FE_kmeans_resampler(x_train, y_train, target, smote="", verbose=0):
     else:
         x_train_ext, _ = smote.fit_resample(x_train_c, y_train_c)
     y_train_ext = x_train_ext[target].values
-    x_train_ext.drop(target, axis=1, inplace=True)
+    x_train_ext = x_train_ext.drop(target, axis=1)
     return (x_train_ext, y_train_ext)
 
 ###################################################################################################
@@ -2820,7 +2853,7 @@ def FE_concatenate_multiple_columns(df, cols, filler=" ", drop=True):
     df = df.copy(deep=True)
     df['combined'] = df[cols].apply(lambda row: filler.join(row.values.astype(str)), axis=1)
     if drop:
-        df.drop(cols, axis=1, inplace=True)
+        df = df.drop(cols, axis=1)
     return df
 ##################################################################################
 from tqdm.notebook import tqdm
@@ -2942,9 +2975,9 @@ def data_transform(X_train, y_train, X_test="", enc_method='label', scaler = Sta
         if not isinstance(X_test_encoded, str):
             imputer.transform(X_test_encoded)
     except:
-        X_train_encoded.fillna(0, inplace=True)
+        X_train_encoded = X_train_encoded.fillna(0)
         if not isinstance(X_test_encoded, str):
-            X_test_encoded.fillna(0, inplace=True)
+            X_test_encoded = X_test_encoded.fillna(0)
 
     # fit the scaler to the entire train and transform the test set
     scaler.fit(X_train_encoded)
@@ -3470,9 +3503,9 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
     new_col = target_col+'_array'
     train2[new_col] = 0
     i = 0
-    train2.reset_index(drop=False, inplace=True)  # index column will be called 'index'
+    train2 = train2.reset_index(drop=False)  # index column will be called 'index'
     train2 = train2.set_index(pd.to_datetime(train2.pop(date_col)))
-    train2.sort_index(inplace=True)
+    train2 = train2.sort_index()
     for index, each_train in tqdm(train2.iterrows(), total=train2.shape[0]):
         before_grp = train2.loc[train2.index < index]
         prim = each_train[category_col]
@@ -3489,9 +3522,9 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
     if not isinstance(test2, str):
         test2[new_col] = 0
         i = 0
-        test2.reset_index(drop=False, inplace=True)  # index column will be called 'index'
+        test2 = test2.reset_index(drop=False)  # index column will be called 'index'
         test2 = test2.set_index(pd.to_datetime(test2.pop(date_col)))
-        test2.sort_index(inplace=True)
+        test2 = test2.sort_index()
         for index1, each_test in tqdm(test2.iterrows(), total=test2.shape[0]):
             before_grp = train2.loc[train2.index < index1]
             prim = each_test[category_col]
@@ -3642,13 +3675,13 @@ def FE_split_list_into_columns(df, col, cols_in=[]):
     if cols_in:
         max_col_length = len(cols_in)
         df[cols_in] = df[col].apply(pd.Series).values[:,:max_col_length]
-        df.drop(col,axis=1,inplace=True)
+        df = df.drop(col,axis=1)
     else:
         if len(df[col].map(type).value_counts())==1 and df[col].map(type).value_counts().index[0]==list:
             max_col_length = df[col].map(len).max()
             cols = [col+'_'+str(i) for i in range(max_col_length)]
             df[cols] = df[col].apply(pd.Series)
-            df.drop(col,axis=1,inplace=True)
+            df = df.drop(col,axis=1)
         else:
             print('Column %s does not contain lists or has mixed types other than lists. Fix it and rerun.' %col)
     return df
