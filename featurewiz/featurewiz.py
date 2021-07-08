@@ -944,7 +944,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ############################################################################
     cat_encoders_list = list(settings.cat_encoders_names.keys())
     ### Just set defaults here which can be overridden by user input ####
-    nrows = 'all'
+    nrows = None
     cat_vars = []
     if kwargs:
         for key, value in zip(kwargs.keys(), kwargs.values()):
@@ -3615,3 +3615,36 @@ def remove_duplicate_cols_in_dataset(df):
         df = df.loc[:,~df.columns.duplicated()]
     return df
 ###########################################################################
+def FE_split_list_into_columns(df, col, cols_in=[]):
+    """
+    This is a Feature Engineering function. It will automatically detect object variables that contain lists
+    and convert them into new columns. You need to provide the dataframe, the name of the object column.
+    Optionally, you can decide to send the names of the new columns you want to create as cols_in.
+    It will return the dataframe with additional columns. It will drop the column which you sent in as input.
+
+    Inputs:
+    --------
+    df: pandas dataframe
+    col: name of the object column that contains a list. Remember it must be a list and not a string.
+    cols_in: names of the columns you want to create. If the number of columns is less than list length,
+             it will automatically choose only the fist few items of the list to match the length of cols_in.
+    
+    Outputs:
+    ---------
+    df: pandas dataframe with new columns and without the column you sent in as input.
+    """
+    df = copy.deepcopy(df)
+    if cols_in:
+        max_col_length = len(cols_in)
+        df[cols_in] = df[col].apply(pd.Series).values[:,:max_col_length]
+        df.drop(col,axis=1,inplace=True)
+    else:
+        if len(df[col].map(type).value_counts())==1 and df[col].map(type).value_counts().index[0]==list:
+            max_col_length = df[col].map(len).max()
+            cols = [col+'_'+str(i) for i in range(max_col_length)]
+            df[cols] = df[col].apply(pd.Series)
+            df.drop(col,axis=1,inplace=True)
+        else:
+            print('Column %s does not contain lists or has mixed types other than lists. Fix it and rerun.' %col)
+    return df
+#############################################################################################
