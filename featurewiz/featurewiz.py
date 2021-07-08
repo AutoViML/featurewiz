@@ -546,7 +546,7 @@ def FE_drop_rows_with_infinity(df, cols_list, fill_value=None):
     This function checks for both negative and positive infinity values to fill or remove.
     """
     # first you must drop rows that have inf in them ####
-    print('Shape of dataset initial: %s' %(df.shape[0]))
+    print('    Shape of dataset initial: %s' %(df.shape[0]))
     corr_list_copy = copy.deepcopy(cols_list)
     init_rows = df.shape[0]
     if fill_value:
@@ -566,14 +566,14 @@ def FE_drop_rows_with_infinity(df, cols_list, fill_value=None):
                 next_best_value_index = sorted_list.index(-np.inf)+1
                 capped_value = sorted_list[next_best_value_index]
                 df.loc[df[col]==minval, col] =  capped_value ## maximum values are now capped
-        print('    capped all rows with infinite values in data')
+        print('        capped all rows with infinite values in data')
     else:
         for col in corr_list_copy:
             df = df[df[col]!=np.inf]
             df = df[df[col]!=-np.inf]
         dropped_rows = init_rows - df.shape[0]
-        print('Dropped %d rows due to infinite values in data' %dropped_rows)
-        print('Shape of dataset after dropping rows: %s' %(df.shape[0]))
+        print('        dropped %d rows due to infinite values in data' %dropped_rows)
+        print('    Shape of dataset after dropping rows: %s' %(df.shape[0]))
     return df
 ##################################################################################
 def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
@@ -653,9 +653,14 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
         else:
             sel_function = mutual_info_classif
             fs = SelectKBest(score_func=sel_function, k=max_feats)
-        ##### you must ensure there are no null values in corr_list df ##
+        ##### you must ensure there are no infinite nor null values in corr_list df ##
+        cols_with_infinity = EDA_find_columns_with_infinity(df[corr_list])
         # first you must drop rows that have inf in them ####
-        df_fit = FE_drop_rows_with_infinity(df[corr_list])
+        if cols_with_infinity:
+            print('There are %d columns with infinite values in your dataset' %len(cols_with_infinity))
+            df_fit = FE_drop_rows_with_infinity(df[corr_list], corr_list, fill_value=True)
+        else:
+            df_fit = df[corr_list]
         try:
             fs.fit(df_fit.astype(np.float16), df[target])
         except:
