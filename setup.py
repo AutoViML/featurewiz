@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="featurewiz",
-    version="0.0.50",
+    version="0.0.51",
     author="Ram Seshadri",
     author_email="rsesha2001@yahoo.com",
     description="Select Best Features from your data set - any size - now with XGBoost!",
@@ -32,6 +32,7 @@ setuptools.setup(
         "dask>=2021.11.0",
         "distributed>=2021.11.0",
         "dask-ml>=2021.10.17",
+        "dask-xgboost",
     ],
     classifiers=[
         "Programming Language :: Python :: 3",

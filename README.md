@@ -1,8 +1,12 @@
 # featurewiz
 
 ![banner](featurewiz_logo.jpg)
-
-Featurewiz is a new python library for creating and selecting the best features in your data set fast!
+<p>
+Update (Nov 9, 2021): Featurewiz now upgraded with Dask for blazing fast performance even for very large data sets! 
+<p>
+`CAUTION`: You must restart the kernel after installing featurewiz in Kaggle and Colab notebooks for Scikitlearn and DASK libraries to take effect. Otherwise you will get an error that some libraries are not found. You don't have to do anything to activate dask: featurewiz automatically uses dask_xgboost_flag = True as the default. You can turn off dask by setting that flag to False.
+<p>
+Featurewiz a new python library for creating and selecting the best features in your data set fast!
 featurewiz accomplishes this in 2 steps:
 <p>The first step is optional and it is about creating new features.<p>
 1. <b>Performing Feature Engineering</b>: One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions like Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features was painstaking and left only to "experts". Now there is some good news.<br>
@@ -18,7 +22,7 @@ All are very important questions and you must be very careful using this feature
 ![feature_engg](feature_engg.jpg)
 
 <br>featurewiz uses the SULOV method and Recursive XGBoost to reduce features in order to select the best features for the model. Here is how.<br>
-<p><b>SULOV</b>: SULOV means Searching for Uncorrelated List of Variables. The SULOV method is similar to the Minimum-redundancy-maximum-relevance (mRMR) <a href="https://en.wikipedia.org/wiki/Feature_selection#Minimum-redundancy-maximum-relevance_(mRMR)_feature_selection">algorithm explained in wikipedia</a> as one of the best feature selection methods. The SULOV algorithm is explained in this chart below.
+<p><b>SULOV</b>: SULOV stands for `Searching for Uncorrelated List of Variables`. The SULOV method is similar to the Minimum-redundancy-maximum-relevance (mRMR) <a href="https://en.wikipedia.org/wiki/Feature_selection#Minimum-redundancy-maximum-relevance_(mRMR)_feature_selection">algorithm explained in wikipedia</a> as one of the best feature selection methods. The SULOV algorithm is explained in this chart below.
 Here is a simple way of explaining how it works:
 <ol>
 <li>Find all the pairs of highly correlated variables exceeding a correlation threshold (say absolute(0.7)).
@@ -49,6 +53,8 @@ Here is how it works:
 <code>Use $ pip install featurewiz --upgrade --ignore-installed</code><br>
 or
 <code>pip install git+https://github.com/AutoViML/featurewiz.git </code><br>
+
+`CAUTION`: You must restart the kernel in Kaggle and Colab notebooks after installing featurewiz since the latest scikit-learn and dask libraries won't take effect unless you restart the kernel.
 
 ## Table of Contents
 <ul>
@@ -127,17 +133,18 @@ from featurewiz import featurewiz
 Load a data set (any CSV or text file) into a Pandas dataframe and give it the name of the target(s) variable. If you have more than one target, it will handle multi-label targets too. Just give it a list of variables in that case. If you don't have a dataframe, you can simply enter the name and path of the file to load into featurewiz:
 
 ```
-out1, out2 = featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",",
-header=0,test_data="", feature_engg="", category_encoders="")
+outputs = featurewiz(dataname, target, corr_limit=0.70, verbose=2, sep=',', 
+		header=0, test_data='',feature_engg='', category_encoders='',
+		dask_xgboost_flag=True, nrows=None)
 ```
 
-out1 and out2: is always a tuple containing two objects. The objects in that tuple can vary:
+`outputs`: There will always be multiple objects in output. The objects in that tuple can vary:
 1. "features" and "train": It be a list (of selected features) and one dataframe (if you sent in train only)
 2. "trainm" and "testm": It can be two dataframes when you send in both test and train but with selected features.
 
 Both the selected features and dataframes are ready for you to now to do further modeling.<br>
 featurewiz works on any Multi-Class, Multi-Label Data Set. So you can have as many target labels as you want.<br>
-You don't have to tell featurwiz whether it is a Regression or Classification problem. It will decide that automatically.
+You don't have to tell featurewiz whether it is a Regression or Classification problem. It will decide that automatically.
 
 ## API
 
@@ -177,15 +184,16 @@ You don't have to tell featurwiz whether it is a Regression or Classification pr
     For feature value i, James-Stein estimator returns a weighted average of:
     The mean target value for the observed feature value i.
     The mean target value (regardless of the feature value).
-
+    - `dask_xgboost_flag`: Default is True and uses dask_xgboost estimator. You can turn it off if it gives an error. Then it will use pandas and xgboost basic to do the job. It may be a little slower.
+    - `nrows`: default `None`. You can set the number of rows to read from your datafile if it is too large to fit into either dask or pandas. But you won't have to if you use dask. 
 **Return values**
--   `Output`: Output is always a tuple. We can call our outputs in that tuple: out1 and out2.
--   `out1` and `out2`: If you sent in just one dataframe or filename as input, you will get:
-- 1. `features`: It will be a list (of selected features) and
-- 2. `trainm`: It will be a dataframe (if you sent in a file or dataname as input)
--   `out1` and `out2`: If you sent in two files or dataframes (train and test), you will get:
-- 1. `trainm`: a modified train dataframe with engineered and selected features from dataname and
-- 2. `testm`: a modified test dataframe with engineered and selected features from test_data.
+-   `outputs`: Output is always a tuple. We can call our outputs in that tuple: out1 and out2.
+    -   `out1` and `out2`: If you sent in just one dataframe or filename as input, you will get:
+        - 1. `features`: It will be a list (of selected features) and
+        - 2. `trainm`: It will be a dataframe (if you sent in a file or dataname as input)
+    -   `out1` and `out2`: If you sent in two files or dataframes (train and test), you will get:
+        - 1. `trainm`: a modified train dataframe with engineered and selected features from dataname and
+        - 2. `testm`: a modified test dataframe with engineered and selected features from test_data.
 
 ## Maintainers
 
