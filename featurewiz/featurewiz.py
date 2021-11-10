@@ -47,6 +47,7 @@ warnings.filterwarnings(action='ignore', category=DataConversionWarning)
 def warn(*args, **kwargs):
     pass
 warnings.warn = warn
+import logging
 ####################################################################################
 import re
 import pdb
@@ -64,7 +65,10 @@ from functools import reduce
 import copy
 import dask
 import dask.dataframe as dd
-
+import dask_xgboost
+import xgboost
+from dask.distributed import Client, progress
+import psutil
 #######################################################################################################
 def classify_features(dfte, depVar, verbose=0):
     dfte = copy.deepcopy(dfte)
@@ -390,7 +394,7 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse
                         print('    max_rows_analyzed is smaller than dataset shape %d...' %dfte.shape[0])
                         dfte = dfte.sample(nrows, replace=False, random_state=99)
                         print('        randomly sampled %d rows from read CSV file' %nrows)
-                print('Shape of your Data Set loaded: %s' %(dfte.shape,))
+                print('    Shape of your Data Set loaded: %s' %(dfte.shape,))
                 if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
                     print('You have duplicate column names in your data set. Removing duplicate columns now...')
                     dfte = dfte[list(dfte.columns[~dfte.columns.duplicated(keep='first')])]
@@ -411,7 +415,7 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse
                 dfte = pd.read_excel(dataname,header=header, parse_dates=parse_dates)
             else:
                 dfte = pd.read_excel(dataname,header=header, nrows=nrows, parse_dates=parse_dates)
-            print('Shape of your Data Set loaded: %s' %(dfte.shape,))
+            print('    Shape of your Data Set loaded: %s' %(dfte.shape,))
             return dfte
         else:
             print('    Filename is an empty string or file not able to be loaded')
@@ -426,7 +430,7 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse
                 dfte = dataname.sample(n=nrows, replace=False, random_state=99)
             else:
                 dfte = copy.deepcopy(dataname)
-        print('Shape of your Data Set loaded: %s' %(dfte.shape,))
+        print('    Shape of your Data Set loaded: %s' %(dfte.shape,))
         if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
             print('You have duplicate column names in your data set. Removing duplicate columns now...')
             dfte = dfte[list(dfte.columns[~dfte.columns.duplicated(keep='first')])]
@@ -482,7 +486,7 @@ def analyze_problem_type(train, target, verbose=0) :
             model_class = 'Multi_Classification'
         else:
             model_class = 'Regression'
-    elif  train[targ].dtype in ['float']:
+    elif  train[targ].dtype in ['float16','float32','float64']:
         if len(train[targ].unique()) <= 2:
             model_class = 'Binary_Classification'
         elif len(train[targ].unique()) > 2 and len(train[targ].unique()) <= float_limit:
@@ -575,7 +579,7 @@ def FE_drop_rows_with_infinity(df, cols_list, fill_value=None):
     return df
 ##################################################################################
 def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
-                                corr_limit = 0.70,verbose=0):
+                                corr_limit = 0.70,verbose=0, dask_xgboost_flag=True):
     """
     FE stands for Feature Engineering - it means this function performs feature engineering
     ###########################################################################################
@@ -664,7 +668,7 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
             df_fit = df_fit.dropna()
         else:
             print('There are no null values in dataset.')
-        ##### Ready to perform fit and find mutual information score ####        
+        ##### Ready to perform fit and find mutual information score ####       
         try:
             fs.fit(df_fit.astype(np.float32), df[target])
         except:
@@ -833,6 +837,7 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
     if len(nums) == 0:
         pass
     else:
+
         if train[nums].isnull().sum().sum() > 0:
             null_cols = np.array(nums)[train[nums].isnull().sum()>0].tolist()
             for each_col in null_cols:
@@ -887,7 +892,7 @@ from .encoders import FrequencyEncoder
 
 from sklearn.model_selection import train_test_split
 def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
-                      test_data='', feature_engg='', category_encoders='', **kwargs):
+            test_data='', feature_engg='', category_encoders='', dask_xgboost_flag=True,  **kwargs):
     """
     #################################################################################
     ###############           F E A T U R E   W I Z A R D          ##################
@@ -930,6 +935,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 ['HashingEncoder', 'SumEncoder', 'PolynomialEncoder', 'BackwardDifferenceEncoder',
                 'OneHotEncoder', 'HelmertEncoder', 'OrdinalEncoder', 'FrequencyEncoder', 'BaseNEncoder',
                 'TargetEncoder', 'CatBoostEncoder', 'WOEEncoder', 'JamesSteinEncoder']
+        dask_xgboost_flag: default = True. This flag enables DASK by default so that you can process large
+            data sets faster using parallel processing. It detects the number of CPUs and GPU's in your machine
+            automatically and sets the num of workers for DASK. It also uses DASK XGBoost to run it.
     ########           Featurewiz Output           #############################
     Output: Tuple
     Featurewiz can output either a list of features or one dataframe or two depending on what you send in.
@@ -991,13 +999,17 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             feature_type = category_encoders[:2] ### Only two will be allowed at a time
     else:
         print('Skipping category encoding since no category encoders specified in input...')
-    ##################    L O A D     T R A I N   D A T A   ########################
+    ######################################################################################
+    ##################    L O A D     T R A I N   D A T A   ##############################
+    ##################   train will be the name of the dask dataframe of train data ######
+    ##################   dataname will be the name of pandas dataframe of train data #####
+    ######################################################################################
     print('Loading train data...')
     if isinstance(dataname, str):
         filesize = lenopenreadlines(dataname)
-        if filesize > 100000:
+        if dask_xgboost_flag:
             try:
-                print('    since dataset size huge, reducing memory size and loading into dask')
+                print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
                 dataname = pd.read_csv(dataname, sep=sep, header=header)
                 dataname = reduce_mem_usage(dataname)
                 train = load_dask_data(dataname, sep)
@@ -1008,50 +1020,57 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
             dataname = pd.read_csv(dataname, sep=sep, header=header)
     else:
-        if dataname.shape[0] > 100000:
-            print('    since dataset size %s > 100K, reducing memory size and loading into dask' %len(dataname))
+        if dask_xgboost_flag:
+            print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
             dataname = reduce_mem_usage(dataname)
             train = load_dask_data(dataname, sep)
         else:
             train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
     ##################    L O A D    T E S T   D A T A      ######################
-    train = remove_duplicate_cols_in_dataset(train)
-    train_index = train.index
-    ################   This function is used to reduce memory usage ###############
+    dataname = remove_duplicate_cols_in_dataset(dataname)
+    train_index = dataname.index
+    ######################################################################################
+    ##################    L O A D      T E S T     D A T A   ##############################
+    ##################   test will be the name of the dask dataframe of test data ######
+    ##################   test_data will be the name of pandas dataframe of test data #####
+    ######################################################################################
     print('Loading test data...')
-    test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows)
-    if test is not None:
-        test = remove_duplicate_cols_in_dataset(test)
-        test_index = test.index
-    test = reduce_mem_usage(test)
-    #############    C L A S S I F Y    F E A T U R E S      ####################
-    if type(train) == dask.dataframe.core.DataFrame:
-        if isinstance(dataname, pd.DataFrame):
-            if dataname.shape[0] >= 100000:
-                print('    since data is in dask now, loading a small sample to classify features')
-            min_size = min(dataname.shape[0], 99000)
-            train_small = dataname.sample(min_size, random_state=99)
-            features_dict = classify_features(train_small, target)
-        else:
-            train_small = train.sample(frac=0.1)
-            train_small = train_small.compute() ## this converts it to a pandas dataframe
-            features_dict = classify_features(train_small, target)
+    if dask_xgboost_flag:
+        print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
+        test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows)
+        test_data = reduce_mem_usage(test_data)
+        test = load_dask_data(test_data, sep)
     else:
-        features_dict = classify_features(train, target)
+        test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows)
+    if test_data is not None:
+        test_data = remove_duplicate_cols_in_dataset(test_data)
+        test_index = test_data.index
+    #############    C L A S S I F Y    F E A T U R E S      ####################
+    if dataname.shape[0] >= 100000:
+        print('    since dataframe is large (>100K rows), loading a small sample to classify features')
+        min_size = min(dataname.shape[0], 100000)
+        train_small = dataname.sample(min_size, random_state=99)
+        features_dict = classify_features(train_small, target)
+    else:
+        features_dict = classify_features(dataname, target)
+    ################    Load data frame with date var features correctly this time ################
     if len(features_dict['date_vars']) > 0:
-        print('Since there are date-time variables in datatset, it is best to load them using pandas')
+        print('Caution: Since there are date-time variables in datatset, it is best to load them using pandas')
+        dask_xgboost_flag = False ### Set the dask flag to be False since it is now becoming Pandas dataframe 
         date_time_vars = features_dict['date_vars']
-        train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows,
+        dataname = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows,
                              parse_dates=date_time_vars)
-        if not test is None:
-            test = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows,
+        if not test_data is None:
+            test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows,
                                  parse_dates=date_time_vars)
     else:
-        train_index = train.index
-        if test is not None:
-            test_index = test.index
+        train_index = dataname.index
+        if test_data is not None:
+            test_index = test_data.index
+    ################   X G B O O S T      D E F A U L T S      ######################################
     #### If there are more than 30 categorical variables in a data set, it is worth reducing features.
     ####  Otherwise. XGBoost is pretty good at finding the best features whether cat or numeric !
+    #################################################################################################
     start_time = time.time()
     n_splits = 5
     max_depth = 8
@@ -1124,26 +1143,26 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         #### Do this only if date time columns exist in your data set!
         for date_col in date_cols:
             print('Processing %s column for date time features....' %date_col)
-            train, ts_adds = FE_create_time_series_features(train, date_col)
+            dataname, ts_adds = FE_create_time_series_features(dataname, date_col)
             #date_col_adds_train = left_subtract(date_df_train.columns.tolist(),date_col)
             #print('    Adding %d column(s) from date-time column %s in train' %(len(date_col_adds_train),date_col))
             #train = train.join(date_df_train, rsuffix='2')
-            if isinstance(test,str) or test is None:
+            if isinstance(test_data,str) or test_data is None:
                 ### do nothing ####
                 pass
             else:
                 print('        Adding same time series features to test data...')
-                test, _ = FE_create_time_series_features(test, date_col, ts_adds)
-                #date_col_adds_test = left_subtract(date_df_test.columns.tolist(),date_col)
+                test, _ = FE_create_time_series_features(test_data, date_col, ts_adds)
+                #date_col_adds_test_data = left_subtract(date_df_test.columns.tolist(),date_col)
                 ### Now time to remove the date time column from all further processing ##
                 #test = test.join(date_df_test, rsuffix='2')
     ### Now time to continue with our further processing ##
     idcols = features_dict['IDcols']
-    if isinstance(test,str) or test is None:
+    if isinstance(test_data,str) or test_data is None:
         pass
     else:
-        test_ids = test[idcols]
-    train_ids = train[idcols] ### this saves the ID columns of train
+        test_ids = test_data[idcols]
+    train_ids = dataname[idcols] ### this saves the ID columns of dataname
     if cat_vars:
         cols_in_both = [x for x in cat_vars if x in features_dict['cols_delete']]
         cat_vars = left_subtract(cat_vars, features_dict['cols_delete'])
@@ -1153,9 +1172,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     print('Removing %d columns from further processing since ID or low information variables' %len(cols_to_remove))
     if verbose:
         print('    columns removed: %s' %cols_to_remove)
-    preds = [x for x in list(train) if x not in target+cols_to_remove]
+    preds = [x for x in list(dataname) if x not in target+cols_to_remove]
     print('    After removing redundant variables from further processing, features left = %d' %len(preds))
-    numvars = train[preds].select_dtypes(include = 'number').columns.tolist()
+    numvars = dataname[preds].select_dtypes(include = 'number').columns.tolist()
     if len(numvars) > max_nums:
         if feature_gen:
             print('Warning: Too many extra features will be generated by featurewiz. This may take time...')
@@ -1171,11 +1190,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     rem_vars = copy.deepcopy(catvars)
     ########## Now we need to select the right model to run repeatedly ####
     if target is None or len(target) == 0:
-        cols_list = list(train)
+        cols_list = list(dataname)
         settings.modeltype = 'Clustering'
     else:
-        settings.modeltype = analyze_problem_type(train, target)
-        cols_list = left_subtract(list(train),target)
+        settings.modeltype = analyze_problem_type(dataname, target)
+        cols_list = left_subtract(list(dataname),target)
     ######################################################################################
     ######    B E F O R E    U S I N G    D A T A B U N C H  C H E C K ###################
     ######################################################################################
@@ -1197,33 +1216,36 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ######    F E A T U R E    E N G G    U S I N G    D A T A B U N C H  ###################
     ######################################################################################
     if feature_gen or feature_type:
-        print('Starting feature engineering...this will take time...')
-        if isinstance(test, str) or test is None:
+        print('    Starting feature engineering...this will take time...')
+        if isinstance(test_data, str) or test_data is None:
             if settings.multi_label:
                 ### if it is a multi_label problem, leave target as it is - a list!
-                X_train, X_test, y_train, y_test = train_test_split(train[preds],
-                                                                train[target],
+                X_train, X_test, y_train, y_test = train_test_split(dataname[preds],
+                                                                dataname[target],
                                                                 test_size=0.2,
                                                                 random_state=RANDOM_SEED)
             else:
                 ### if it not a multi_label problem, make target as target[0]
-                X_train, X_test, y_train, y_test = train_test_split(train[preds],
-                                                            train[target[0]],
+                X_train, X_test, y_train, y_test = train_test_split(dataname[preds],
+                                                            dataname[target[0]],
                                                             test_size=0.2,
                                                             random_state=RANDOM_SEED)
         else:
-            X_train = train[preds]
+            X_train = dataname[preds]
             if settings.multi_label:
-                y_train = train[target]
+                y_train = dataname[target]
             else:
-                y_train = train[target[0]]
-            X_test = test[preds]
+                y_train = dataname[target[0]]
+            X_test = test_data[preds]
             try:
-                y_test = test[target]
+                y_test = test_data[target]
             except:
                 y_test = None
         X_train_index = X_train.index
         X_test_index = X_test.index
+        ##################################################################################################
+        ###### Category_Encoders does not work with Dask - so don't send in Dask dataframes to DataBunch!
+        ##################################################################################################
         data_tuple = DataBunch(X_train=X_train,
                     y_train=y_train,
                     X_test=X_test, # be sure to specify X_test, because the encoder needs all dataset to work.
@@ -1235,24 +1257,38 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     group_generator_features=np.where('groupby' in feature_gen,True, False).tolist(), # Generate groupby Features
                     target_enc_cat_features=target_enc_cat_features,# Generate target encoded features
                     normalization=False,
-                    random_state=RANDOM_SEED)
+                    random_state=RANDOM_SEED,
+                    )
         #### Now you can process the tuple this way #########
+        if dask_xgboost_flag:
+            ### since y_train is dask df and data_tuple.X_train is a pandas df, you can't merge them.
+            y_train = y_train.compute()  ### remember you first have to convert them to a pandas df
         data1 = data_tuple.X_train.join(y_train) ### data_tuple does not have a y_train, remember!
-        if isinstance(test, str) or test is None:
+        if isinstance(test_data, str) or test_data is None:
             ### Since you have done a train_test_split using randomized split, you need to put it back again.
+            if dask_xgboost_flag:
+                ### since y_train is dask df and data_tuple.X_train is a pandas df, you can't merge them.
+                y_test = y_test.compute()  ### remember you first have to convert them to a pandas df
             data2 = data_tuple.X_test.join(y_test)
-            train = data1.append(data2)
-            train = train.reindex(train_index)
+            dataname = data1.append(data2)
+            dataname = dataname.reindex(train_index)
         else:
             try:
-                test = data_tuple.X_test.join(y_test)
+                if dask_xgboost_flag:
+                    ### since y_train is dask df and data_tuple.X_train is a pandas df, you can't merge them.
+                    y_test = y_test.compute()  ### remember you first have to convert them to a pandas df
+                test_data = data_tuple.X_test.join(y_test)
             except:
-                test = copy.deepcopy(data_tuple.X_test)
-            test = test.reindex(test_index)
-            train = copy.deepcopy(data1)
-        print('    Completed feature engineering. Shape of Train (with target) = %s' %(train.shape,))
-        preds = [x for x in list(train) if x not in target]
-        numvars = train[preds].select_dtypes(include = 'number').columns.tolist()
+                test_data = copy.deepcopy(data_tuple.X_test)
+            test_data = test_data.reindex(test_index)
+            dataname = copy.deepcopy(data1)
+        print('    Completed feature engineering. Shape of Train (with target) = %s' %(dataname.shape,))
+        #################################################################################################
+        ###### Train and Test are currently pandas data frames even if dask_xgboost_flag is True ########
+        ######   That is because we combined them after feature engg to using Category_Encoders  ########
+        #################################################################################################
+        preds = [x for x in list(dataname) if x not in target]
+        numvars = dataname[preds].select_dtypes(include = 'number').columns.tolist()
         if cat_vars:
             #### if cat_vars input is given, use it!
             catvars = copy.deepcopy(cat_vars)
@@ -1271,14 +1307,24 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         top_num = int(len(preds)*0.10)
     ######################   I M P O R T A N T ##############################################
     important_cats = copy.deepcopy(catvars)
+    data_dim = int((len(dataname)*dataname.shape[1])/1e6)
+    ################################################################################################
+    ############     S   U  L  O   V       M   E   T   H   O  D      ###############################
+    #### If the data dimension is less than 5o Million then do SULOV - otherwise skip it! #########
+    ################################################################################################
     if len(numvars) > 1:
-        try:
-            final_list = FE_remove_variables_using_SULOV_method(train,numvars,settings.modeltype,target,
-                         corr_limit,verbose)
-        except:
-            print('    SULOV method is erroring. Continuing ...')
-            final_list = copy.deepcopy(numvars)
+        if data_dim < 50:
+            try:
+                final_list = FE_remove_variables_using_SULOV_method(dataname,numvars,settings.modeltype,target,
+                             corr_limit,verbose)
+            except:
+                print('    SULOV method is erroring. Continuing ...')
+                final_list = copy.deepcopy(numvars)
+        else:
+                print('    Skipping SULOV method since data dimension %s m > 50 m. Continuing ...' %int(data_dim))
+                final_list = copy.deepcopy(numvars)            
     else:
+        print('    Skipping SULOV method since there are no continuous vars. Continuing ...')
         final_list = copy.deepcopy(numvars)
     ####### This is where you draw how featurewiz works when the verbose = 2 ###########
     print('    Adding %s categorical variables to reduced numeric variables  of %d' %(
@@ -1288,20 +1334,39 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     preds = final_list+important_cats
     #######You must convert category variables into integers ###############
     if len(important_cats) > 0:
-        train, test = FE_convert_all_object_columns_to_numeric(train,  test)
-    ########   Dont move this train and y definition anywhere else ########
+        dataname, test_data = FE_convert_all_object_columns_to_numeric(dataname,  test_data)
     ########    Fill Missing values since XGB for some reason  #########
     ########    can't handle missing values in early stopping rounds #######
-    train = train.fillna(0)
-    y = train[target]
+    dataname = dataname.fillna(0)
     print('############## F E A T U R E   S E L E C T I O N  ####################')
     important_features = []
     #####   This is for DASK XGB Regressor and XGB Classifier problems ####
     bst_models = []
-    if type(train) == dask.dataframe.core.DataFrame:
+    if dask_xgboost_flag:
         #########   This is for DASK Dataframes XGBoost training ####################
-        #### Since Category Encoding took place, these cat variables are no longer in Train. So remove them!
+        #################################################################################################
+        ########   Now if dask_xgboost_flag is True, convert pandas dfs back to Dask Dataframes     #####
+        #################################################################################################
+        train = load_dask_data(dataname, sep)
+        ########  Now Convert col types in train and test data ##########
+        if not test_data is None:
+            test = load_dask_data(test_data, sep)
+        for col in dataname.columns:
+            if col in target:
+                MLB = My_LabelEncoder()
+                dataname[target[0]] = MLB.fit_transform(dataname[target[0]])
+                y = load_dask_data(dataname[target], sep)
+            else:
+                if train[col].dtype in ['int8', 'int16', 'int32', 'int64', float]:
+                    pass
+                else:
+                    train[col] = train[col].astype(int)
+                    test[col] = test[col].astype(int)
+        ########  Conversion completed for train and test data ##########
+        print('Train and Test loaded into Dask dataframes successfully after feature_engg completed')
+       #### If Category Encoding took place, these cat variables are no longer needed in Train. So remove them!
         if feature_gen or feature_type:
+            print('Since %s category encoding is done, dropping original categorical vars from predictors...' %feature_gen)
             preds = left_subtract(preds, catvars)
         train_p = train[preds]
         if train_p.shape[1] < 10:
@@ -1309,17 +1374,24 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         else:
             iter_limit = int(train_p.shape[1]/5+0.5)
         print('Current number of predictors = %d ' %(train_p.shape[1],))
-        print('    Finding Important Features using Boosted Trees algorithm...')
         print('Dask version = %s' %dask.__version__)
-        import dask_xgboost
-        import xgboost
-        from dask.distributed import Client, progress
         from dask_ml.model_selection import train_test_split
-        client = Client(n_workers=4, threads_per_worker=1)
+        ### check available memory and allocate at least 1GB of it in the Client in DASK #############################
+        memory_free = str(max(1, int(psutil.virtual_memory()[0]/1e9)))+'GB'
+        print('    Using Dask XGBoost algorithm with %s virtual CPUs and %s memory limit...' %(get_cpu_worker_count(), memory_free))
+        client = Client(n_workers=get_cpu_worker_count(), threads_per_worker=1, processes=True, silence_logs=50,
+                        memory_limit=memory_free)
+        print('Dask client configuration: %s' %client)
+        print('XGBoost version: %s' %xgb.__version__)
+        import gc
+        client.run(gc.collect) 
+        train_p = client.persist(train_p)
         try:
             for i in range(0,train_p.shape[1],iter_limit):
                 start_time2 = time.time()
                 print('        using %d variables...' %(train_p.shape[1]-i))
+                
+                
                 imp_feats = []
                 if train_p.shape[1]-i < iter_limit:
                     X = train_p.iloc[:,i:]
@@ -1328,19 +1400,34 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     X = train_p[list(train_p.columns.values)[i:train_p.shape[1]]]
                     cols_sel = X.columns.tolist()
                 ##### This is where you repeat the training and finding feature importances
+                
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15)
+                if not y_train.dtypes[0] == float:
+                    y_train = y_train.astype(int) 
                 if settings.modeltype == 'Regression':
                     objective = 'reg:squarederror'
+                    params = {'objective': objective, 'max_depth': 4, 'eta': 0.01, 'subsample': 0.5, 
+                                        'min_child_weight': 0.5}
                 else:
                     #### This is for Classifiers only
                     classes = np.unique(train[target].values.compute())
                     if len(classes) == 2:
                         objective = 'binary:logistic'
+                        num_class = 1
                     else:
                         objective = 'multi:softmax'
-                params = {'objective': objective, 'max_depth': 4, 'eta': 0.01, 'subsample': 0.5, 
-                                    'min_child_weight': 0.5}
+                        num_class  = len(np.unique(train[target]))
+                    params = {'objective': objective, 'max_depth': 4, 'eta': 0.01, 'subsample': 0.5, 
+                                        'min_child_weight': 0.5, 'num_class': num_class}
+                ##########   Training XGBoost model using dask_xgboost #########################
+                ### the dtrain syntax can only be used xgboost 1.50 or greater. Dont use it until then.
+                #dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, enable_categorical=True)
+                
                 bst = dask_xgboost.train(client, params, X_train, y_train, num_boost_round=10)
+                #### SYNTAX BELOW DOES NOT WORK YET. YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
+                #bst = dask_xgboost.train(client=client, params=params, data=X_train, labels=y_train, 
+                #                num_boost_round=10, evals=[(dtrain, 'train')])
+                ################################################################################
                 bst_models.append(bst)
                 imp_feats = bst.get_score(fmap='', importance_type='weight')
                 ### doing this for single-label is a little different from settings.multi_label #########
@@ -1351,53 +1438,22 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 important_features = list(OrderedDict.fromkeys(important_features))
                 print('            Time taken for training: %0.0f seconds' %(time.time()-start_time2))
             #### plot all the feature importances in a grid ###########
-            draw_feature_importances_all(bst_models)
+            if verbose >= 2:
+                draw_feature_importances_all(bst_models)
         except:
             print('Dask XGBoost is crashing. Continuing...')
     else:
-        #######  This is for pandas dataframes only ##################
-        ########## This is for Single_Label problems ######################
-        if settings.modeltype == 'Regression':
-            objective = 'reg:squarederror'
-            model_xgb = XGBRegressor( n_estimators=100,booster='gbtree',subsample=subsample,objective=objective,
-                                    colsample_bytree=col_sub_sample,reg_alpha=0.5, reg_lambda=0.5,
-                                     seed=1,n_jobs=-1,random_state=1)
-            eval_metric = 'rmse'
-        else:
-            #### This is for Classifiers only
-            classes = np.unique(train[target].values)
-            if len(classes) == 2:
-                model_xgb = XGBClassifier(base_score=0.5, booster='gbtree', subsample=subsample,
-                    colsample_bytree=col_sub_sample,gamma=1, learning_rate=0.1, max_delta_step=0,
-                    max_depth=max_depth, min_child_weight=1, missing=-999, n_estimators=100,
-                    n_jobs=-1, nthread=None, objective='binary:logistic',
-                    random_state=1, reg_alpha=0.5, reg_lambda=0.5,
-                    seed=1)
-                eval_metric = 'logloss'
-            else:
-                model_xgb = XGBClassifier(base_score=0.5, booster='gbtree', subsample=subsample,
-                            colsample_bytree=col_sub_sample, gamma=1, learning_rate=0.1, max_delta_step=0,
-                    max_depth=max_depth, min_child_weight=1, missing=-999, n_estimators=100,
-                    n_jobs=-1, nthread=None, objective='multi:softmax',
-                    random_state=1, reg_alpha=0.5, reg_lambda=0.5,
-                    seed=1)
-                eval_metric = 'mlogloss'
-        #### Now set the parameters for XGBoost ###################
-        model_xgb.set_params(**param)
-        #print('Model parameters: %s' %model_xgb)
-        if settings.multi_label:
-            ########## This is for settings.multi_label problems ###############################
-            if settings.modeltype == 'Regression':
-                model_xgb = MultiOutputRegressor(model_xgb)
-                #model_xgb = RegressorChain(model_xgb)
-            else:
-                ## just do randomized search CV - no need to do one vs rest unless multi-class
-                model_xgb = MultiOutputClassifier(model_xgb)
-                #model_xgb = ClassifierChain(model_xgb)
-        ####   This is where you start to Iterate on Finding Important Features ################
-        save_xgb = copy.deepcopy(model_xgb)
+        #########  This is for pandas dataframes only ##################
+        train = copy.deepcopy(dataname)
+        y = train[target]
+        if not test_data is None:
+            test = copy.deepcopy(test_data)
+        ########## This is for Single_Label problems ###################
+        bst_models = []
+        from sklearn.model_selection import train_test_split
         #### Since Category Encoding took place, these cat variables are no longer in Train. So remove them!
         if feature_gen or feature_type:
+            print('Since %s category encoding is done, dropping original categorical vars from predictors...' %feature_gen)
             preds = left_subtract(preds, catvars)
         train_p = train[preds]
         if train_p.shape[1] < 10:
@@ -1409,6 +1465,45 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         ######## This is where we start training the XGBoost model to find top features ####
         try:
             for i in range(0,train_p.shape[1],iter_limit):
+                if settings.modeltype == 'Regression':
+                    objective = 'reg:squarederror'
+                    model_xgb = XGBRegressor( n_estimators=100,booster='gbtree',subsample=subsample,objective=objective,
+                                            colsample_bytree=col_sub_sample,reg_alpha=0.5, reg_lambda=0.5,
+                                             seed=1,n_jobs=-1,random_state=1)
+                    eval_metric = 'rmse'
+                else:
+                    #### This is for Classifiers only
+                    classes = np.unique(train[target].values)
+                    if len(classes) == 2:
+                        model_xgb = XGBClassifier(base_score=0.5, booster='gbtree', subsample=subsample,
+                            colsample_bytree=col_sub_sample,gamma=1, learning_rate=0.1, max_delta_step=0,
+                            max_depth=max_depth, min_child_weight=1, missing=-999, n_estimators=100,
+                            n_jobs=-1, nthread=None, objective='binary:logistic',
+                            random_state=1, reg_alpha=0.5, reg_lambda=0.5,
+                            seed=1)
+                        eval_metric = 'logloss'
+                    else:
+                        model_xgb = XGBClassifier(base_score=0.5, booster='gbtree', subsample=subsample,
+                                    colsample_bytree=col_sub_sample, gamma=1, learning_rate=0.1, max_delta_step=0,
+                            max_depth=max_depth, min_child_weight=1, missing=-999, n_estimators=100,
+                            n_jobs=-1, nthread=None, objective='multi:softmax',
+                            random_state=1, reg_alpha=0.5, reg_lambda=0.5,
+                            seed=1)
+                        eval_metric = 'mlogloss'
+                #### Now set the parameters for XGBoost ###################
+                model_xgb.set_params(**param)
+                #print('Model parameters: %s' %model_xgb)
+                if settings.multi_label:
+                    ########## This is for settings.multi_label problems ###############################
+                    if settings.modeltype == 'Regression':
+                        model_xgb = MultiOutputRegressor(model_xgb)
+                        #model_xgb = RegressorChain(model_xgb)
+                    else:
+                        ## just do randomized search CV - no need to do one vs rest unless multi-class
+                        model_xgb = MultiOutputClassifier(model_xgb)
+                        #model_xgb = ClassifierChain(model_xgb)
+                ####   This is where you start to Iterate on Finding Important Features ################
+                save_xgb = copy.deepcopy(model_xgb)
                 new_xgb = copy.deepcopy(save_xgb)
                 print('        using %d variables...' %(train_p.shape[1]-i))
                 imp_feats = []
@@ -1429,10 +1524,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                         if settings.multi_label:
                             model_xgb.fit(X_train,y_train)
                         else:
-                            if type(train) == dask.dataframe.core.DataFrame:
-                                model_xgb.fit(X_train,y_train)
-                            else:
-                                model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,eval_set=eval_set,
+                            model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,eval_set=eval_set,
                                                 eval_metric=eval_metric,verbose=False)
                     except:
                         #### On Colab, even though GPU exists, many people don't turn it on.
@@ -1444,12 +1536,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                                 model_xgb.estimator.set_params(**cpu_params)
                                 model_xgb.fit(X_train,y_train)
                             else:
-                                if type(train) == dask.dataframe.core.DataFrame:
-                                    model_xgb.fit(X_train,y_train)
-                                else:
-                                    model_xgb.set_params(**cpu_params)
-                                    model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,eval_set=eval_set,
-                                                eval_metric=eval_metric,verbose=False)
+                                model_xgb.set_params(**cpu_params)
+                                model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,eval_set=eval_set,
+                                            eval_metric=eval_metric,verbose=False)
                     #### This is where you collect the feature importances from each run ############
                     if settings.multi_label:
                         ### doing this for multi-label is a little different for single label #########
@@ -1466,6 +1555,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                         important_features += pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
                     #######  order this in the same order in which they were collected ######
                     important_features = list(OrderedDict.fromkeys(important_features))
+                    bst_models.append(model_xgb)
                 else:
                     X = train_p[list(train_p.columns.values)[i:train_p.shape[1]]]
                     cols_sel = X.columns.tolist()
@@ -1486,10 +1576,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                         if settings.multi_label:
                             model_xgb.fit(X_train,y_train)
                         else:
-                            if type(train) == dask.dataframe.core.DataFrame:
-                                model_xgb.fit(X_train,y_train)
-                            else:
-                                model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,
+                            model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,
                                       eval_set=eval_set,eval_metric=eval_metric,verbose=False)
                     except:
                         #### On Colab, even though GPU exists, many people don't turn it on.
@@ -1501,12 +1588,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                                 model_xgb.estimator.set_params(**cpu_params)
                                 model_xgb.fit(X_train,y_train)
                             else:
-                                if type(train) == dask.dataframe.core.DataFrame:
-                                    model_xgb.fit(X_train,y_train)
-                                else:
-                                    model_xgb.set_params(**cpu_params)
-                                    model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,
-                                      eval_set=eval_set,eval_metric=eval_metric,verbose=False)
+                                model_xgb.set_params(**cpu_params)
+                                model_xgb.fit(X_train,y_train,early_stopping_rounds=early_stopping,
+                                  eval_set=eval_set,eval_metric=eval_metric,verbose=False)
                     ### doing this for multi-label is a little different for single label #########
                     if settings.multi_label:
                         imp_feats = [model_xgb.estimators_[i].feature_importances_ for i in range(len(target))]
@@ -1520,32 +1604,35 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                         #print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
                         important_features += pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
                     important_features = list(OrderedDict.fromkeys(important_features))
+                    bst_models.append(model_xgb)
         except:
             print('Finding top features using XGB is crashing. Continuing with all predictors...')
             important_features = copy.deepcopy(preds)
             return important_features, train[important_features+target]
+        if verbose >= 2:
+            draw_feature_importances_all(bst_models)
     important_features = list(OrderedDict.fromkeys(important_features))
     print('Selected %d important features from your dataset' %len(important_features))
     numvars = [x for x in numvars if x in important_features]
     important_cats = [x for x in important_cats if x in important_features]
     print('    Time taken (in seconds) = %0.0f' %(time.time()-start_time))
-    if isinstance(test, str) or test is None:
+    if isinstance(test_data, str) or test_data is None:
         print(f'Returning list of {len(important_features)} important features and dataframe.')
-        if len(np.intersect1d(train_ids.columns.tolist(),train.columns.tolist())) > 0:
-            return important_features, train[important_features+target]
+        if len(np.intersect1d(train_ids.columns.tolist(),dataname.columns.tolist())) > 0:
+            return important_features, dataname[important_features+target]
         else:
-            train = train_ids.join(train)
-            return important_features, train[idcols+important_features+target]
+            dataname = train_ids.join(dataname)
+            return important_features, dataname[idcols+important_features+target]
     else:
-        print('Returning 2 dataframes: train and test with %d important features.' %len(important_features))
+        print('Returning 2 dataframes: dataname and test_data with %d important features.' %len(important_features))
         if feature_gen or feature_type:
             ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
-            train = train_ids.join(train)
-            test = test_ids.join(test)
-        if target in list(test): ### see if target exists in this test data
-            return train[idcols+important_features+target], test[idcols+important_features+target]
+            dataname = train_ids.join(dataname)
+            test_data = test_ids.join(test_data)
+        if target in list(test_data): ### see if target exists in this test data
+            return dataname[idcols+important_features+target], test_data[idcols+important_features+target]
         else:
-            return train[idcols+important_features+target], test[idcols+important_features]
+            return dataname[idcols+important_features+target], test_data[idcols+important_features]
 ################################################################################
 def remove_highly_correlated_vars_fast(df, corr_limit=0.70):
     """
@@ -1577,6 +1664,10 @@ def check_if_GPU_exists():
             return False
     else:
         return True
+#############################################################################################
+import multiprocessing
+def get_cpu_worker_count():
+    return multiprocessing.cpu_count()
 #############################################################################################
 from itertools import combinations
 import matplotlib.patches as mpatches
@@ -1627,7 +1718,7 @@ def reduce_mem_usage(df):
     start_mem = df.memory_usage().sum() / 1024**2
     if type(df) == dask.dataframe.core.DataFrame:
         start_mem = start_mem.compute()
-    print('Caution: We will try to reduce the memory usage of dataframe from {:.2f} MB'.format(start_mem))
+    print('    Caution: We will try to reduce the memory usage of dataframe from {:.2f} MB'.format(start_mem))
     cols = df.columns
     if type(df) == dask.dataframe.core.DataFrame:
         cols = cols.tolist()
@@ -1663,8 +1754,8 @@ def reduce_mem_usage(df):
     end_mem = df.memory_usage().sum() / 1024**2
     if type(df) == dask.dataframe.core.DataFrame:
         end_mem = end_mem.compute()
-    print('Memory usage after optimization is: {:.2f} MB'.format(end_mem))
-    print('    decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
+    print('    Memory usage after optimization is: {:.2f} MB'.format(end_mem))
+    print('        decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
     
     return df
 ##################################################################################

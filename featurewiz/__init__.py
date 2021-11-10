@@ -31,10 +31,10 @@ if __name__ == "__main__":
 else:
     module_type = 'Imported'
 version_number = __version__
-print("""%s featurewiz: advanced feature engg and selection library. Version=%s
+print("""%s featurewiz: Now uses Dask for blazing fast performance. Version=%s
 output = featurewiz(dataname, target, corr_limit=0.70,
                     verbose=2, sep=',', header=0, test_data='',
-                    feature_engg='', category_encoders='')
+                    feature_engg='', category_encoders='', dask_xgboost_flag=True)
 Create new features via 'feature_engg' flag : ['interactions','groupby','target']
                                 """ %(module_type, version_number))
 ################################################################################

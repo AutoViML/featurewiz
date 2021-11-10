@@ -41,6 +41,8 @@ import pdb
 # disable chained assignments
 pd.options.mode.chained_assignment = None
 import copy
+import dask
+import dask.dataframe as dd
 
 class DataBunch(object):
     """
@@ -77,7 +79,7 @@ class DataBunch(object):
             group_generator_features=True (undefined):
             target_enc_cat_features=True (undefined)
             random_state=42 (undefined):
-
+            verbose = 1 (undefined)
         """
         self.random_state = random_state
 
@@ -100,11 +102,17 @@ class DataBunch(object):
 
         # check X_train, y_train, X_test
         if self.check_data_format(X_train):
-            self.X_train_source = pd.DataFrame(X_train)
+            if type(X_train) == dask.dataframe.core.DataFrame:
+                self.X_train_source = X_train.compute()
+            else:
+                self.X_train_source = pd.DataFrame(X_train)
             self.X_train_source = remove_duplicate_cols_in_dataset(self.X_train_source)
         if X_test is not None:
             if self.check_data_format(X_test):
-                self.X_test_source = pd.DataFrame(X_test)
+                if type(X_test) == dask.dataframe.core.DataFrame:
+                    self.X_test_source = X_test.compute()
+                else:
+                    self.X_test_source = pd.DataFrame(X_test)
                 self.X_test_source = remove_duplicate_cols_in_dataset(self.X_test_source)
 
 
@@ -145,7 +153,9 @@ class DataBunch(object):
             self.y_test = y_test
 
         if verbose > 0:
-            print('Source X_train shape: ', X_train.shape, '| X_test shape: ', X_test.shape)
+            print('Source X_train shape: ', self.X_train_source.shape)
+            if not X_test is None:
+                print('| Source X_test shape: ', self.X_test_source.shape)
             print('#'*50)
 
         # add categorical features in DataBunch
@@ -156,7 +166,7 @@ class DataBunch(object):
 
         else:
             self.cat_features = list(cat_features)
-
+        
         # preproc_data in DataBunch
         if clean_and_encod_data:
             if verbose > 0:
@@ -193,6 +203,8 @@ class DataBunch(object):
             if isinstance(data, pd.Series) or isinstance(data, pd.DataFrame):
                 return True
             elif isinstance(data, np.ndarray):
+                return True
+            elif type(data) == dask.dataframe.core.DataFrame:
                 return True
             else:
                 False

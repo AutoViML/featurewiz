@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="featurewiz",
-    version="0.0.43",
+    version="0.0.50",
     author="Ram Seshadri",
     author_email="rsesha2001@yahoo.com",
     description="Select Best Features from your data set - any size - now with XGBoost!",
@@ -19,7 +19,7 @@ setuptools.setup(
     install_requires=[
         "ipython",
         "jupyter",
-        "xgboost<=0.90",
+        "xgboost==0.90",
         "pandas>=1.3.4",
         "matplotlib",
         "seaborn",
