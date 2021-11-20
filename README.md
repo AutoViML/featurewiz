@@ -160,7 +160,7 @@ You don't have to tell featurewiz whether it is a Regression or Classification p
 - `test_data`: If you want to transform test data in the same way you are transforming dataname, you can.
     test_data could be the name of a datapath+filename or a dataframe. featurewiz will detect whether
         your input is a filename or a dataframe and load it automatically. Default is empty string.
-- `feature_engg`: You can let featurewiz select its best encoders for your data set by settning this flag
+- `feature_engg`: You can let featurewiz select its best encoders for your data set by setting this flag
     for adding feature engineering. There are three choices. You can choose one, two or all three.
     - `interactions`: This will add interaction features to your data such as x1*x2, x2*x3, x1**2, x2**2, etc.
     - `groupby`: This will generate Group By features to your numeric vars by grouping all categorical vars.
