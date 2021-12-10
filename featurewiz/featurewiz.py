@@ -377,14 +377,30 @@ from collections import Counter
 import time
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
 from sklearn.feature_selection import SelectKBest
+import random
 ##################################################################################
 def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse_dates=False):
     start_time = time.time()
     ###########################  This is where we load file or data frame ###############
     if isinstance(dataname,str):
+        if dataname == '':
+            print('    No file given. Continuing...')
+            return None
         #### this means they have given file name as a string to load the file #####
         codex_flag = False
         codex = ['ascii', 'utf-8', 'iso-8859-1', 'cp1252', 'latin1']
+        ## this is the total number of rows in df  ###
+        try:
+            max_rows = lenopenreadlines(dataname)
+        except:
+            ### if for some reason, it errors, just set a default size to read file
+            max_rows = 10000
+        if nrows is None: ### this means get all rows -> don't skip any one
+            skip_function = None  ## will not skip any rows
+        else:
+            get_rows = max_rows  ## this is the number of rows we want to sample from the df
+            rem_rows = max_rows-get_rows  ## this will be the number of rows we need to skip
+            skip_function = random.sample(range(max_rows), rem_rows)  ## will generate a random list of rows to skip
         if dataname != '' and dataname.endswith(('csv')):
             try:
                 dfte = pd.read_csv(dataname, sep=sep, header=header, encoding=None, 
@@ -417,9 +433,17 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse
                 dfte = pd.read_excel(dataname,header=header, nrows=nrows, parse_dates=parse_dates)
             print('    Shape of your Data Set loaded: %s' %(dfte.shape,))
             return dfte
-        else:
-            print('    Filename is an empty string or file not able to be loaded')
-            return None
+        elif dataname.endswith(('gzip', 'bz2', 'zip', 'xz')):
+            print('    Reading compressed file...')
+            try:
+                #### Dont use skip_function in zip files #####
+                compression = 'infer'
+                dfte = pd.read_csv(dataname, sep=sep, header=header, encoding=None, nrows=nrows,
+                                compression=compression, parse_dates=parse_dates) 
+                return dfte
+            except:
+                print('    Could not read compressed file. Please unzip and try again...')
+                return None
     elif isinstance(dataname,pd.DataFrame):
         #### this means they have given a dataframe name to use directly in processing #####
         if nrows is None:
@@ -882,7 +906,6 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
             except:
                 print('Error converting %s column from string to numeric. Continuing...' %everycol)
                 continue
-
     return train, test
 ###################################################################################
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
@@ -1006,11 +1029,10 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ######################################################################################
     print('Loading train data...')
     if isinstance(dataname, str):
-        filesize = lenopenreadlines(dataname)
         if dask_xgboost_flag:
             try:
                 print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
-                dataname = pd.read_csv(dataname, sep=sep, header=header)
+                dataname = pd.read_csv(dataname, sep=sep, header=header, nrows=nrows)
                 dataname = reduce_mem_usage(dataname)
                 train = load_dask_data(dataname, sep)
             except:
@@ -1038,8 +1060,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if dask_xgboost_flag:
         print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
         test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows)
-        test_data = reduce_mem_usage(test_data)
-        test = load_dask_data(test_data, sep)
+        if test_data is not None:
+            test_data = reduce_mem_usage(test_data)
+            test = load_dask_data(test_data, sep)
     else:
         test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows)
     if test_data is not None:
@@ -1260,7 +1283,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     random_state=RANDOM_SEED,
                     )
         #### Now you can process the tuple this way #########
-        if dask_xgboost_flag:
+        if type(y_train) == dask.dataframe.core.DataFrame:
             ### since y_train is dask df and data_tuple.X_train is a pandas df, you can't merge them.
             y_train = y_train.compute()  ### remember you first have to convert them to a pandas df
         data1 = data_tuple.X_train.join(y_train) ### data_tuple does not have a y_train, remember!
@@ -1335,9 +1358,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     #######You must convert category variables into integers ###############
     if len(important_cats) > 0:
         dataname, test_data = FE_convert_all_object_columns_to_numeric(dataname,  test_data)
-    ########    Fill Missing values since XGB for some reason  #########
-    ########    can't handle missing values in early stopping rounds #######
-    dataname = dataname.fillna(0)
     print('############## F E A T U R E   S E L E C T I O N  ####################')
     important_features = []
     #####   This is for DASK XGB Regressor and XGB Classifier problems ####
@@ -1348,20 +1368,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         ########   Now if dask_xgboost_flag is True, convert pandas dfs back to Dask Dataframes     #####
         #################################################################################################
         train = load_dask_data(dataname, sep)
-        ########  Now Convert col types in train and test data ##########
-        if not test_data is None:
-            test = load_dask_data(test_data, sep)
-        for col in dataname.columns:
-            if col in target:
-                MLB = My_LabelEncoder()
-                dataname[target[0]] = MLB.fit_transform(dataname[target[0]])
-                y = load_dask_data(dataname[target], sep)
-            else:
-                if train[col].dtype in ['int8', 'int16', 'int32', 'int64', float]:
-                    pass
-                else:
-                    train[col] = train[col].astype(int)
-                    test[col] = test[col].astype(int)
         ########  Conversion completed for train and test data ##########
         print('Train and Test loaded into Dask dataframes successfully after feature_engg completed')
        #### If Category Encoding took place, these cat variables are no longer needed in Train. So remove them!
@@ -1377,9 +1383,10 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         print('Dask version = %s' %dask.__version__)
         from dask_ml.model_selection import train_test_split
         ### check available memory and allocate at least 1GB of it in the Client in DASK #############################
-        memory_free = str(max(1, int(psutil.virtual_memory()[0]/1e9)))+'GB'
+        n_workers = get_cpu_worker_count()
+        memory_free = str(max(1, int(psutil.virtual_memory()[0]/(n_workers*1e9))))+'GB'
         print('    Using Dask XGBoost algorithm with %s virtual CPUs and %s memory limit...' %(get_cpu_worker_count(), memory_free))
-        client = Client(n_workers=get_cpu_worker_count(), threads_per_worker=1, processes=True, silence_logs=50,
+        client = Client(n_workers= n_workers, threads_per_worker=1, processes=True, silence_logs=50,
                         memory_limit=memory_free)
         print('Dask client configuration: %s' %client)
         print('XGBoost version: %s' %xgb.__version__)
@@ -1390,8 +1397,16 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             for i in range(0,train_p.shape[1],iter_limit):
                 start_time2 = time.time()
                 print('        using %d variables...' %(train_p.shape[1]-i))
-                
-                
+                cat_targets = dataname[target].select_dtypes(include='object').columns.tolist() + dataname[target].select_dtypes(include='category').columns.tolist()
+                if cat_targets:
+                    for each_target in cat_targets:
+                        MLB = My_LabelEncoder()
+                        dataname[each_target] = MLB.fit_transform(dataname[each_target])
+                    ### since dataname is still a pandas df, you need to convert it into dask df ##
+                    y = load_dask_data(dataname[target], sep)
+                else:
+                    ### train is already a dask dataframe -> you can leave it as it is
+                    y = train[target]
                 imp_feats = []
                 if train_p.shape[1]-i < iter_limit:
                     X = train_p.iloc[:,i:]
@@ -1400,36 +1415,38 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     X = train_p[list(train_p.columns.values)[i:train_p.shape[1]]]
                     cols_sel = X.columns.tolist()
                 ##### This is where you repeat the training and finding feature importances
-                
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15)
                 if not y_train.dtypes[0] == float:
                     y_train = y_train.astype(int) 
                 if settings.modeltype == 'Regression':
                     objective = 'reg:squarederror'
-                    params = {'objective': objective, 'max_depth': 4, 'eta': 0.01, 'subsample': 0.5, 
+                    params = {'objective': objective, 'max_depth': 4, 'eta': 0.1, 'subsample': 0.5, 
                                         'min_child_weight': 0.5}
                 else:
-                    #### This is for Classifiers only
-                    classes = np.unique(train[target].values.compute())
-                    if len(classes) == 2:
+                    #### This is for Classifiers only ##########                    
+                    if settings.modeltype == 'Binary_Classification':
                         objective = 'binary:logistic'
                         num_class = 1
+                        params = {'objective': objective, 'max_depth': 4, 'eta': 0.1, 'subsample': 0.5, 
+                                            'min_child_weight': 0.5}
                     else:
                         objective = 'multi:softmax'
-                        num_class  = len(np.unique(train[target]))
-                    params = {'objective': objective, 'max_depth': 4, 'eta': 0.01, 'subsample': 0.5, 
-                                        'min_child_weight': 0.5, 'num_class': num_class}
+                        num_class  =  dataname[target].nunique()[0]
+                        params = {'objective': objective, 'max_depth': 4, 'eta': 0.1, 'subsample': 0.5, 
+                                            'min_child_weight': 0.5, 'num_class': num_class}
                 ##########   Training XGBoost model using dask_xgboost #########################
                 ### the dtrain syntax can only be used xgboost 1.50 or greater. Dont use it until then.
                 #dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, enable_categorical=True)
+                #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
                 
-                bst = dask_xgboost.train(client, params, X_train, y_train, num_boost_round=10)
+                bst = dask_xgboost.train(client, params, X_train, y_train, num_boost_round=100)
                 #### SYNTAX BELOW DOES NOT WORK YET. YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
                 #bst = dask_xgboost.train(client=client, params=params, data=X_train, labels=y_train, 
                 #                num_boost_round=10, evals=[(dtrain, 'train')])
                 ################################################################################
                 bst_models.append(bst)
-                imp_feats = bst.get_score(fmap='', importance_type='weight')
+                imp_feats = bst.get_score(fmap='', importance_type='gain')
+                imp_feats = dict(sorted(imp_feats.items(),reverse=True, key=lambda item: item[1]))
                 ### doing this for single-label is a little different from settings.multi_label #########
                 #imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
                 #print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
@@ -1442,8 +1459,16 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 draw_feature_importances_all(bst_models)
         except:
             print('Dask XGBoost is crashing. Continuing...')
+            important_features = copy.deepcopy(preds)
+            return important_features, train[important_features+target]
     else:
         #########  This is for pandas dataframes only ##################
+        ########    Fill Missing values since XGB for some reason  #########
+        ########    can't handle missing values in early stopping rounds #######
+        null_vars = dataname.select_dtypes(include='number').columns
+        null_vars = null_vars[(dataname[null_vars].isnull().sum()>0).values].tolist()
+        for each_num in null_vars:
+            dataname[each_num] = dataname[each_num].fillna(0)
         train = copy.deepcopy(dataname)
         y = train[target]
         if not test_data is None:
@@ -1472,9 +1497,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                                              seed=1,n_jobs=-1,random_state=1)
                     eval_metric = 'rmse'
                 else:
-                    #### This is for Classifiers only
-                    classes = np.unique(train[target].values)
-                    if len(classes) == 2:
+                    #### This is for Classifiers only   ####
+                    if settings.modeltype == 'Binary_Classification':
                         model_xgb = XGBClassifier(base_score=0.5, booster='gbtree', subsample=subsample,
                             colsample_bytree=col_sub_sample,gamma=1, learning_rate=0.1, max_delta_step=0,
                             max_depth=max_depth, min_child_weight=1, missing=-999, n_estimators=100,
@@ -1483,11 +1507,12 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                             seed=1)
                         eval_metric = 'logloss'
                     else:
+                        num_class  =  train[target].nunique()[0]
                         model_xgb = XGBClassifier(base_score=0.5, booster='gbtree', subsample=subsample,
                                     colsample_bytree=col_sub_sample, gamma=1, learning_rate=0.1, max_delta_step=0,
                             max_depth=max_depth, min_child_weight=1, missing=-999, n_estimators=100,
                             n_jobs=-1, nthread=None, objective='multi:softmax',
-                            random_state=1, reg_alpha=0.5, reg_lambda=0.5,
+                            random_state=1, reg_alpha=0.5, reg_lambda=0.5, num_class= num_class,
                             seed=1)
                         eval_metric = 'mlogloss'
                 #### Now set the parameters for XGBoost ###################
@@ -1601,7 +1626,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                         important_features += imp_feats_df.sort_values(by='sum',ascending=False)[:top_num].index.tolist()
                     else:
                         imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
-                        #print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
+                        imp_feats = dict(sorted(imp_feats.items(),reverse=True, key=lambda item: item[1]))
                         important_features += pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
                     important_features = list(OrderedDict.fromkeys(important_features))
                     bst_models.append(model_xgb)
@@ -1610,9 +1635,15 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             important_features = copy.deepcopy(preds)
             return important_features, train[important_features+target]
         if verbose >= 2:
-            draw_feature_importances_all(bst_models)
+            if settings.multi_label:
+                print('No feature importance plots available for multi-label datasets')
+            else:
+                draw_feature_importances_all(bst_models)
     important_features = list(OrderedDict.fromkeys(important_features))
-    print('Selected %d important features from your dataset' %len(important_features))
+    if len(important_features) <= 30:
+        print('Selected %d important features:\n%s' %(len(important_features), important_features))
+    else:
+        print('Selected %d important features. Too many to print...' %len(important_features))
     numvars = [x for x in numvars if x in important_features]
     important_cats = [x for x in important_cats if x in important_features]
     print('    Time taken (in seconds) = %0.0f' %(time.time()-start_time))
@@ -1679,16 +1710,20 @@ def draw_feature_importances_all(bst_models):
     rows = int(len(bst_models)/2 + 0.5)
     colus = 2
     fig, ax = plt.subplots(rows, colus)
-    fig.set_size_inches(min(colus*5,20),rows*3)
-    fig.subplots_adjust(hspace=0.3) ### This controls the space betwen rows
-    fig.subplots_adjust(wspace=0.3) ### This controls the space between columns
+    fig.set_size_inches(min(colus*5,20),rows*5)
+    fig.subplots_adjust(hspace=0.5) ### This controls the space betwen rows
+    fig.subplots_adjust(wspace=0.5) ### This controls the space between columns
     counter = 0
     if rows == 1:
         ax = ax.reshape(-1,1).T
     for k in np.arange(rows):
         for l in np.arange(colus):
             if counter < len(bst_models):
-                ax1 = xgboost.plot_importance(bst_models[counter], height=0.8, max_num_features=10, ax=ax[k][l])
+                try:
+                    ax1 = xgboost.plot_importance(bst_models[counter], height=0.8, show_values=False,
+                            importance_type='gain', max_num_features=10, ax=ax[k][l])
+                except:
+                    pass
                 ax1.set_title('Top 10 features with XGB model %s' %(counter+1))
             counter += 1
     plt.show();
@@ -2080,7 +2115,6 @@ class My_Groupby_Encoder(TransformerMixin):
             return dft
         return dft
 ###################################################################################
-
 def FE_add_groupby_features_aggregated_to_dataframe(train,
                     agg_types,groupby_columns,ignore_variables, test=""):
     """
@@ -2587,6 +2621,7 @@ class My_LabelEncoder(TransformerMixin):
     the beauty of this function is that it can take care of NaN's and unknown (future) values.
     It uses the same fit() and fit_transform() methods of sklearn's LabelEncoder class.
     ################################################################################################
+    ##################### This is the best working version - don't mess with it! ###################
     Usage:
           MLB = My_LabelEncoder()
           train[column] = MLB.fit_transform(train[column])
@@ -2604,9 +2639,10 @@ class My_LabelEncoder(TransformerMixin):
         else:
             return testx
         outs = np.unique(testx.factorize()[0])
-        ins = np.unique(testx.factorize()[1]).tolist()
-        if -1 in outs:
-            ins.insert(0,np.nan)
+        ins = testx.value_counts(dropna=False).index
+        #if -1 in outs:
+        #   it already has nan if -1 is in outs. No need to add it.
+        #    ins.insert(0,np.nan)
         self.transformer = dict(zip(ins,outs.tolist()))
         self.inverse_transformer = dict(zip(outs.tolist(),ins))
         return self
@@ -2618,6 +2654,7 @@ class My_LabelEncoder(TransformerMixin):
             testx = pd.Series(testx)
         else:
             return testx
+        ### now convert the input to transformer dictionary values
         ins = np.unique(testx.factorize()[1]).tolist()
         missing = [x for x in ins if x not in self.transformer.keys()]
         if len(missing) > 0:
@@ -2625,9 +2662,20 @@ class My_LabelEncoder(TransformerMixin):
                 max_val = np.max(list(self.transformer.values())) + 1
                 self.transformer[each_missing] = max_val
                 self.inverse_transformer[max_val] = each_missing
-        ### now convert the input to transformer dictionary values
         outs = testx.map(self.transformer).values
-        return outs
+        testk = testx.map(self.transformer)
+        if testx.dtype not in [np.int16, np.int32, np.int64, float, bool, object]:
+            if testx.isnull().sum().sum() > 0:
+                fillval = self.transformer[np.nan]
+                testk = testk.cat.add_categories([fillval])
+                testk = testk.fillna(fillval)
+                testk = testk.astype(int)
+                return testk
+            else:
+                testk = testk.astype(int)
+                return testk
+        else:
+            return outs
 
     def inverse_transform(self, testx):
         ### now convert the input to transformer dictionary values
@@ -3119,66 +3167,6 @@ import xgboost as xgb
 import warnings
 warnings.filterwarnings("ignore")
 
-#################################################################################
-class My_LabelEncoder(TransformerMixin):
-    """
-    ################################################################################################
-    ######  This Label Encoder class works just like sklearn's Label Encoder!  #####################
-    #####  You can label encode any column in a data frame using this new class. But unlike sklearn,
-    the beauty of this function is that it can take care of NaN's and unknown (future) values.
-    It uses the same fit() and fit_transform() methods of sklearn's LabelEncoder class.
-    ################################################################################################
-    Usage:
-          MLB = My_LabelEncoder()
-          train[column] = MLB.fit_transform(train[column])
-          test[column] = MLB.transform(test[column])
-    """
-    def __init__(self):
-        self.transformer = defaultdict(str)
-        self.inverse_transformer = defaultdict(str)
-
-    def fit(self,testx):
-        if isinstance(testx, pd.Series):
-            pass
-        elif isinstance(testx, np.ndarray):
-            testx = pd.Series(testx)
-        else:
-            return testx
-        outs = np.unique(testx.factorize()[0])
-        ins = np.unique(testx.factorize()[1]).tolist()
-        if -1 in outs:
-            ins.insert(0,np.nan)
-        self.transformer = dict(zip(ins,outs.tolist()))
-        self.inverse_transformer = dict(zip(outs.tolist(),ins))
-        return self
-
-    def transform(self, testx):
-        if isinstance(testx, pd.Series):
-            pass
-        elif isinstance(testx, np.ndarray):
-            testx = pd.Series(testx)
-        else:
-            return testx
-        ins = np.unique(testx.factorize()[1]).tolist()
-        missing = [x for x in ins if x not in self.transformer.keys()]
-        if len(missing) > 0:
-            for each_missing in missing:
-                max_val = np.max(list(self.transformer.values())) + 1
-                self.transformer[each_missing] = max_val
-                self.inverse_transformer[max_val] = each_missing
-        ### now convert the input to transformer dictionary values
-        outs = testx.map(self.transformer).values
-        return outs
-
-    def inverse_transform(self, testx):
-        ### now convert the input to transformer dictionary values
-        if isinstance(testx, pd.Series):
-            outs = testx.map(self.inverse_transformer).values
-        elif isinstance(testx, np.ndarray):
-            outs = pd.Series(testx).map(self.inverse_transformer).values
-        else:
-            outs = testx[:]
-        return outs
 #################################################################################
 from sklearn.impute import SimpleImputer
 def data_transform(X_train, y_train, X_test="", enc_method='label', scaler = StandardScaler()):
