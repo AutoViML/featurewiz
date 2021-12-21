@@ -403,6 +403,8 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse
             skip_function = random.sample(range(max_rows), rem_rows)  ## will generate a random list of rows to skip
         if dataname != '' and dataname.endswith(('csv')):
             try:
+                ### You can read the entire data into pandas first and then stratify split it ##
+                ###   If you don't stratify it, then 
                 dfte = pd.read_csv(dataname, sep=sep, header=header, encoding=None, 
                                 parse_dates=parse_dates)
                 if not nrows is None:
@@ -597,9 +599,9 @@ def FE_drop_rows_with_infinity(df, cols_list, fill_value=None):
     ###  Double check that all columns have been fixed ###############
     cols_with_infinity = EDA_find_columns_with_infinity(df)
     if cols_with_infinity:
-        print('There are still %d columns with infinite values. Returning...' %len(cols_with_infinity))
+        print('    There are still %d columns with infinite values. Returning...' %len(cols_with_infinity))
     else:
-        print('There are no columns with infinite values.')
+        print('    There are no more columns with infinite values')
     return df
 ##################################################################################
 def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
@@ -680,13 +682,7 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
             sel_function = mutual_info_classif
             fs = SelectKBest(score_func=sel_function, k=max_feats)
         ##### you must ensure there are no infinite nor null values in corr_list df ##
-        cols_with_infinity = EDA_find_columns_with_infinity(df[corr_list])
-        # first you must drop rows that have inf in them ####
-        if cols_with_infinity:
-            print('There are %d columns with infinite values in your dataset' %len(cols_with_infinity))
-            df_fit = FE_drop_rows_with_infinity(df[corr_list], cols_with_infinity, fill_value=True)
-        else:
-            df_fit = df[corr_list]
+        df_fit = df[corr_list]
         ### Now check if there are any NaN values in the dataset #####
         if df_fit.isnull().sum().sum() > 0:
             df_fit = df_fit.dropna()
@@ -915,7 +911,8 @@ from .encoders import FrequencyEncoder
 
 from sklearn.model_selection import train_test_split
 def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
-            test_data='', feature_engg='', category_encoders='', dask_xgboost_flag=True,  **kwargs):
+            test_data='', feature_engg='', category_encoders='', dask_xgboost_flag=True,
+            nrows=None,  **kwargs):
     """
     #################################################################################
     ###############           F E A T U R E   W I Z A R D          ##################
@@ -961,6 +958,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         dask_xgboost_flag: default = True. This flag enables DASK by default so that you can process large
             data sets faster using parallel processing. It detects the number of CPUs and GPU's in your machine
             automatically and sets the num of workers for DASK. It also uses DASK XGBoost to run it.
+        nrows: default = None: None means all rows will be used to load into dataframe. If nrows is set,
+            then only those rows will be loaded into dataframe.
     ########           Featurewiz Output           #############################
     Output: Tuple
     Featurewiz can output either a list of features or one dataframe or two depending on what you send in.
@@ -980,19 +979,15 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     dataname = copy.deepcopy(dataname)
     max_nums = 30
     max_cats = 15
+    maxrows = 10000
     RANDOM_SEED = 42
     ############################################################################
     cat_encoders_list = list(settings.cat_encoders_names.keys())
     ### Just set defaults here which can be overridden by user input ####
-    nrows = None
     cat_vars = []
     if kwargs:
         for key, value in zip(kwargs.keys(), kwargs.values()):
             print('You supplied %s = %s' %(key, value))
-            ###### Now test the next set of kwargs ###
-            if key == 'nrows':
-                ### don't change it. It is needed when there is nrows but no cat_vars and other way around.
-                nrows = value
             ###### Now test the next set of kwargs ###
             if key == 'cat_vars':
                 if isinstance(value, list):
@@ -1064,15 +1059,24 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             test_data = reduce_mem_usage(test_data)
             test = load_dask_data(test_data, sep)
     else:
-        test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows)
+        #### load the entire test dataframe - there is no limit applicable there #########
+        test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose)
     if test_data is not None:
         test_data = remove_duplicate_cols_in_dataset(test_data)
         test_index = test_data.index
     #############    C L A S S I F Y    F E A T U R E S      ####################
-    if dataname.shape[0] >= 100000:
-        print('    since dataframe is large (>100K rows), loading a small sample to classify features')
-        min_size = min(dataname.shape[0], 100000)
-        train_small = dataname.sample(min_size, random_state=99)
+    if nrows is None:
+        nrows_limit = maxrows
+    else:
+        nrows_limit = nrows
+    if dataname.shape[0] >= nrows_limit:
+        print('    since dataframe is larger than %s, loading a small sample to classify features' %nrows_limit)
+        if isinstance(target, str):
+            targets = [target]
+        else:
+            targets = copy.deepcopy(target)
+        ##### you can use 
+        train_small = select_rows_from_dataframe(dataname, targets, nrows_limit, DS_LEN=dataname.shape[0])
         features_dict = classify_features(train_small, target)
     else:
         features_dict = classify_features(dataname, target)
@@ -1084,7 +1088,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         dataname = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows,
                              parse_dates=date_time_vars)
         if not test_data is None:
-            test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows,
+            ### You must load the entire test data - there is no limit there ##################
+            test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, 
                                  parse_dates=date_time_vars)
     else:
         train_index = dataname.index
@@ -1335,6 +1340,12 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ############     S   U  L  O   V       M   E   T   H   O  D      ###############################
     #### If the data dimension is less than 5o Million then do SULOV - otherwise skip it! #########
     ################################################################################################
+    cols_with_infinity = EDA_find_columns_with_infinity(dataname)
+    # first you must drop rows that have inf in them ####
+    if cols_with_infinity:
+        print('Found %d columns which contain infinity in dataset' %len(cols_with_infinity))
+        dataname = FE_drop_rows_with_infinity(dataname, cols_with_infinity, fill_value=True)
+    #######  This is where you start the process ##################################    
     if len(numvars) > 1:
         if data_dim < 50:
             try:
@@ -1416,6 +1427,16 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     cols_sel = X.columns.tolist()
                 ##### This is where you repeat the training and finding feature importances
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15)
+                try:
+                    cols_infinity = EDA_find_columns_with_infinity(X_train)
+                    if cols_infinity:
+                        ### drop columns with infinite values ###
+                        X_train = X_train.drop(cols_infinity,axis=1)
+                    cols_infinity = EDA_find_columns_with_infinity(X_test)
+                    if cols_infinity:
+                        X_test = X_test.drop(cols_infinity,axis=1)
+                except:
+                    print('Finding columns with infinite values erroring. Continuing...')
                 if not y_train.dtypes[0] == float:
                     y_train = y_train.astype(int) 
                 if settings.modeltype == 'Regression':
@@ -1438,8 +1459,12 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 ### the dtrain syntax can only be used xgboost 1.50 or greater. Dont use it until then.
                 #dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, enable_categorical=True)
                 #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
+                if X_train.compute().shape[0] >= 100000:
+                    num_rounds = 50
+                else:
+                    num_rounds = 100
                 
-                bst = dask_xgboost.train(client, params, X_train, y_train, num_boost_round=100)
+                bst = dask_xgboost.train(client, params, X_train, y_train, num_boost_round=num_rounds)
                 #### SYNTAX BELOW DOES NOT WORK YET. YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
                 #bst = dask_xgboost.train(client=client, params=params, data=X_train, labels=y_train, 
                 #                num_boost_round=10, evals=[(dtrain, 'train')])
@@ -3918,3 +3943,33 @@ def FE_split_list_into_columns(df, col, cols_in=[]):
             print('Column %s does not contain lists or has mixed types other than lists. Fix it and rerun.' %col)
     return df
 #############################################################################################
+def select_rows_from_dataframe(train_dataframe, targets, nrows_limit, DS_LEN=''):
+    maxrows = 10000
+    train_dataframe = copy.deepcopy(train_dataframe)
+    copy_targets = copy.deepcopy(targets)
+    if not DS_LEN:
+        DS_LEN = train_dataframe.shape[0]
+    ####### we randomly sample a small dataset to classify features #####################
+    test_size = min(0.9, (1 - (maxrows/DS_LEN))) ### make sure there is a small train size
+    if test_size <= 0:
+        test_size = 0.9
+    ###   Float variables are considered Regression #####################################
+    float_targets = 'float16' in  train_dataframe[copy_targets].dtypes.values or 'float32' in  train_dataframe[copy_targets].dtypes.values
+    if float_targets:
+        modeltype = 'Regression'
+    else:
+        modeltype = 'Classification'
+    print('    Since number of rows > maxrows, loading a random sample of %d rows into pandas for EDA' %nrows_limit)
+    ####### If it is a classification problem, you need to stratify and select sample ###
+    if modeltype != 'Regression':
+        copy_targets = copy.deepcopy(targets)
+        for each_target in copy_targets:
+            ### You need to remove rows that have very class samples - that is a problem while splitting train_small
+            list_of_few_classes = train_dataframe[each_target].value_counts()[train_dataframe[each_target].value_counts()<=10].index.tolist()
+            train_small = train_dataframe.loc[~(train_dataframe[each_target].isin(list_of_few_classes))]
+        train_small, _ = train_test_split(train_dataframe, test_size=test_size, stratify=train_dataframe[targets])
+    else:
+        ### For Regression problems: load a small sample of data into a pandas dataframe ##
+        train_small = train_dataframe.sample(n=nrows_limit, random_state=99)
+    return train_small
+################################################################################################
