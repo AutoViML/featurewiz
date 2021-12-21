@@ -1,6 +1,6 @@
 ipython
 jupyter
-xgboost>=0.90
+xgboost==0.90
 pandas>=1.3.4
 matplotlib
 seaborn
@@ -10,7 +10,7 @@ category_encoders
 xlrd
 imbalanced-learn>=0.7
 tqdm
-dask>=2021.11.0
-distributed>=2021.11.0
-dask-ml>=2021.10.17
-dask-xgboost>=0.2.0
+dask==2021.11.0
+distributed==2021.11.0
+dask-ml==2021.10.17
+dask-xgboost==0.2.0
