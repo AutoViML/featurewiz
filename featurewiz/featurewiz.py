@@ -1404,20 +1404,28 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         import gc
         client.run(gc.collect) 
         train_p = client.persist(train_p)
+        ### This is to convert the target labels to proper numeric columns ######
+        cat_targets = dataname[target].select_dtypes(include='object').columns.tolist() + dataname[target].select_dtypes(include='category').columns.tolist()
+        ### check if they are not starting from zero ##################
+        if settings.modeltype != 'Regression':
+            if cat_targets or sorted(np.unique(dataname[target[0]].values))[0] != 0:
+                copy_targets = copy.deepcopy(target)
+                for each_target in copy_targets:
+                    MLB = My_LabelEncoder()
+                    dataname[each_target] = MLB.fit_transform(dataname[each_target])
+                ### since dataname is still a pandas df, you need to convert it into dask df ##
+                y = load_dask_data(dataname[target], sep)
+            else:
+                ### train is already a dask dataframe -> you can leave it as it is
+                y = train[target]
+        else:
+            ### train is already a dask dataframe -> you can leave it as it is
+            y = train[target]
+        #### Now we process the numeric  values through XGBoost repeatedly ###################
         try:
             for i in range(0,train_p.shape[1],iter_limit):
                 start_time2 = time.time()
                 print('        using %d variables...' %(train_p.shape[1]-i))
-                cat_targets = dataname[target].select_dtypes(include='object').columns.tolist() + dataname[target].select_dtypes(include='category').columns.tolist()
-                if cat_targets:
-                    for each_target in cat_targets:
-                        MLB = My_LabelEncoder()
-                        dataname[each_target] = MLB.fit_transform(dataname[each_target])
-                    ### since dataname is still a pandas df, you need to convert it into dask df ##
-                    y = load_dask_data(dataname[target], sep)
-                else:
-                    ### train is already a dask dataframe -> you can leave it as it is
-                    y = train[target]
                 imp_feats = []
                 if train_p.shape[1]-i < iter_limit:
                     X = train_p.iloc[:,i:]
@@ -1427,16 +1435,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     cols_sel = X.columns.tolist()
                 ##### This is where you repeat the training and finding feature importances
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15)
-                try:
-                    cols_infinity = EDA_find_columns_with_infinity(X_train)
-                    if cols_infinity:
-                        ### drop columns with infinite values ###
-                        X_train = X_train.drop(cols_infinity,axis=1)
-                    cols_infinity = EDA_find_columns_with_infinity(X_test)
-                    if cols_infinity:
-                        X_test = X_test.drop(cols_infinity,axis=1)
-                except:
-                    print('Finding columns with infinite values erroring. Continuing...')
                 if not y_train.dtypes[0] == float:
                     y_train = y_train.astype(int) 
                 if settings.modeltype == 'Regression':
@@ -1460,10 +1458,12 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 #dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, enable_categorical=True)
                 #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
                 if X_train.compute().shape[0] >= 100000:
-                    num_rounds = 50
+                    num_rounds = 20
                 else:
                     num_rounds = 100
-                
+                ### This is where we use dask xgboost ###################################################
+                if i == 0:
+                    print('Num of booster rounds = %s' %num_rounds)
                 bst = dask_xgboost.train(client, params, X_train, y_train, num_boost_round=num_rounds)
                 #### SYNTAX BELOW DOES NOT WORK YET. YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
                 #bst = dask_xgboost.train(client=client, params=params, data=X_train, labels=y_train, 
