@@ -2,15 +2,32 @@
 
 ![banner](featurewiz_logo.jpg)
 <p>
-Update (Nov 9, 2021): Featurewiz now upgraded with Dask for blazing fast performance even for very large data sets! 
+
+## Update (Nov 9, 2021)
+Featurewiz is now upgraded with Dask for blazing fast performance even for very large data sets! 
 <p>
-`CAUTION`: You must restart the kernel after installing featurewiz in Kaggle and Colab notebooks for Scikitlearn and DASK libraries to take effect. Otherwise you will get an error that some libraries are not found. You don't have to do anything to activate dask: featurewiz automatically uses dask_xgboost_flag = True as the default. You can turn off dask by setting that flag to False.
+
+### One word of CAUTION:
+ You must install featurewiz without any dependencies by ignoring previous installed versions this way. You must follow these two steps if you want it installed smoothly since DASK_XGBOOST is deprecated.
+
+ ```pip install xlrd dask_xgboost```
+
+ ```pip install featurewiz --ignore-installed --no-deps```
+
 <p>
+
+## What is featurewiz
 Featurewiz a new python library for creating and selecting the best features in your data set fast!
-featurewiz accomplishes this in 2 steps:
+featurewiz can be used in two ways:
+
+## 1.  Feature Engineering
 <p>The first step is optional and it is about creating new features.<p>
 1. <b>Performing Feature Engineering</b>: One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions like Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features was painstaking and left only to "experts". Now there is some good news.<br>
-featurewiz now enables you to add hundreds of such features at the click of a code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go.<br> Not only that, it will use SULOV method and Recursive XGBoost to sift through those variables and find only the least correlated and most important features among them. All in one step!.<br>
+<p>featurewiz now enables you to add hundreds of such features with a single line of code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go.<br> Not only that, it will use SULOV method and Recursive XGBoost to sift through those variables and find only the least correlated and most important features among them. All in one step!.<br>
+
+![feature_engg](feature_engg.jpg)
+
+## 2.  Feature Selection
 <p>The second step is Feature Selection:<br>
 2. <b>Executing Feature Selection</b>: Once you have created 100's of new features, you still have two problems left to solve:
 1. How do we interpret those newly created features?
@@ -18,8 +35,6 @@ featurewiz now enables you to add hundreds of such features at the click of a co
 3. Does the model overfit now on these new features and perform better or worse than before?
 <br>
 All are very important questions and you must be very careful using this feature_engg option in featurewiz. Otherwise, you can create a "garbage in, garbage out" problem. Caveat Emptor!
-
-![feature_engg](feature_engg.jpg)
 
 <br>featurewiz uses the SULOV method and Recursive XGBoost to reduce features in order to select the best features for the model. Here is how.<br>
 <p><b>SULOV</b>: SULOV stands for `Searching for Uncorrelated List of Variables`. The SULOV method is similar to the Minimum-redundancy-maximum-relevance (mRMR) <a href="https://en.wikipedia.org/wiki/Feature_selection#Minimum-redundancy-maximum-relevance_(mRMR)_feature_selection">algorithm explained in wikipedia</a> as one of the best feature selection methods. The SULOV algorithm is explained in this chart below.

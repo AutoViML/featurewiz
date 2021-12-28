@@ -690,7 +690,8 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
             print('There are no null values in dataset.')
         ##### Ready to perform fit and find mutual information score ####       
         try:
-            fs.fit(df_fit.astype(np.float32), df[target])
+            df_fit = reduce_mem_usage(df_fit)
+            fs.fit(df_fit, df[target])
         except:
             print('Select K Best erroring. Returning with all variables...')
             return corr_list
@@ -1035,9 +1036,12 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 return None
         else:
             train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
-            dataname = pd.read_csv(dataname, sep=sep, header=header)
+            dataname = pd.read_csv(dataname, sep=sep, header=header, nrows=nrows)
     else:
         if dask_xgboost_flag:
+            if not nrows is None:
+                dataname = dataname.sample(n=nrows)
+                print('Sampling %s rows from dataframe given' %nrows)
             print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
             dataname = reduce_mem_usage(dataname)
             train = load_dask_data(dataname, sep)
@@ -1054,7 +1058,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     print('Loading test data...')
     if dask_xgboost_flag:
         print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
-        test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=nrows)
+        ### nrows does not apply to test data in the case of featurewiz ###############
+        test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=None)
         if test_data is not None:
             test_data = reduce_mem_usage(test_data)
             test = load_dask_data(test_data, sep)
@@ -1070,7 +1075,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     else:
         nrows_limit = nrows
     if dataname.shape[0] >= nrows_limit:
-        print('    since dataframe is larger than %s, loading a small sample to classify features' %nrows_limit)
+        print('Classifying features using %s rows...' %nrows_limit)
         if isinstance(target, str):
             targets = [target]
         else:
@@ -1180,7 +1185,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 pass
             else:
                 print('        Adding same time series features to test data...')
-                test, _ = FE_create_time_series_features(test_data, date_col, ts_adds)
+                test_data, _ = FE_create_time_series_features(test_data, date_col, ts_adds)
                 #date_col_adds_test_data = left_subtract(date_df_test.columns.tolist(),date_col)
                 ### Now time to remove the date time column from all further processing ##
                 #test = test.join(date_df_test, rsuffix='2')
@@ -1343,8 +1348,17 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     cols_with_infinity = EDA_find_columns_with_infinity(dataname)
     # first you must drop rows that have inf in them ####
     if cols_with_infinity:
-        print('Found %d columns which contain infinity in dataset' %len(cols_with_infinity))
-        dataname = FE_drop_rows_with_infinity(dataname, cols_with_infinity, fill_value=True)
+        print('Dropped %d columns which contain infinity in dataset' %len(cols_with_infinity))
+        #dataname = FE_drop_rows_with_infinity(dataname, cols_with_infinity, fill_value=True)
+        dataname = dataname.drop(cols_with_infinity, axis=1)
+        print('%s' %cols_with_infinity)
+        if isinstance(test_data,str) or test_data is None:
+            pass
+        else:
+            test_data = test_data.drop(cols_with_infinity, axis=1)
+            print('     dropped %s columns with infinity from further test data...' %len(cols_with_infinity))
+        numvars = left_subtract(numvars, cols_with_infinity)
+        print('     numeric features left = %s' %len(numvars))
     #######  This is where you start the process ##################################    
     if len(numvars) > 1:
         if data_dim < 50:
@@ -1425,7 +1439,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         try:
             for i in range(0,train_p.shape[1],iter_limit):
                 start_time2 = time.time()
-                print('        using %d variables...' %(train_p.shape[1]-i))
                 imp_feats = []
                 if train_p.shape[1]-i < iter_limit:
                     X = train_p.iloc[:,i:]
@@ -1435,6 +1448,14 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     cols_sel = X.columns.tolist()
                 ##### This is where you repeat the training and finding feature importances
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15)
+                if X_train.compute().shape[0] >= 100000:
+                    num_rounds = 20
+                else:
+                    num_rounds = 100
+                if i == 0:
+                    print('Num of booster rounds = %s' %num_rounds)
+                print('        using %d variables...' %(train_p.shape[1]-i))
+                #########   This is where we check target type ##########
                 if not y_train.dtypes[0] == float:
                     y_train = y_train.astype(int) 
                 if settings.modeltype == 'Regression':
@@ -1457,13 +1478,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 ### the dtrain syntax can only be used xgboost 1.50 or greater. Dont use it until then.
                 #dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, enable_categorical=True)
                 #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
-                if X_train.compute().shape[0] >= 100000:
-                    num_rounds = 20
-                else:
-                    num_rounds = 100
                 ### This is where we use dask xgboost ###################################################
-                if i == 0:
-                    print('Num of booster rounds = %s' %num_rounds)
                 bst = dask_xgboost.train(client, params, X_train, y_train, num_boost_round=num_rounds)
                 #### SYNTAX BELOW DOES NOT WORK YET. YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
                 #bst = dask_xgboost.train(client=client, params=params, data=X_train, labels=y_train, 
@@ -3959,7 +3974,7 @@ def select_rows_from_dataframe(train_dataframe, targets, nrows_limit, DS_LEN='')
         modeltype = 'Regression'
     else:
         modeltype = 'Classification'
-    print('    Since number of rows > maxrows, loading a random sample of %d rows into pandas for EDA' %nrows_limit)
+    print('    loading a random sample of %d rows into pandas for EDA' %nrows_limit)
     ####### If it is a classification problem, you need to stratify and select sample ###
     if modeltype != 'Regression':
         copy_targets = copy.deepcopy(targets)
