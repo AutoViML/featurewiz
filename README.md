@@ -8,9 +8,9 @@ Featurewiz is now upgraded with Dask for blazing fast performance even for very 
 <p>
 
 ### One word of CAUTION:
- You must install featurewiz without any dependencies by ignoring previous installed versions this way. You must follow these two steps if you want it installed smoothly since DASK_XGBOOST is deprecated.
+ You must install featurewiz without any dependencies by ignoring previous installed versions this way. You must follow these two steps if you want it installed smoothly.
 
- ```pip install xlrd dask_xgboost```
+ ```pip install xlrd dask_xgboost dask_ml```
 
  ```pip install featurewiz --ignore-installed --no-deps```
 
