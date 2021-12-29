@@ -65,7 +65,7 @@ from functools import reduce
 import copy
 import dask
 import dask.dataframe as dd
-import dask_xgboost
+#import dask_xgboost
 import xgboost
 from dask.distributed import Client, progress
 import psutil
@@ -1389,6 +1389,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     bst_models = []
     if dask_xgboost_flag:
         #########   This is for DASK Dataframes XGBoost training ####################
+        xgb.set_config(verbosity=0)
         #################################################################################################
         ########   Now if dask_xgboost_flag is True, convert pandas dfs back to Dask Dataframes     #####
         #################################################################################################
@@ -1461,31 +1462,33 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 if settings.modeltype == 'Regression':
                     objective = 'reg:squarederror'
                     params = {'objective': objective, 'max_depth': 4, 'eta': 0.1, 'subsample': 0.5, 
-                                        'min_child_weight': 0.5}
+                                       "silent":True, "verbosity": 0, 'min_child_weight': 0.5}
                 else:
                     #### This is for Classifiers only ##########                    
                     if settings.modeltype == 'Binary_Classification':
                         objective = 'binary:logistic'
                         num_class = 1
                         params = {'objective': objective, 'max_depth': 4, 'eta': 0.1, 'subsample': 0.5, 
-                                            'min_child_weight': 0.5}
+                                        "silent":True,  "verbosity": 0,  'min_child_weight': 0.5}
                     else:
                         objective = 'multi:softmax'
                         num_class  =  dataname[target].nunique()[0]
                         params = {'objective': objective, 'max_depth': 4, 'eta': 0.1, 'subsample': 0.5, 
-                                            'min_child_weight': 0.5, 'num_class': num_class}
+                                        "silent":True, "verbosity": 0,   'min_child_weight': 0.5, 'num_class': num_class}
                 ##########   Training XGBoost model using dask_xgboost #########################
                 ### the dtrain syntax can only be used xgboost 1.50 or greater. Dont use it until then.
-                #dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, enable_categorical=True)
+                ### use the next line for new xgboost version 1.5.1 abd higher #########
+                dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, enable_categorical=True)
                 #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
                 ### This is where we use dask xgboost ###################################################
-                bst = dask_xgboost.train(client, params, X_train, y_train, num_boost_round=num_rounds)
+                #bst = dask_xgboost.train(client, params, X_train, y_train, num_boost_round=num_rounds)
                 #### SYNTAX BELOW DOES NOT WORK YET. YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
-                #bst = dask_xgboost.train(client=client, params=params, data=X_train, labels=y_train, 
-                #                num_boost_round=10, evals=[(dtrain, 'train')])
+                bst = xgb.dask.train(client, params, dtrain, num_boost_round=num_rounds)
                 ################################################################################
                 bst_models.append(bst)
-                imp_feats = bst.get_score(fmap='', importance_type='gain')
+                #### use this next one for dask_xgboost old ############### 
+                #imp_feats = bst.get_score(fmap='', importance_type='gain')
+                imp_feats = bst['booster'].get_score(fmap='', importance_type='gain')
                 imp_feats = dict(sorted(imp_feats.items(),reverse=True, key=lambda item: item[1]))
                 ### doing this for single-label is a little different from settings.multi_label #########
                 #imp_feats = model_xgb.get_booster().get_score(importance_type='gain')

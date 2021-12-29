@@ -3,14 +3,14 @@
 ![banner](featurewiz_logo.jpg)
 <p>
 
-## Update (Nov 9, 2021)
-Featurewiz is now upgraded with Dask for blazing fast performance even for very large data sets! 
+## Update (Dec 28, 2021)
+Featurewiz is now upgraded with XGBOOST 1.5.1 for DASK for blazing fast performance even for very large data sets! 
 <p>
 
 ### One word of CAUTION:
  You must install featurewiz without any dependencies by ignoring previous installed versions this way. You must follow these two steps if you want it installed smoothly.
 
- ```pip install xlrd dask_xgboost dask_ml```
+ ```pip install xlrd dask_ml```
 
  ```pip install featurewiz --ignore-installed --no-deps```
 
