@@ -12,4 +12,3 @@ imbalanced-learn>=0.7
 tqdm
 dask>=2021.11.0
 distributed>=2021.11.0
-dask-ml>=2021.10.17
