@@ -1407,7 +1407,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             iter_limit = int(train_p.shape[1]/5+0.5)
         print('Current number of predictors = %d ' %(train_p.shape[1],))
         print('Dask version = %s' %dask.__version__)
-        from dask_ml.model_selection import train_test_split
+        ### You can remove dask_ml here since you don't do any split of train test here ##########
+        #from dask_ml.model_selection import train_test_split
+        from sklearn.model_selection import train_test_split
         ### check available memory and allocate at least 1GB of it in the Client in DASK #############################
         n_workers = get_cpu_worker_count()
         memory_free = str(max(1, int(psutil.virtual_memory()[0]/(n_workers*1e9))))+'GB'
@@ -1429,26 +1431,26 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     MLB = My_LabelEncoder()
                     dataname[each_target] = MLB.fit_transform(dataname[each_target])
                 ### since dataname is still a pandas df, you need to convert it into dask df ##
-                y = load_dask_data(dataname[target], sep)
+                y_train = load_dask_data(dataname[target], sep)
             else:
                 ### train is already a dask dataframe -> you can leave it as it is
-                y = train[target]
+                y_train = train[target]
         else:
             ### train is already a dask dataframe -> you can leave it as it is
-            y = train[target]
+            y_train = train[target]
         #### Now we process the numeric  values through XGBoost repeatedly ###################
+        
         try:
             for i in range(0,train_p.shape[1],iter_limit):
                 start_time2 = time.time()
                 imp_feats = []
                 if train_p.shape[1]-i < iter_limit:
-                    X = train_p.iloc[:,i:]
-                    cols_sel = X.columns.tolist()
+                    X_train = train_p.iloc[:,i:]
+                    cols_sel = X_train.columns.tolist()
                 else:
-                    X = train_p[list(train_p.columns.values)[i:train_p.shape[1]]]
-                    cols_sel = X.columns.tolist()
+                    X_train = train_p[list(train_p.columns.values)[i:train_p.shape[1]]]
+                    cols_sel = X_train.columns.tolist()
                 ##### This is where you repeat the training and finding feature importances
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15)
                 if X_train.compute().shape[0] >= 100000:
                     num_rounds = 20
                 else:
@@ -1498,8 +1500,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 important_features = list(OrderedDict.fromkeys(important_features))
                 print('            Time taken for training: %0.0f seconds' %(time.time()-start_time2))
             #### plot all the feature importances in a grid ###########
+            
             if verbose >= 2:
-                draw_feature_importances_all(bst_models)
+                draw_feature_importances_all(bst_models, dask_xgboost_flag)
         except:
             print('Dask XGBoost is crashing. Continuing...')
             important_features = copy.deepcopy(preds)
@@ -1681,7 +1684,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             if settings.multi_label:
                 print('No feature importance plots available for multi-label datasets')
             else:
-                draw_feature_importances_all(bst_models)
+                draw_feature_importances_all(bst_models,dask_xgboost_flag)
     important_features = list(OrderedDict.fromkeys(important_features))
     if len(important_features) <= 30:
         print('Selected %d important features:\n%s' %(len(important_features), important_features))
@@ -1689,7 +1692,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         print('Selected %d important features. Too many to print...' %len(important_features))
     numvars = [x for x in numvars if x in important_features]
     important_cats = [x for x in important_cats if x in important_features]
-    print('    Time taken (in seconds) = %0.0f' %(time.time()-start_time))
+    print('    Time taken = %0.0f seconds' %(time.time()-start_time))
     if isinstance(test_data, str) or test_data is None:
         print(f'Returning list of {len(important_features)} important features and dataframe.')
         if len(np.intersect1d(train_ids.columns.tolist(),dataname.columns.tolist())) > 0:
@@ -1749,7 +1752,7 @@ import matplotlib.pyplot as plt
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
 from sklearn.feature_selection import SelectKBest
 import xgboost
-def draw_feature_importances_all(bst_models):
+def draw_feature_importances_all(bst_models, dask_xgboost_flag=False):
     rows = int(len(bst_models)/2 + 0.5)
     colus = 2
     fig, ax = plt.subplots(rows, colus)
@@ -1763,7 +1766,11 @@ def draw_feature_importances_all(bst_models):
         for l in np.arange(colus):
             if counter < len(bst_models):
                 try:
-                    ax1 = xgboost.plot_importance(bst_models[counter], height=0.8, show_values=False,
+                    if dask_xgboost_flag:
+                        bst_booster = bst_models[counter]['booster']
+                    else:
+                        bst_booster = bst_models[counter]
+                    ax1 = xgboost.plot_importance(bst_booster, height=0.8, show_values=False,
                             importance_type='gain', max_num_features=10, ax=ax[k][l])
                 except:
                     pass
@@ -3983,8 +3990,8 @@ def select_rows_from_dataframe(train_dataframe, targets, nrows_limit, DS_LEN='')
         copy_targets = copy.deepcopy(targets)
         for each_target in copy_targets:
             ### You need to remove rows that have very class samples - that is a problem while splitting train_small
-            list_of_few_classes = train_dataframe[each_target].value_counts()[train_dataframe[each_target].value_counts()<=10].index.tolist()
-            train_small = train_dataframe.loc[~(train_dataframe[each_target].isin(list_of_few_classes))]
+            list_of_few_classes = train_dataframe[each_target].value_counts()[train_dataframe[each_target].value_counts()<=3].index.tolist()
+            train_dataframe = train_dataframe.loc[~(train_dataframe[each_target].isin(list_of_few_classes))]
         train_small, _ = train_test_split(train_dataframe, test_size=test_size, stratify=train_dataframe[targets])
     else:
         ### For Regression problems: load a small sample of data into a pandas dataframe ##

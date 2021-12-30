@@ -31,7 +31,7 @@ if __name__ == "__main__":
 else:
     module_type = 'Imported'
 version_number = __version__
-print("""%s featurewiz with Dask. Restart kernel after installation. Version=%s
+print("""%s DASK version = %s. Use nrows=1000 to sample 1000 rows from train to start.
 output = featurewiz(dataname, target, corr_limit=0.70, verbose=2, sep=',', 
 		header=0, test_data='',feature_engg='', category_encoders='',
 		dask_xgboost_flag=True, nrows=None)
