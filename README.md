@@ -95,8 +95,6 @@ featurewiz is every Data Scientist's feature wizard that will:<ol>
 
 <b>***  Notes of Gratitude ***</b>:<br>
 <ol>
-<li><b>featurewiz is built using xgboost, numpy, pandas and matplotlib</b>. It should run on most Python 3 Anaconda installations. You won't have to import any special libraries other than "XGBoost" and "networkx" library. </li>
-<li><b>We use "networkx" library for charts and interpretability</b>. <br>But if you don't have these libraries, featurewiz will install those for you automatically.</li>
 <li><b>Alex Lekov</b> (https://github.com/Alex-Lekov/AutoML_Alex/tree/master/automl_alex) for his DataBunch and encoders modules which are used by the tool (although with some modifications).</li>
 <li><b>Category Encoders</b> library in Python : This is an amazing library. Make sure you read all about the encoders that featurewiz uses here: https://contrib.scikit-learn.org/category_encoders/index.html </li>
 </ol>
@@ -104,7 +102,10 @@ featurewiz is every Data Scientist's feature wizard that will:<ol>
 ## Install
 
 **Prerequsites:**
-
+<ol>
+<li><b>featurewiz is built using xgboost, dask, numpy, pandas and matplotlib</b>. It should run on most Python 3 Anaconda installations. You won't have to import any special libraries other than "dask", "XGBoost" and "networkx" library. Optionally, it uses LightGBM for fast modeling, which it installs automatically. </li>
+<li><b>We use "networkx" library for charts and interpretability</b>. <br>But if you don't have these libraries, featurewiz will install those for you automatically.</li>
+</ol>
 - [Anaconda](https://docs.anaconda.com/anaconda/install/)
 
 To clone featurewiz, it is better to create a new environment, and install the required dependencies:
@@ -114,7 +115,7 @@ To install from PyPi:
 ```
 conda create -n <your_env_name> python=3.7 anaconda
 conda activate <your_env_name> # ON WINDOWS: `source activate <your_env_name>`
-pip install featurewiz
+pip install featurewiz --ignore-installed --no-deps
 or
 pip install git+https://github.com/AutoViML/featurewiz.git
 ```
@@ -136,13 +137,13 @@ pip install -r requirements.txt
 In the same directory, open a Jupyter Notebook and use this line to import the .py file:
 
 ```
-from featurewiz import featurewiz
+import featurewiz as FW
 ```
 
 Load a data set (any CSV or text file) into a Pandas dataframe and give it the name of the target(s) variable. If you have more than one target, it will handle multi-label targets too. Just give it a list of variables in that case. If you don't have a dataframe, you can simply enter the name and path of the file to load into featurewiz:
 
 ```
-outputs = featurewiz(dataname, target, corr_limit=0.70, verbose=2, sep=',', 
+outputs = FW.featurewiz(dataname, target, corr_limit=0.70, verbose=2, sep=',', 
 		header=0, test_data='',feature_engg='', category_encoders='',
 		dask_xgboost_flag=True, nrows=None)
 ```
@@ -150,10 +151,11 @@ outputs = featurewiz(dataname, target, corr_limit=0.70, verbose=2, sep=',',
 `outputs`: There will always be multiple objects in output. The objects in that tuple can vary:
 1. "features" and "train": It be a list (of selected features) and one dataframe (if you sent in train only)
 2. "trainm" and "testm": It can be two dataframes when you send in both test and train but with selected features.
-
-Both the selected features and dataframes are ready for you to now to do further modeling.<br>
-featurewiz works on any Multi-Class, Multi-Label Data Set. So you can have as many target labels as you want.<br>
-You don't have to tell featurewiz whether it is a Regression or Classification problem. It will decide that automatically.
+<ol>
+<li>Both the selected features and dataframes are ready for you to now to do further modeling.
+<li>Featurewiz works on any multi-class, multi-label data Set. So you can have as many target labels as you want.
+<li>You don't have to tell Featurewiz whether it is a Regression or Classification problem. It will decide that automatically.
+</ol>
 
 ## API
 
