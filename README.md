@@ -6,7 +6,7 @@
 ## Update (Jan 2022)
 <ol>
 <li><b>Featurewiz is now upgraded with XGBOOST 1.5.1 for DASK for blazing fast performance</b> even for very large data sets!
-<li><b>Featurewiz now runs with a default setting of `nrows=1000`. This means it will run very fast but you need to change the input to `nrows=None` once it has run cleanly with that default setting.<p>
+<li><b>Featurewiz now runs with a default setting of `nrows=1000`.</b> This means it will run very fast but you need to change the input to `nrows=None` once it has run cleanly with that default setting.<p>
 <li><b>Featurewiz has a fast LightGBM model</b> that you can use to build a highly performant model with the features selected by featurewiz. Look for "simple_lightgbm_model" after you import featurewiz.<br>
 </ol>
 ### One word of CAUTION while installing featurewiz in Kaggle and other environments:
