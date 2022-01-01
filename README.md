@@ -3,20 +3,20 @@
 ![banner](featurewiz_logo.jpg)
 <p>
 
-## Update (Dec 28, 2021)
-Featurewiz is now upgraded with XGBOOST 1.5.1 for DASK for blazing fast performance even for very large data sets! 
-<p>
+## Update (Jan 2022)
+<ol>
+<li><b>Featurewiz is now upgraded with XGBOOST 1.5.1 for DASK for blazing fast performance</b> even for very large data sets!
+<li><b>Featurewiz now runs with a default setting of `nrows=1000`. This means it will run very fast but you need to change the input to `nrows=None` once it has run cleanly with that default setting.<p>
+<li><b>Featurewiz has a fast LightGBM model</b> that you can use to build a highly performant model with the features selected by featurewiz. Look for "simple_lightgbm_model" after you import featurewiz.<br>
+</ol>
+### One word of CAUTION while installing featurewiz in Kaggle and other environments:
+ You must install featurewiz without any dependencies and by ignoring previous installed versions (see below). You MUST execute these TWO steps if you want featurwiz installed and working smoothly.
 
-### One word of CAUTION:
- You must install featurewiz without any dependencies by ignoring previous installed versions this way. You must follow these two steps if you want it installed smoothly.
-
- ```pip install xlrd dask_ml```
+ ```pip install xlrd```
 
  ```pip install featurewiz --ignore-installed --no-deps```
 
-<p>
-
-## What is featurewiz
+## What is featurewiz?
 Featurewiz a new python library for creating and selecting the best features in your data set fast!
 featurewiz can be used in two ways:
 
@@ -62,14 +62,17 @@ Here is how it works:
 
 4. <b>Building the simplest and most "interpretable" model</b>: featurewiz represents the "next best" step you must perform after doing feature engineering  since you might have added some highly correlated or even useless features when you use automated feature engineering. featurewiz ensures you have the least number of features needed to build a high performing or equivalent model.
 
-<b>A WORD OF CAUTION:</b> Just because you can, doesn't mean you should. Make sure you understand feature engineered variables before you attempt to build your model any further. featurewiz displays the SULOV chart which can show you how the 100's of newly created variables added to your dataset are highly correlated to each other and were removed. This will help you understand how feature selection works in featurewiz.
+<b>A WORD OF CAUTION:</b> Just because you can engineer new features, doesn't mean you should always create tons of new features. You must make sure you understand what the new features stand for before you attempt to build a model with these (sometimes useless) features. featurewiz displays the SULOV chart which can show you how the 100's of newly created variables added to your dataset are highly correlated to each other and were removed. This will help you understand how feature selection works in featurewiz.
 <br>
 <p>To upgrade to the best, most stable and full-featured version always do the following: <br>
-<code>Use $ pip install featurewiz --upgrade --ignore-installed</code><br>
+<code>Use $ pip install featurewiz --no-deps --ignore-installed<br>
+$ pip install xlrd
+
+</code><br>
 or
 <code>pip install git+https://github.com/AutoViML/featurewiz.git </code><br>
 
-`CAUTION`: You must restart the kernel in Kaggle and Colab notebooks after installing featurewiz since the latest scikit-learn and dask libraries won't take effect unless you restart the kernel.
+`CAUTION`: You may have to restart the kernel in Kaggle if you install using the second option.
 
 ## Table of Contents
 <ul>
@@ -97,6 +100,7 @@ featurewiz is every Data Scientist's feature wizard that will:<ol>
 <li><b>Perform feature engineering automatically</b>: The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables is difficult and sifting through those hundreds of new features is painstaking and left only to "experts". Now, with featurewiz you can create hundreds or even thousands of new features with the click of a mouse. This is very helpful when you have a small number of features to start with. However, be careful with this option. You can very easily create a monster with this option.
 <li><b>Perform feature reduction automatically</b>. When you have small data sets and you know your domain well, it is easy to perhaps do EDA and identify which variables are important. But when you have a very large data set with hundreds if not thousands of variables, selecting the best features from your model can mean the difference between a bloated and highly complex model or a simple model with the fewest and most information-rich features. featurewiz uses XGBoost repeatedly to perform feature selection. You must try it on your large data sets and compare!<br>
 <li><b>Explain SULOV method graphically </b> using networkx library so you can see which variables are highly correlated to which ones and which of those have high or low mutual information scores automatically. Just set verbose = 2 to see the graph. <br>
+<li><b>Build a fast LightGBM model </b> using the features selected by featurewiz. There is a function called "simple_lightgbm_model" which you can use to build a fast model. It is a new module, so check it out.<br>
 </ol>
 
 <b>***  Notes of Gratitude ***</b>:<br>
