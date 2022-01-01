@@ -3282,11 +3282,12 @@ from sklearn.model_selection import RandomizedSearchCV
 import scipy as sp
 import time
 ##################################################################################
-def xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, params, cpu_params):
+def xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, params, 
+                    cpu_params, early_stopping_params={}):
     start_time = time.time()
     if str(model).split("(")[0] == 'RandomizedSearchCV':
-        model.fit(x_train, y_train)
-        print('Time take for Hyper Param tuning of XGB (in minutes) = %0.1f' %(
+        model.fit(x_train, y_train, **early_stopping_params)
+        print('Time taken for Hyper Param tuning of XGB (in minutes) = %0.1f' %(
                                         (time.time()-start_time)/60))
     else:
         try:
@@ -3316,6 +3317,8 @@ def xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, par
                                                    n_iter = 10,
                                                    n_jobs=-1,
                                                    cv=5)
+                model.fit(x_train, y_train, **early_stopping_params)
+                return model
             else:
                 model = model.set_params(**cpu_params)
             if modeltype == 'Regression':
@@ -3462,7 +3465,12 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_f
         'gamma': sp.stats.randint(0, 32),
        'n_estimators': sp.stats.randint(100,500),
         "max_depth": sp.stats.randint(3, 15),
-            },
+            }
+    early_stopping_params={"early_stopping_rounds":5,
+                "eval_metric" : eval_metric, 
+                "eval_set" : [[X_valid, Y_valid]]
+               }
+
     model = RandomizedSearchCV(xgb.set_params(**param),
                                        param_distributions = params,
                                        n_iter = 10,
@@ -3476,7 +3484,7 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_f
                                 scaler=scaler, enc_method=enc_method)
 
     gbm_model = xgb_model_fit(model, X_train, Y_train, X_valid, Y_valid, modeltype,
-                         log_y, params, cpu_params)
+                         log_y, params, cpu_params, early_stopping_params)
     model = gbm_model.best_estimator_
     #############################################################################
     n_splits = 10
