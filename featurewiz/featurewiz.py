@@ -913,7 +913,7 @@ from .encoders import FrequencyEncoder
 from sklearn.model_selection import train_test_split
 def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             test_data='', feature_engg='', category_encoders='', dask_xgboost_flag=True,
-            nrows=None,  **kwargs):
+            nrows=1000,  **kwargs):
     """
     #################################################################################
     ###############           F E A T U R E   W I Z A R D          ##################
@@ -1062,6 +1062,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=None)
         if test_data is not None:
             test_data = reduce_mem_usage(test_data)
+            ### test_data is the pandas dataframe object and test is dask dataframe object ##
             test = load_dask_data(test_data, sep)
     else:
         #### load the entire test dataframe - there is no limit applicable there #########
@@ -1092,10 +1093,14 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         date_time_vars = features_dict['date_vars']
         dataname = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows,
                              parse_dates=date_time_vars)
+        dataname = reduce_mem_usage(dataname)
+        train = load_dask_data(dataname, sep)
         if not test_data is None:
             ### You must load the entire test data - there is no limit there ##################
+            ### test_data is the pandas dataframe object and test is dask dataframe object ##
             test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, 
                                  parse_dates=date_time_vars)
+            test = copy.deepcopy(test_data)
     else:
         train_index = dataname.index
         if test_data is not None:
@@ -1430,6 +1435,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 for each_target in copy_targets:
                     MLB = My_LabelEncoder()
                     dataname[each_target] = MLB.fit_transform(dataname[each_target])
+                    print('How model predictions need to be transformed for %s:\n%s' %(each_target, MLB.inverse_transformer))
                 ### since dataname is still a pandas df, you need to convert it into dask df ##
                 y_train = load_dask_data(dataname[target], sep)
             else:
@@ -1504,9 +1510,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             if verbose >= 2:
                 draw_feature_importances_all(bst_models, dask_xgboost_flag)
         except:
-            print('Dask XGBoost is crashing. Continuing...')
-            important_features = copy.deepcopy(preds)
-            return important_features, train[important_features+target]
+            print('Dask XGBoost is crashing. Returning with currently selected features...')
+            if isinstance(test_data, str) or test_data is None:
+                return dataname[important_features+target], important_features
+            else:
+                return dataname[important_features+target], test_data[important_features]
     else:
         #########  This is for pandas dataframes only ##################
         ########    Fill Missing values since XGB for some reason  #########
@@ -3282,6 +3290,97 @@ from sklearn.model_selection import RandomizedSearchCV
 import scipy as sp
 import time
 ##################################################################################
+import lightgbm as lgbm
+def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modeltype,
+                         log_y):
+    start_time = time.time()
+    params = {
+        'learning_rate': sp.stats.uniform(scale=1),
+        'num_leaves': sp.stats.randint(20, 100),
+       'n_estimators': sp.stats.randint(100,500),
+        "max_depth": sp.stats.randint(3, 15),
+            }
+
+    if modeltype == 'Regression':
+        lgb = lgbm.LGBMRegressor()
+        objective = 'regression' 
+        metric = 'rmse'
+        is_unbalance = False
+        class_weight = None
+    else:
+        if y_train.nunique() <= 2:
+            lgb = lgbm.LGBMClassifier()
+            objective = 'binary'
+            metric = 'auc'
+            is_unbalance = True
+            class_weight = 'balanced'
+        else:
+            lgb = lgbm.LGBMClassifier()
+            objective = 'multiclass'
+            metric = 'multi_logloss'
+            is_unbalance = True
+            class_weight = 'balanced'
+
+    early_stopping_params={"early_stopping_rounds":5,
+                "eval_metric" : metric, 
+                "eval_set" : [[x_test, y_test]]
+               }
+
+    final_params = {'learning_rate': 0.001,
+                   'objective': objective,
+                   'metric': metric,
+                   'boosting_type': 'gbdt',
+                   'max_depth': 8,
+                   'subsample': 0.2,
+                   'colsample_bytree': 0.3,
+                   'reg_alpha': 0.54,
+                   'reg_lambda': 0.4,
+                   'min_split_gain': 0.7,
+                   'min_child_weight': 26,
+                   'nthread':-1,
+                    'num_leaves': 32,
+                   'save_binary': True,
+                   'seed': 1337, 'feature_fraction_seed': 1337,
+                   'bagging_seed': 1337, 'drop_seed': 1337, 
+                   'data_random_seed': 1337,
+                   'verbose': -1, 
+                   'is_unbalance': is_unbalance,
+                   'class_weight': class_weight,
+                    'n_estimators': 400,
+                }
+
+    lgb.set_params(**final_params)
+    
+    if random_search_flag:
+        model = RandomizedSearchCV(lgb,
+                   param_distributions = params,
+                   n_iter = 10,
+                   return_train_score = True,
+                   random_state = 99,
+                   n_jobs=-1,
+                   cv = 3,
+                   verbose = False)
+
+        model.fit(x_train, y_train, **early_stopping_params)
+        print('Time taken for Hyper Param tuning of LGBM (in minutes) = %0.1f' %(
+                                        (time.time()-start_time)/60))
+    else:
+        model = copy.deepcopy(lgb)
+        try:
+            if modeltype == 'Regression':
+                if log_y:
+                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=metric,
+                            eval_set=[(x_test, np.log(y_test))], verbose=0)
+                else:
+                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=metric,
+                            eval_set=[(x_test, y_test)], verbose=0)
+            else:
+                model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric = metric,
+                                eval_set=[(x_test, y_test)], verbose=0)
+        except:
+            print('lightgbm model is crashing. Please check your inputs and try again...')
+    return model
+##############################################################################################
 def xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, params, 
                     cpu_params, early_stopping_params={}):
     start_time = time.time()
@@ -3334,7 +3433,7 @@ def xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, par
     return model
 #################################################################################
 def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_flag=False,
-                                scaler = '', enc_method='label',verbose=0):
+                                scaler = '', enc_method='label', n_splits=5, verbose=0):
     """
     Easy to use XGBoost model. Just send in X_train, y_train and what you want to predict, X_test
     It will automatically split X_train into multiple folds (10) and train and predict each time on X_test.
@@ -3487,7 +3586,6 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_f
                          log_y, params, cpu_params, early_stopping_params)
     model = gbm_model.best_estimator_
     #############################################################################
-    n_splits = 10
     ls=[]
     if modeltype == 'Regression':
         fold = KFold(n_splits=n_splits)
@@ -3582,6 +3680,194 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_f
         print('    predicted probabilities', pred_probas[:1])
         return (pred_xgbs, pred_probas, model)
 ##################################################################################
+def simple_lightgbm_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_flag=False,
+                                scaler = '', enc_method='label', n_splits=5, verbose=0):
+    """
+    Easy to use XGBoost model. Just send in X_train, y_train and what you want to predict, X_test
+    It will automatically split X_train into multiple folds (10) and train and predict each time on X_test.
+    It will then use average (or use mode) to combine the results and give you a y_test.
+    You just need to give the modeltype as "Regression" or 'Classification'
+
+    Inputs:
+    ------------
+    X_XGB: pandas dataframe only: do not send in numpy arrays. This is the X_train of your dataset.
+    Y_XGB: pandas Series or DataFrame only: do not send in numpy arrays. This is the y_train of your dataset.
+    X_XGB_test: pandas dataframe only: do not send in numpy arrays. This is the X_test of your dataset.
+    modeltype: can only be 'Regression' or 'Classification'
+    log_y: default = False: If True, it means use the log of the target variable "y" to train and test.
+    GPU_flag: if your machine has a GPU set this flag and it will use XGBoost GPU to speed up processing.
+    scaler : default is StandardScaler(). But you can send in MinMaxScaler() as input to change it or any other scaler.
+    enc_method: default is 'label' encoding. But you can choose 'glmm' as an alternative. But those are the only two.
+    verbose: default = 0. Choosing 1 will give you lot more output.
+
+    Outputs:
+    ------------
+    y_preds: Predicted values for your X_XGB_test dataframe.
+        It has been averaged after repeatedly predicting on X_XGB_test. So likely to be better than one model.
+    """
+    columns =  X_XGB.columns
+    if isinstance(scaler, str):
+        if not scaler == '':
+            scaler = scaler.lower()
+    if scaler == 'standard':
+        scaler = StandardScaler()
+    elif scaler == 'minmax':
+        scaler = MinMaxScaler()
+    else:
+        scaler = StandardScaler()
+    #########     G P U     P R O C E S S I N G      B E G I N S    ############
+    ###### This is where we set the CPU and GPU parameters for XGBoost
+    if GPU_flag:
+        GPU_exists = check_if_GPU_exists()
+    else:
+        GPU_exists = False
+    #####   Set the Scoring Parameters here based on each model and preferences of user ###
+    cpu_params = {}
+    param = {}
+    cpu_params['tree_method'] = 'hist'
+    cpu_params['gpu_id'] = 0
+    cpu_params['updater'] = 'grow_colmaker'
+    cpu_params['predictor'] = 'cpu_predictor'
+    if GPU_exists:
+        param['tree_method'] = 'gpu_hist'
+        param['gpu_id'] = 0
+        param['updater'] = 'grow_gpu_hist' #'prune'
+        param['predictor'] = 'gpu_predictor'
+        print('    Running LightGBM using GPU parameters')
+    else:
+        param = copy.deepcopy(cpu_params)
+        print('    Running LightGBM using CPU parameters')
+    #################################################################################
+    if modeltype == 'Regression':
+        if log_y:
+            Y_XGB.loc[Y_XGB==0] = 1e-15  ### just set something that is zero to a very small number
+
+    #testing for GPU
+    if X_XGB.shape[0] >= 1000000:
+        hyper_frac = 0.1
+    elif X_XGB.shape[0] >= 100000:
+        hyper_frac = 0.2
+    elif X_XGB.shape[0] >= 10000:
+        hyper_frac = 0.3
+    else:
+        hyper_frac = 0.4
+    #### now select a random sample from X_XGB ##
+    if modeltype == 'Regression':
+        X_XGB_sample = X_XGB[:int(hyper_frac*X_XGB.shape[0])]
+        Y_XGB_sample = Y_XGB[:int(hyper_frac*X_XGB.shape[0])]
+    else:
+        X_XGB_sample = X_XGB.sample(frac=hyper_frac, random_state=99)
+        Y_XGB_sample = Y_XGB.sample(frac=hyper_frac, random_state=99)
+    #########  Now set the number of rows we need to tune hyper params ###
+    nums = int(X_XGB_sample.shape[0]*0.9)
+    X_train = X_XGB_sample[:nums]
+    X_valid = X_XGB_sample[nums:]
+    Y_train = Y_XGB_sample[:nums]
+    Y_valid = Y_XGB_sample[nums:]
+    scoreFunction = { "precision": "precision_weighted","recall": "recall_weighted"}
+
+    X_train, X_valid = data_transform(X_train, Y_train, X_valid,
+                                scaler=scaler, enc_method=enc_method)
+    random_search_flag =  True
+    gbm_model = lightgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
+                         log_y)
+    model = gbm_model.best_estimator_
+    random_search_flag = False
+    #############################################################################
+    ls=[]
+    if modeltype == 'Regression':
+        fold = KFold(n_splits=n_splits)
+    else:
+        fold = StratifiedKFold(shuffle=True, n_splits=n_splits, random_state=99)
+    scores=[]
+    if not isinstance(X_XGB_test, str):
+        pred_xgbs = np.zeros(len(X_XGB_test))
+        pred_probas = np.zeros(len(X_XGB_test))
+    else:
+        pred_xgbs = []
+        pred_probas = []
+    #### First convert test data into numeric using train data ###
+    if not isinstance(X_XGB_test, str):
+        _, X_XGB_test_enc = data_transform(X_XGB, Y_XGB, X_XGB_test,
+                                scaler=scaler, enc_method=enc_method)
+    #### now run all the folds each one by one ##################################
+    start_time = time.time()
+    for folds, (train_index, test_index) in tqdm(enumerate(fold.split(X_XGB,Y_XGB))):
+        x_train, x_test = X_XGB.iloc[train_index], X_XGB.iloc[test_index]
+        if modeltype == 'Regression':
+            if log_y:
+                y_train, y_test = np.log(Y_XGB.iloc[train_index]), Y_XGB.iloc[test_index]
+            else:
+                y_train, y_test = Y_XGB.iloc[train_index], Y_XGB.iloc[test_index]
+        else:
+            y_train, y_test = Y_XGB.iloc[train_index], Y_XGB.iloc[test_index]
+
+        ##  scale the x_train and x_test values - use all columns -
+        x_train, x_test = data_transform(x_train, y_train, x_test,
+                                scaler=scaler, enc_method=enc_method)
+
+        model = gbm_model.best_estimator_
+        model = lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modeltype,
+                                log_y)
+
+        #### now make predictions on validation data ##
+        if modeltype == 'Regression':
+            if log_y:
+                preds = np.exp(model.predict(x_test))
+            else:
+                preds = model.predict(x_test)
+        else:
+            preds = model.predict(x_test)
+
+        feature_importances = pd.DataFrame(model.feature_importances_,
+                                           index = X_XGB.columns,
+                                            columns=['importance'])
+        sum_all=feature_importances.values
+        ls.append(sum_all)
+        ######  Time to consolidate the predictions on test data #########
+        if modeltype == 'Regression':
+            if not isinstance(X_XGB_test, str):
+                if log_y:
+                    pred_xgb=np.exp(model.predict(X_XGB_test_enc[columns]))
+                else:
+                    pred_xgb=model.predict(X_XGB_test_enc[columns])
+                pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
+                pred_xgbs = pred_xgbs.mean(axis=0)
+            if log_y:
+                score = np.sqrt(mean_squared_log_error(y_test, preds))
+            else:
+                score = np.sqrt(mean_squared_error(y_test, preds))
+            print('RMSE score in fold %d = %s' %(folds+1, score))
+        else:
+            if not isinstance(X_XGB_test, str):
+                pred_xgb=model.predict(X_XGB_test_enc[columns])
+                pred_proba = model.predict_proba(X_XGB_test_enc[columns])
+                if folds == 0:
+                    pred_xgbs = copy.deepcopy(pred_xgb)
+                    pred_probas = copy.deepcopy(pred_proba)
+                else:
+                    pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
+                    pred_xgbs = stats.mode(pred_xgbs, axis=0)[0][0]
+                    pred_probas = np.mean( np.array([ pred_probas, pred_proba ]), axis=0 )
+            score = balanced_accuracy_score(y_test, preds)
+            print('Balanced Accuracy score in fold %d = %0.1f%%' %(folds+1, score*100))
+        scores.append(score)
+    print('    Time taken for training Light GBM (in minutes) = %0.1f' %(
+             (time.time()-start_time)/60))
+    if verbose:
+        plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
+                            modeltype=modeltype)
+    print("Average scores are: ", np.sum(scores)/len(scores))
+    print('\nReturning the following:')
+    print('    Model = %s' %model)
+    if modeltype == 'Regression':
+        print('    final predictions', pred_xgbs[:10])
+        return (pred_xgbs, model)
+    else:
+        print('    final predictions', pred_xgbs[:10])
+        print('    predicted probabilities', pred_probas[:1])
+        return (pred_xgbs, pred_probas, model)
+########################################################################################
 def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype):
     add_items=0
     for item in ls:

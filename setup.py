@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="featurewiz",
-    version="0.0.60",
+    version="0.0.61",
     author="Ram Seshadri",
     author_email="rsesha2001@yahoo.com",
     description="Select Best Features from your data set - any size - now with XGBoost!",
@@ -30,6 +30,7 @@ setuptools.setup(
         "imbalanced-learn>=0.7",
         "tqdm",
         "dask>=2021.11.0",
+        "lightgbm>=3.0.0",
         "distributed>=2021.11.0",
     ],
     classifiers=[
