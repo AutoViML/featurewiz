@@ -6,9 +6,10 @@
 ## Update (Jan 2022)
 <ol>
 <li><b>Featurewiz is now upgraded with XGBOOST 1.5.1 for DASK for blazing fast performance</b> even for very large data sets!
-<li><b>Featurewiz now runs with a default setting of `nrows=1000`.</b> This means it will run very fast but you need to change the input to `nrows=None` once it has run cleanly with that default setting.<p>
+<li><b>Featurewiz now runs with a default setting of `nrows=1000`.</b> This means it will run very fast but you need to change the input to `nrows=None` once it has run cleanly with that default setting.
 <li><b>Featurewiz has a fast LightGBM model</b> that you can use to build a highly performant model with the features selected by featurewiz. Look for "simple_lightgbm_model" after you import featurewiz.<br>
 </ol>
+
 ### One word of CAUTION while installing featurewiz in Kaggle and other environments:
  You must install featurewiz without any dependencies and by ignoring previous installed versions (see below). You MUST execute these TWO steps if you want featurwiz installed and working smoothly.
 
@@ -29,15 +30,14 @@ featurewiz can be used in two ways:
 
 ## 2.  Feature Selection
 <p>The second step is Feature Selection:<br>
-2. <b>Executing Feature Selection</b>: Once you have created 100's of new features, you still have two problems left to solve:
+<b>Executing Feature Selection</b>: Once you have created 100's of new features, you still have two problems left to solve:
 1. How do we interpret those newly created features?
 2. Which of these features is important and which are useless? How many of them are highly correlated to each other causing redundancy?
 3. Does the model overfit now on these new features and perform better or worse than before?
 <br>
 All are very important questions and you must be very careful using this feature_engg option in featurewiz. Otherwise, you can create a "garbage in, garbage out" problem. Caveat Emptor!
-
 <br>featurewiz uses the SULOV method and Recursive XGBoost to reduce features in order to select the best features for the model. Here is how.<br>
-<p><b>SULOV</b>: SULOV stands for `Searching for Uncorrelated List of Variables`. The SULOV method is similar to the Minimum-redundancy-maximum-relevance (mRMR) <a href="https://en.wikipedia.org/wiki/Feature_selection#Minimum-redundancy-maximum-relevance_(mRMR)_feature_selection">algorithm explained in wikipedia</a> as one of the best feature selection methods. The SULOV algorithm is explained in this chart below.
+<p><b>SULOV</b>: SULOV stands for `Searching for Uncorrelated List of Variables`. The SULOV algorithm is similar to the Minimum-redundancy-maximum-relevance (mRMR) <a href="https://en.wikipedia.org/wiki/Feature_selection#Minimum-redundancy-maximum-relevance_(mRMR)_feature_selection">algorithm explained in wikipedia</a> as one of the best feature selection methods. The SULOV algorithm is explained in this chart below.
 Here is a simple way of explaining how it works:
 <ol>
 <li>Find all the pairs of highly correlated variables exceeding a correlation threshold (say absolute(0.7)).
@@ -49,7 +49,7 @@ Here is a simple way of explaining how it works:
 ![sulov](SULOV.jpg)
 
 
-3. <b>Recursive XGBoost</b>: Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, we use XGBoost to repeatedly find best features among the remaining variables after SULOV. The Recursive XGBoost method is explained in this chart below.
+<b>Recursive XGBoost</b>: Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, we use XGBoost to repeatedly find best features among the remaining variables after SULOV. The Recursive XGBoost method is explained in this chart below.
 Here is how it works:
 <ol>
 <li>Select all variables in data set and the full data split into train and valid sets.
@@ -60,19 +60,9 @@ Here is how it works:
 
 ![xgboost](xgboost.jpg)
 
-4. <b>Building the simplest and most "interpretable" model</b>: featurewiz represents the "next best" step you must perform after doing feature engineering  since you might have added some highly correlated or even useless features when you use automated feature engineering. featurewiz ensures you have the least number of features needed to build a high performing or equivalent model.
+<b>Building the simplest and most "interpretable" model</b>: featurewiz represents the "next best" step you must perform after doing feature engineering  since you might have added some highly correlated or even useless features when you use automated feature engineering. featurewiz ensures you have the least number of features needed to build a high performing or equivalent model.
 
 <b>A WORD OF CAUTION:</b> Just because you can engineer new features, doesn't mean you should always create tons of new features. You must make sure you understand what the new features stand for before you attempt to build a model with these (sometimes useless) features. featurewiz displays the SULOV chart which can show you how the 100's of newly created variables added to your dataset are highly correlated to each other and were removed. This will help you understand how feature selection works in featurewiz.
-<br>
-<p>To upgrade to the best, most stable and full-featured version always do the following: <br>
-<code>Use $ pip install featurewiz --no-deps --ignore-installed<br>
-$ pip install xlrd
-
-</code><br>
-or
-<code>pip install git+https://github.com/AutoViML/featurewiz.git </code><br>
-
-`CAUTION`: You may have to restart the kernel in Kaggle if you install using the second option.
 
 ## Table of Contents
 <ul>
