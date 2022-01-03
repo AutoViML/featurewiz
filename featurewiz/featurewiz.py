@@ -913,7 +913,7 @@ from .encoders import FrequencyEncoder
 from sklearn.model_selection import train_test_split
 def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             test_data='', feature_engg='', category_encoders='', dask_xgboost_flag=True,
-            nrows=1000,  **kwargs):
+            nrows=None,  **kwargs):
     """
     #################################################################################
     ###############           F E A T U R E   W I Z A R D          ##################
@@ -929,10 +929,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     You can also send in features with NaN's in them.
     #################################################################################
     Inputs:
-        dataname: dataname is the name of the training data you want to transform or select.
-            dataname could be a datapath+filename or a dataframe. featurewiz will detect whether
-            your input is a filename or a dataframe and load it automatically.
-        target: name of the target variable in the data set.
+        dataname: training data set you want to input. dataname could be a datapath+filename or a dataframe. 
+            featurewiz will detect whether your input is a filename or a dataframe and load it automatically.
+        target: name of the target variable in the data set. Also known as dependent variable.
         corr_limit: if you want to set your own threshold for removing variables as
             highly correlated, then give it here. The default is 0.7 which means variables less
             than -0.7 and greater than 0.7 in pearson's correlation will be candidates for removal.
@@ -943,12 +942,12 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         test_data: If you want to transform test data in the same way you are transforming dataname, you can.
             test_data could be the name of a datapath+filename or a dataframe. featurewiz will detect whether
                 your input is a filename or a dataframe and load it automatically. Default is empty string.
-        feature_engg: You can let featurewiz select its best encoders for your data set by settning this flag
-            for adding feature engineering. There are three choices. You can choose one, two or all three.
+        feature_engg: You can let featurewiz select its best encoders for your data set by setting this flag
+            for adding feature engineering. There are three choices. You can choose one, two or all three in a list.
             'interactions': This will add interaction features to your data such as x1*x2, x2*x3, x1**2, x2**2, etc.
             'groupby': This will generate Group By features to your numeric vars by grouping all categorical vars.
             'target':  This will encode & transform all your categorical features using certain target encoders.
-            Default is empty string (which means no additional features)
+            Default is empty string (which means no additional feature engineering to be performed)
         category_encoders: Instead of above method, you can choose your own kind of category encoders from below.
             Recommend you do not use more than two of these.
                             Featurewiz will automatically select only two from your list.
@@ -959,8 +958,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         dask_xgboost_flag: default = True. This flag enables DASK by default so that you can process large
             data sets faster using parallel processing. It detects the number of CPUs and GPU's in your machine
             automatically and sets the num of workers for DASK. It also uses DASK XGBoost to run it.
-        nrows: default = None: None means all rows will be used to load into dataframe. If nrows is set,
-            then only those rows will be loaded into dataframe.
+        nrows: default = None: None means all rows will be utilized. If you want to sample "N" rows, set nrows=N.
     ########           Featurewiz Output           #############################
     Output: Tuple
     Featurewiz can output either a list of features or one dataframe or two depending on what you send in.
@@ -977,6 +975,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ######################################################################################
     """
     ### set all the defaults here ##############################################
+    if not nrows is None:
+        print('ALERT: nrows=%s. Hence featurewiz randomly sample that many rows. Change nrows=None if you want all rows' %nrows)
     dataname = copy.deepcopy(dataname)
     max_nums = 30
     max_cats = 15
@@ -1040,7 +1040,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     else:
         if dask_xgboost_flag:
             if not nrows is None:
-                dataname = dataname.sample(n=nrows)
+                dataname = dataname.sample(n=nrows, replace=True, random_state=9999)
                 print('Sampling %s rows from dataframe given' %nrows)
             print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
             dataname = reduce_mem_usage(dataname)
@@ -1074,13 +1074,14 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if nrows is None:
         nrows_limit = maxrows
     else:
-        nrows_limit = nrows
+        nrows_limit = int(min(nrows, maxrows))
+    #### you can use targets as a list wherever you choose #####
+    if isinstance(target, str):
+        targets = [target]
+    else:
+        targets = copy.deepcopy(target)
     if dataname.shape[0] >= nrows_limit:
-        print('Classifying features using %s rows...' %nrows_limit)
-        if isinstance(target, str):
-            targets = [target]
-        else:
-            targets = copy.deepcopy(target)
+        print('Classifying features using a random sample of %s rows from dataset...' %nrows_limit)
         ##### you can use 
         train_small = select_rows_from_dataframe(dataname, targets, nrows_limit, DS_LEN=dataname.shape[0])
         features_dict = classify_features(train_small, target)
@@ -1431,7 +1432,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         ### check if they are not starting from zero ##################
         if settings.modeltype != 'Regression':
             if cat_targets or sorted(np.unique(dataname[target[0]].values))[0] != 0:
-                copy_targets = copy.deepcopy(target)
+                copy_targets = copy.deepcopy(targets)
                 for each_target in copy_targets:
                     MLB = My_LabelEncoder()
                     dataname[each_target] = MLB.fit_transform(dataname[each_target])
@@ -4281,7 +4282,6 @@ def select_rows_from_dataframe(train_dataframe, targets, nrows_limit, DS_LEN='')
     print('    loading a random sample of %d rows into pandas for EDA' %nrows_limit)
     ####### If it is a classification problem, you need to stratify and select sample ###
     if modeltype != 'Regression':
-        copy_targets = copy.deepcopy(targets)
         for each_target in copy_targets:
             ### You need to remove rows that have very class samples - that is a problem while splitting train_small
             list_of_few_classes = train_dataframe[each_target].value_counts()[train_dataframe[each_target].value_counts()<=3].index.tolist()
@@ -4289,6 +4289,6 @@ def select_rows_from_dataframe(train_dataframe, targets, nrows_limit, DS_LEN='')
         train_small, _ = train_test_split(train_dataframe, test_size=test_size, stratify=train_dataframe[targets])
     else:
         ### For Regression problems: load a small sample of data into a pandas dataframe ##
-        train_small = train_dataframe.sample(n=nrows_limit, random_state=99)
+        train_small = train_dataframe.sample(n=nrows_limit, replace=True, random_state=99)
     return train_small
 ################################################################################################
