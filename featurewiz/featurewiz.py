@@ -1102,6 +1102,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, 
                                  parse_dates=date_time_vars)
             test = copy.deepcopy(test_data)
+        else:
+            test_data = None
+            test = None
     else:
         train_index = dataname.index
         if test_data is not None:
@@ -1835,12 +1838,15 @@ def reduce_mem_usage(df):
                 elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
                     df[col] = df[col].astype(np.int64)  
             else:
-                if c_min > np.finfo(np.float16).min and c_max < np.finfo(np.float16).max:
-                    df[col] = df[col].astype(np.float16)
-                elif c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
-                    df[col] = df[col].astype(np.float32)
-                else:
-                    df[col] = df[col].astype(np.float64)
+                try:
+                    if c_min > np.finfo(np.float16).min and c_max < np.finfo(np.float16).max:
+                        df[col] = df[col].astype(np.float16)
+                    elif c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
+                        df[col] = df[col].astype(np.float32)
+                    else:
+                        df[col] = df[col].astype(np.float64)
+                except:
+                    continue
         else:
             df[col] = df[col].astype('category')
 
