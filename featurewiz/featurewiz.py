@@ -1501,7 +1501,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 #### use this next one for dask_xgboost old ############### 
                 #imp_feats = bst.get_score(fmap='', importance_type='gain')
                 imp_feats = bst['booster'].get_score(fmap='', importance_type='gain')
-                imp_feats = dict(sorted(imp_feats.items(),reverse=True, key=lambda item: item[1]))
+                ### skip the next statement since it is duplicating the work of sort_values ##
+                #imp_feats = dict(sorted(imp_feats.items(),reverse=True, key=lambda item: item[1]))
                 ### doing this for single-label is a little different from settings.multi_label #########
                 #imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
                 #print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
@@ -1684,7 +1685,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                         important_features += imp_feats_df.sort_values(by='sum',ascending=False)[:top_num].index.tolist()
                     else:
                         imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
-                        imp_feats = dict(sorted(imp_feats.items(),reverse=True, key=lambda item: item[1]))
+                        #### skip the next sentence since it is duplicating the work done by sort-Values
+                        #imp_feats = dict(sorted(imp_feats.items(),reverse=True, key=lambda item: item[1]))
                         important_features += pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
                     important_features = list(OrderedDict.fromkeys(important_features))
                     bst_models.append(model_xgb)
@@ -3299,7 +3301,7 @@ import time
 ##################################################################################
 import lightgbm as lgbm
 def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modeltype,
-                         log_y):
+                         log_y, model=""):
     start_time = time.time()
     params = {
         'learning_rate': sp.stats.uniform(scale=1),
@@ -3309,26 +3311,26 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
             }
 
     if modeltype == 'Regression':
-        lgb = lgbm.LGBMRegressor()
+        lgb = lgbm.LGBMRegressor(verbosity=-1, silent=True)
         objective = 'regression' 
         metric = 'rmse'
         is_unbalance = False
         class_weight = None
     else:
         if y_train.nunique() <= 2:
-            lgb = lgbm.LGBMClassifier()
+            lgb = lgbm.LGBMClassifier(verbosity=-1, silent=True)
             objective = 'binary'
             metric = 'auc'
             is_unbalance = True
             class_weight = 'balanced'
         else:
-            lgb = lgbm.LGBMClassifier()
+            lgb = lgbm.LGBMClassifier(verbosity=-1, silent=True)
             objective = 'multiclass'
             metric = 'multi_logloss'
             is_unbalance = True
             class_weight = 'balanced'
 
-    early_stopping_params={"early_stopping_rounds":5,
+    early_stopping_params={"early_stopping_rounds":10,
                 "eval_metric" : metric, 
                 "eval_set" : [[x_test, y_test]]
                }
@@ -3350,7 +3352,7 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
                    'seed': 1337, 'feature_fraction_seed': 1337,
                    'bagging_seed': 1337, 'drop_seed': 1337, 
                    'data_random_seed': 1337,
-                   'verbose': -1, 
+                   #'verbose': -1, 
                    'is_unbalance': is_unbalance,
                    'class_weight': class_weight,
                     'n_estimators': 400,
@@ -3372,18 +3374,18 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
         print('Time taken for Hyper Param tuning of LGBM (in minutes) = %0.1f' %(
                                         (time.time()-start_time)/60))
     else:
-        model = copy.deepcopy(lgb)
+        es = lgbm.early_stopping(stopping_rounds=10, verbose=False)
         try:
             if modeltype == 'Regression':
                 if log_y:
-                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=metric,
-                            eval_set=[(x_test, np.log(y_test))], verbose=0)
+                    model.fit(x_train, np.log(y_train), eval_metric=metric, 
+                            eval_set=[(x_test, np.log(y_test))], callbacks=[es])
                 else:
-                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=metric,
-                            eval_set=[(x_test, y_test)], verbose=0)
+                    model.fit(x_train, y_train,  eval_metric=metric, 
+                            eval_set=[(x_test, y_test)], callbacks=[es])
             else:
-                model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric = metric,
-                                eval_set=[(x_test, y_test)], verbose=0)
+                model.fit(x_train, y_train, eval_metric = metric, 
+                                eval_set=[(x_test, y_test)], callbacks=[es])
         except:
             print('lightgbm model is crashing. Please check your inputs and try again...')
     return model
@@ -3399,7 +3401,7 @@ def xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, par
         try:
             if modeltype == 'Regression':
                 if log_y:
-                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
+                    model.fit(x_train, np.log(y_train), early_stopping_rounds=6, eval_metric=['rmse'],
                             eval_set=[(x_test, np.log(y_test))], verbose=0)
                 else:
                     model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
@@ -3429,7 +3431,7 @@ def xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, par
                 model = model.set_params(**cpu_params)
             if modeltype == 'Regression':
                 if log_y:
-                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
+                    model.fit(x_train, np.log(y_train), early_stopping_rounds=6, eval_metric=['rmse'],
                             eval_set=[(x_test, np.log(y_test))], verbose=0)
                 else:
                     model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
@@ -3777,7 +3779,7 @@ def simple_lightgbm_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_
                                 scaler=scaler, enc_method=enc_method)
     random_search_flag =  True
     gbm_model = lightgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
-                         log_y)
+                         log_y, model="")
     model = gbm_model.best_estimator_
     random_search_flag = False
     #############################################################################
@@ -3815,7 +3817,7 @@ def simple_lightgbm_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_
 
         model = gbm_model.best_estimator_
         model = lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modeltype,
-                                log_y)
+                                log_y, model=model)
 
         #### now make predictions on validation data ##
         if modeltype == 'Regression':
