@@ -1102,7 +1102,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         targets = copy.deepcopy(target)
     if dataname.shape[0] >= nrows_limit:
         print('Classifying features using a random sample of %s rows from dataset...' %nrows_limit)
-        ##### you can use 
+        ##### you can use nrows_limit to select a small sample from data set ########################
         train_small = select_rows_from_dataframe(dataname, targets, nrows_limit, DS_LEN=dataname.shape[0])
         features_dict = classify_features(train_small, target)
     else:
@@ -1497,10 +1497,10 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             else:
                 num_rounds = 100
             if i == 0:
-                print('Num of booster rounds = %s' %num_rounds)
+                print('Number of booster rounds = %s' %num_rounds)
             print('        using %d variables...' %(train_p.shape[1]-i))
             #########   This is where we check target type ##########
-            if not y_train.dtypes[0] == float:
+            if not y_train.dtypes[0] in [np.float16, np.float32, np.float64]:
                 y_train = y_train.astype(int) 
             if settings.modeltype == 'Regression':
                 objective = 'reg:squarederror'
@@ -1522,15 +1522,21 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             if not dask_xgboost_flag:
                 #########  This is for pandas dataframes only ##################
                 #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
-                dtrain = xgb.DMatrix(X_train, y_train, enable_categorical=True, feature_names=cols_sel)
-                bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
+                try:
+                    dtrain = xgb.DMatrix(X_train, y_train, enable_categorical=True, feature_names=cols_sel)
+                    bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
+                except Exception as error_msg:
+                    print(error_msg)
             else:
                 ##########   Training XGBoost model using dask_xgboost #########################
                 ### the dtrain syntax can only be used xgboost 1.50 or greater. Dont use it until then.
                 ### use the next line for new xgboost version 1.5.1 abd higher #########
-                dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, enable_categorical=True, feature_names=cols_sel)
-                #### SYNTAX BELOW WORKS WELL. BUT YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
-                bst = xgb.dask.train(client, params, dtrain, num_boost_round=num_rounds)
+                try:
+                    dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, enable_categorical=True, feature_names=cols_sel)
+                    #### SYNTAX BELOW WORKS WELL. BUT YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
+                    bst = xgb.dask.train(client, params, dtrain, num_boost_round=num_rounds)
+                except Exception as error_msg:
+                    print(error_msg)
             ################################################################################
             if not dask_xgboost_flag:
                 bst_models.append(bst)
@@ -3254,16 +3260,8 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
     else:
         es = lgbm.early_stopping(stopping_rounds=10, verbose=False)
         try:
-            if modeltype == 'Regression':
-                if log_y:
-                    model.fit(x_train, np.log(y_train), eval_metric=metric, verbose=-1,
-                            eval_set=[(x_test, np.log(y_test))], callbacks=[es])
-                else:
-                    model.fit(x_train, y_train,  eval_metric=metric, verbose=-1,
+            model.fit(x_train, y_train,  eval_metric=metric, verbose=-1,
                             eval_set=[(x_test, y_test)], callbacks=[es])
-            else:
-                model.fit(x_train, y_train, eval_metric = metric, verbose=1,
-                                eval_set=[(x_test, y_test)], callbacks=[es])
         except:
             print('lightgbm model is crashing. Please check your inputs and try again...')
     return model
@@ -3566,8 +3564,8 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_f
     if verbose:
         plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
                             modeltype=modeltype)
-    print("Average scores are: ", np.sum(scores)/len(scores))
-    print('\nReturning the following:')
+    print("\nCross Val Average scores are: ", np.sum(scores)/len(scores))
+    print('Returning the following:')
     print('    Model = %s' %model)
     if modeltype == 'Regression':
         print('    final predictions', pred_xgbs[:10])
@@ -3759,8 +3757,8 @@ def simple_lightgbm_model(X_XGB, Y_XGB, X_XGB_test, modeltype, log_y=False, GPU_
     if verbose:
         plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
                             modeltype=modeltype)
-    print("Average scores are: ", np.sum(scores)/len(scores))
-    print('\nReturning the following:')
+    print("\nCross Val Average scores are: ", np.sum(scores)/len(scores))
+    print('Returning the following:')
     print('    Model = %s' %model)
     if modeltype == 'Regression':
         print('    final predictions', pred_xgbs[:10])
@@ -4175,11 +4173,7 @@ def select_rows_from_dataframe(train_dataframe, targets, nrows_limit, DS_LEN='')
     if test_size <= 0:
         test_size = 0.9
     ###   Float variables are considered Regression #####################################
-    float_targets = 'float16' in  train_dataframe[copy_targets].dtypes.values or 'float32' in  train_dataframe[copy_targets].dtypes.values
-    if float_targets:
-        modeltype = 'Regression'
-    else:
-        modeltype = 'Classification'
+    modeltype = analyze_problem_type(train_dataframe, copy_targets, verbose=0)
     print('    loading a random sample of %d rows into pandas for EDA' %nrows_limit)
     ####### If it is a classification problem, you need to stratify and select sample ###
     if modeltype != 'Regression':
