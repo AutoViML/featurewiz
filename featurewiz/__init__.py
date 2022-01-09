@@ -20,7 +20,7 @@ from .featurewiz import FE_create_categorical_feature_crosses, EDA_find_skewed_v
 from .featurewiz import FE_kmeans_resampler, FE_find_and_cap_outliers, EDA_find_outliers
 from .featurewiz import split_data_n_ways, FE_concatenate_multiple_columns
 from .featurewiz import simple_XGBoost_model, FE_discretize_numeric_variables, data_transform
-from .featurewiz import simple_lightgbm_model
+from .featurewiz import simple_lightgbm_model, simple_xgbm_model
 from .featurewiz import FE_transform_numeric_columns, FE_create_interaction_vars
 from .stacking_models import Stacking_Classifier, Blending_Regressor
 from .featurewiz import EDA_binning_numeric_column_displaying_bins, FE_add_lagged_targets_by_date_category
