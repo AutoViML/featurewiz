@@ -3289,7 +3289,6 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
         is_unbalance = False
         class_weight = None
         score_name = 'Score'
-        num_class = 0
     else:
         if modeltype =='Binary_Classification':
             lgb = lgbm.LGBMClassifier()
@@ -3306,16 +3305,16 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
             is_unbalance = True
             class_weight = 'balanced'
             score_name = 'Accuracy'
-        if multi_label:
-            if isinstance(y_train, np.ndarray):
-                num_class = np.unique(y_train).max()
+            if multi_label:
+                if isinstance(y_train, np.ndarray):
+                    num_class = np.unique(y_train).max()
+                else:
+                    num_class = y_train.nunique().max()
             else:
-                num_class = y_train.nunique().max()
-        else:
-            if isinstance(y_train, np.ndarray):
-                num_class = np.unique(y_train)
-            else:
-                num_class = y_train.nunique()
+                if isinstance(y_train, np.ndarray):
+                    num_class = np.unique(y_train)
+                else:
+                    num_class = y_train.nunique()
 
     es = lgbm.early_stopping(stopping_rounds=10, verbose=False)
     early_stopping_params={"early_stopping_rounds":10,
@@ -3323,28 +3322,49 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
                 "eval_set" : [[x_test, y_test]],
                 "callbacks" : [es]
                }
-
-    lgbm_params = {'learning_rate': 0.001,
-                   'objective': objective,
-                   'metric': metric,
-                   'boosting_type': 'gbdt',
-                   'max_depth': 8,
-                   'subsample': 0.2,
-                   'colsample_bytree': 0.3,
-                   'reg_alpha': 0.54,
-                   'reg_lambda': 0.4,
-                   'min_split_gain': 0.7,
-                   'min_child_weight': 26,
-                    'num_leaves': 32,
-                   'save_binary': True,
-                   'seed': 1337, 'feature_fraction_seed': 1337,
-                   'bagging_seed': 1337, 'drop_seed': 1337, 
-                   'data_random_seed': 1337,
-                   'verbose': -1, 
-                   'num_class': num_class,
-                   'is_unbalance': is_unbalance,
-                   'class_weight': class_weight,
-                    'n_estimators': 400,
+    if modeltype == 'Regression':
+        ## there is no num_class in regression for LGBM model ##
+        lgbm_params = {'learning_rate': 0.001,
+                       'objective': objective,
+                       'metric': metric,
+                       'boosting_type': 'gbdt',
+                       'max_depth': 8,
+                       'subsample': 0.2,
+                       'colsample_bytree': 0.3,
+                       'reg_alpha': 0.54,
+                       'reg_lambda': 0.4,
+                       'min_split_gain': 0.7,
+                       'min_child_weight': 26,
+                        'num_leaves': 32,
+                       'save_binary': True,
+                       'seed': 1337, 'feature_fraction_seed': 1337,
+                       'bagging_seed': 1337, 'drop_seed': 1337, 
+                       'data_random_seed': 1337,
+                       'verbose': -1, 
+                        'n_estimators': 400,
+                    }
+    else:
+        lgbm_params = {'learning_rate': 0.001,
+                       'objective': objective,
+                       'metric': metric,
+                       'boosting_type': 'gbdt',
+                       'max_depth': 8,
+                       'subsample': 0.2,
+                       'colsample_bytree': 0.3,
+                       'reg_alpha': 0.54,
+                       'reg_lambda': 0.4,
+                       'min_split_gain': 0.7,
+                       'min_child_weight': 26,
+                        'num_leaves': 32,
+                       'save_binary': True,
+                       'seed': 1337, 'feature_fraction_seed': 1337,
+                       'bagging_seed': 1337, 'drop_seed': 1337, 
+                       'data_random_seed': 1337,
+                       'verbose': -1, 
+                       'num_class': num_class,
+                       'is_unbalance': is_unbalance,
+                       'class_weight': class_weight,
+                        'n_estimators': 400,
                 }
 
     lgb.set_params(**lgbm_params)
@@ -3362,7 +3382,8 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
                    random_state = 99,
                    n_jobs=-1,
                    cv = 3,
-                   verbose = False)        
+                   verbose = False)
+        ##### This is where we search for hyper params for model #######
         if multi_label:
             model.fit(x_train, y_train)
         else:
@@ -3409,12 +3430,17 @@ def complex_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
     top_num = 10
     if isinstance(Y_XGB, pd.Series):
         targets = [Y_XGB.name]
-        multi_label = False
     else:
         targets = Y_XGB.columns.tolist()
+    if len(targets) == 1:
+        multi_label = False
+        if isinstance(Y_XGB, pd.DataFrame):
+            Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0])
+    else:
         multi_label = True
     modeltype = analyze_problem_type(Y_XGB, targets)
     columns =  X_XGB.columns
+    ##### Now continue with scaler pre-processing ###########
     if isinstance(scaler, str):
         if not scaler == '':
             scaler = scaler.lower()
@@ -3453,35 +3479,48 @@ def complex_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
 
     #########  Now set the number of rows we need to tune hyper params ###
     scoreFunction = { "precision": "precision_weighted","recall": "recall_weighted"}
-
-    #### We need a small validation data set for hyper-param tuning #############
-    hyper_frac = 0.2
-    #### now select a random sample from X_XGB ##
-    if modeltype == 'Regression':
-        X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
-                            random_state=999)
-    else:
-        X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
-                            random_state=999, stratify = Y_XGB)
-    
-    #### First convert test data into numeric using train data ###
-    X_train, Y_train, X_valid, Y_valid = data_transform(X_train, Y_train, X_valid, Y_valid,
-                                modeltype, multi_label, scaler=scaler, enc_method=enc_method)
-    ######  This step is needed for making sure y is transformed to log_y ######
-    if modeltype == 'Regression' and log_y:
-            Y_train = np.log(Y_train)
     random_search_flag =  True
-    
-    ######  Time to hyper-param tune model using randomizedsearchcv #########
-    num_boost_round = xgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
-                         multi_label, log_y, num_boost_round=100)
 
-    #### First convert test data into numeric using train data ###
+    if multi_label:
+        #### We need a small validation data set for hyper-param tuning #########################
+        hyper_frac = 0.2
+        #### now select a random sample from X_XGB ##
+        if modeltype == 'Regression':
+            X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
+                                random_state=999)
+        else:
+            X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
+                                random_state=999, stratify = Y_XGB)
+        
+        #### First convert test data into numeric using train data ###
+        X_train, Y_train, X_valid, Y_valid = data_transform(X_train, Y_train, X_valid, Y_valid,
+                                    modeltype, multi_label, scaler=scaler, enc_method=enc_method)
+
+        ######  This step is needed for making sure y is transformed to log_y ####################
+        if modeltype == 'Regression' and log_y:
+                Y_train = np.log(Y_train)
+
+        ######  Time to hyper-param tune model using randomizedsearchcv and partial train data #########
+        num_boost_round = xgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
+                             multi_label, log_y, num_boost_round=100)
+
+    else:
+        ######  This step is needed for making sure y is transformed to log_y ######
+        if modeltype == 'Regression' and log_y:
+            ######  Time to hyper-param tune model using randomizedsearchcv and full train data #########
+            num_boost_round = xgbm_model_fit(random_search_flag, X_XGB, np.log(Y_XGB), "", "", modeltype,
+                                 multi_label, log_y, num_boost_round=100)
+        else:
+            ######  Time to hyper-param tune model using randomizedsearchcv and full train data #########
+            num_boost_round = xgbm_model_fit(random_search_flag, X_XGB, Y_XGB, "", "", modeltype,
+                                 multi_label, log_y, num_boost_round=100)
+
+    #### First convert test data into numeric using train data ###############################
     if not isinstance(X_XGB_test, str):
         x_train, y_train, x_test, _ = data_transform(X_XGB, Y_XGB, X_XGB_test, "",
                                 modeltype, multi_label, scaler=scaler, enc_method=enc_method)
 
-    ######  Time to train the hyper-tuned model on full train data #########
+    ######  Time to train the hyper-tuned model on full train data ##########################
     random_search_flag = False
     model = xgbm_model_fit(random_search_flag, x_train, y_train, x_test, "", modeltype,
                                 multi_label, log_y, num_boost_round=num_boost_round)
@@ -3504,9 +3543,12 @@ def complex_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
                                            index = important_features,
                                             columns=['importance'])
     
-    ######  Time to consolidate the predictions on test data #########
-    if not multi_label:
+    ######  Time to consolidate the predictions on test data ################################
+    if not multi_label and not isinstance(X_XGB_test, str):
         x_test = xgb.DMatrix(x_test)
+    if isinstance(X_XGB_test, str):
+        print('No predictions since X_XGB_test is empty string. Returning...')
+        return {}
     if modeltype == 'Regression':
         if not isinstance(X_XGB_test, str):
             if log_y:
@@ -3517,12 +3559,12 @@ def complex_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
         else:
             pred_xgbs = []
     else:
-        if not isinstance(X_XGB_test, str):
+        if multi_label:
             pred_xgbs = model.predict(x_test)
             pred_probas = model.predict_proba(x_test)
         else:
-            pred_xgbs = []
-            pred_probas = []
+            pred_probas = model.predict(x_test)
+            pred_xgbs = (pred_probas>0.5).astype(int)
     ##### once the entire model is trained on full train data ##################
     print('    Time taken for training XGBoost on entire train data (in minutes) = %0.1f' %(
              (time.time()-start_time)/60))
@@ -3531,7 +3573,7 @@ def complex_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
             each_model = model.estimators_[i]
             xgb.plot_importance(each_model, title='XGBoost model feature importances for %s' %target_name)
     else:
-        xgb.plot_importance(model, title='LGBM final model feature importances')
+        xgb.plot_importance(model, title='XGBoost final model feature importances')
     print('Returning the following:')
     print('    Model = %s' %model)
     if modeltype == 'Regression':
@@ -3622,11 +3664,8 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
                        n_jobs=-1,
                        cv = 3,
                        verbose = False)        
-            if multi_label:
-                model.fit(x_train, y_train)
-            else:
-                model.fit(x_train, y_train, **early_stopping_params)
-            print('Time taken for Hyper Param tuning of XGBoost (in minutes) = %0.1f' %(
+            model.fit(x_train, y_train)
+            print('Time taken for Hyper Param tuning of multi_label XGBoost (in minutes) = %0.1f' %(
                                             (time.time()-start_time)/60))
             cv_results = pd.DataFrame(model.cv_results_)
             print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
@@ -3636,12 +3675,11 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
             try:
                 model.fit(x_train, y_train)
             except:
-                print('XGBoost model is crashing. Please check your inputs and try again...')
+                print('Multi_label XGBoost model is crashing during training. Please check your inputs and try again...')
             return model
     else:
         #### This is for Single Label Problems #############
         dtrain = xgb.DMatrix(x_train, label=y_train)
-        dtest = xgb.DMatrix(x_test, y_test)
         ########   Now let's perform randomized search to find best hyper parameters ######
         if random_search_flag:
             cv_results = xgb.cv(final_params, dtrain, num_boost_round=400, nfold=5, 
@@ -3660,9 +3698,7 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
                     final_params,
                     dtrain,
                     num_boost_round=num_boost_round,
-                    evals=[(dtest, "Test")],
                     verbose_eval=False,
-                    early_stopping_rounds=10
                 )
             except:
                 print('XGBoost model is crashing. Please check your inputs and try again...')
@@ -3670,6 +3706,7 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
 ####################################################################################
 def xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, params, 
                     cpu_params, early_stopping_params={}):
+    early_stopping = 10
     start_time = time.time()
     if str(model).split("(")[0] == 'RandomizedSearchCV':
         model.fit(x_train, y_train, **early_stopping_params)
@@ -3679,19 +3716,19 @@ def xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, par
         try:
             if modeltype == 'Regression':
                 if log_y:
-                    model.fit(x_train, np.log(y_train), early_stopping_rounds=6, eval_metric=['rmse'],
+                    model.fit(x_train, np.log(y_train), early_stopping_rounds=early_stopping, eval_metric=['rmse'],
                             eval_set=[(x_test, np.log(y_test))], verbose=0)
                 else:
-                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
+                    model.fit(x_train, y_train, early_stopping_rounds=early_stopping, eval_metric=['rmse'],
                             eval_set=[(x_test, y_test)], verbose=0)
             else:
-                if y_train.nunique() <= 2:
+                if modeltype == 'Binary_Classification':
                     objective='binary:logistic'
                     eval_metric = 'logloss'
                 else:
                     objective='multi:softmax'
                     eval_metric = 'mlogloss'
-                model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric = eval_metric,
+                model.fit(x_train, y_train, early_stopping_rounds=early_stopping, eval_metric = eval_metric,
                                 eval_set=[(x_test, y_test)], verbose=0)
         except:
             print('GPU is present but not turned on. Please restart after that. Currently using CPU...')
@@ -3744,6 +3781,7 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
     y_preds: Predicted values for your X_XGB_test dataframe.
         It has been averaged after repeatedly predicting on X_XGB_test. So likely to be better than one model.
     """
+    start_time = time.time()
     if isinstance(Y_XGB, pd.Series):
         targets = [Y_XGB.name]
     else:
@@ -3759,6 +3797,7 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
     ##### Start your analysis of the data ############
     modeltype = analyze_problem_type(Y_XGB, targets)
     columns =  X_XGB.columns
+    ##### Now continue with scaler pre-processing ###########
     if isinstance(scaler, str):
         if not scaler == '':
             scaler = scaler.lower()
@@ -4026,12 +4065,25 @@ def complex_LightGBM_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False
     start_time = time.time()
     if isinstance(Y_XGB, pd.Series):
         targets = [Y_XGB.name]
-        multi_label = False
     else:
         targets = Y_XGB.columns.tolist()
+    if len(targets) == 1:
+        multi_label = False
+        if isinstance(Y_XGB, pd.DataFrame):
+            Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0])
+    else:
         multi_label = True
     modeltype = analyze_problem_type(Y_XGB, targets)
     columns =  X_XGB.columns
+    #### In some cases, there are special chars in column names. Remove them. ###
+    if np.array([':' in x for x in columns]).any():
+        sel_preds = columns[np.array([':' in x for x in columns])].tolist()
+        print('removing special char : in %s since LightGBM does not like it...' %sel_preds)
+        columns = ["_".join(x.split(":")) for x in columns]
+        X_XGB.columns = columns
+        if not isinstance(X_XGB_test, str):
+            X_XGB_test.columns = columns
+    ##### Now continue with scaler pre-processing ###########
     if isinstance(scaler, str):
         if not scaler == '':
             scaler = scaler.lower()
@@ -4180,6 +4232,7 @@ def simple_LightGBM_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
     y_preds: Predicted values for your X_XGB_test dataframe.
         It has been averaged after repeatedly predicting on X_XGB_test. So likely to be better than one model.
     """
+    start_time = time.time()
     if isinstance(Y_XGB, pd.Series):
         targets = [Y_XGB.name]
     else:
@@ -4190,11 +4243,20 @@ def simple_LightGBM_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
             Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0])
     else:
         multi_label = True
-        print('Multi_label is not supported in simple_XGBoost_model. Try the complex_XGBoost_model...Returning')
+        print('Multi_label is not supported in simple_LightGBM_model. Try the complex_LightGBM_model...Returning')
         return {}
     ##### Start your analysis of the data ############
     modeltype = analyze_problem_type(Y_XGB, targets)
     columns =  X_XGB.columns
+    #### In some cases, there are special chars in column names. Remove them. ###
+    if np.array([':' in x for x in columns]).any():
+        sel_preds = columns[np.array([':' in x for x in columns])].tolist()
+        print('removing special char : in %s since LightGBM does not like it...' %sel_preds)
+        columns = ["_".join(x.split(":")) for x in columns]
+        X_XGB.columns = columns
+        if not isinstance(X_XGB_test, str):
+            X_XGB_test.columns = columns
+    ##### Now continue with scaler pre-processing ###########
     if isinstance(scaler, str):
         if not scaler == '':
             scaler = scaler.lower()
