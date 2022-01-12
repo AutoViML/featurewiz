@@ -1623,6 +1623,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ######    E    N     D      O  F      X  G  B  O  O  S  T    S E L E C T I O N ####################
     print('            Total time taken for XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
     important_features = list(OrderedDict.fromkeys(important_features))
+    print('    ID variables are always selected so that rows can be identified. But they are not important!')
     if len(important_features) <= 30:
         print('Selected %d important features:\n%s' %(len(important_features), important_features))
     else:
@@ -3210,7 +3211,7 @@ def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classifica
         else:
             Y_train_encoded = copy.deepcopy(Y_train)
             Y_test_encoded = copy.deepcopy(Y_test)
-
+    
     #### This is where we find out if test data is given ####
     ####### Set up feature to encode  ####################
     feature_to_encode = X_train.columns[X_train.dtypes == 'O'].tolist()
@@ -3442,7 +3443,7 @@ def complex_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
     if len(targets) == 1:
         multi_label = False
         if isinstance(Y_XGB, pd.DataFrame):
-            Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0])
+            Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0], index=Y_XGB.index)
     else:
         multi_label = True
     modeltype = analyze_problem_type(Y_XGB, targets)
@@ -3711,7 +3712,7 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
                 print('XGBoost model is crashing. Please check your inputs and try again...')
             return model
 ####################################################################################
-def xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, params, 
+def xgboost_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, params, 
                     cpu_params, early_stopping_params={}):
     early_stopping = 10
     start_time = time.time()
@@ -3793,10 +3794,11 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
         targets = [Y_XGB.name]
     else:
         targets = Y_XGB.columns.tolist()
+    Y_XGB_index = Y_XGB.index
     if len(targets) == 1:
         multi_label = False
         if isinstance(Y_XGB, pd.DataFrame):
-            Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0])
+            Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0], index=Y_XGB.index)
     else:
         multi_label = True
         print('Multi_label is not supported in simple_XGBoost_model. Try the complex_XGBoost_model...Returning')
@@ -3938,11 +3940,10 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
                                         verbose = False)
 
     X_train, Y_train, X_valid, Y_valid = data_transform(X_train, Y_train, X_valid, Y_valid,
-                                multi_label, scaler=scaler, enc_method=enc_method)
+                                modeltype, multi_label, scaler=scaler, enc_method=enc_method)
 
-    gbm_model = xgb_model_fit(model, X_train, Y_train, X_valid, Y_valid, modeltype,
+    gbm_model = xgboost_model_fit(model, X_train, Y_train, X_valid, Y_valid, modeltype,
                          log_y, params, cpu_params, early_stopping_params)
-    model = gbm_model.best_estimator_
     #############################################################################
     ls=[]
     if modeltype == 'Regression':
@@ -3958,15 +3959,20 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
         pred_probas = []
     #### First convert test data into numeric using train data ###
     if not isinstance(X_XGB_test, str):
-        _, Y_XGB, X_XGB_test_enc, _ = data_transform(X_XGB, Y_XGB, X_XGB_test,"",
-                                multi_label, scaler=scaler, enc_method=enc_method)
+        X_XGB_train_enc, Y_XGB, X_XGB_test_enc, _ = data_transform(X_XGB, Y_XGB, X_XGB_test,"",
+                                modeltype, multi_label, scaler=scaler, enc_method=enc_method)
+    else:
+        X_XGB_train_enc, Y_XGB, X_XGB_test_enc, _ = data_transform(X_XGB, Y_XGB, "","",
+                                modeltype, multi_label, scaler=scaler, enc_method=enc_method)
     #### now run all the folds each one by one ##################################
     start_time = time.time()
     for folds, (train_index, test_index) in tqdm(enumerate(fold.split(X_XGB,Y_XGB))):
-        x_train, x_test = X_XGB.iloc[train_index], X_XGB.iloc[test_index]
-        ### you need to keep y_test as-is in the same original state as it was given ####
-        y_test = Y_XGB.iloc[test_index]
+        x_train, x_valid = X_XGB.iloc[train_index], X_XGB.iloc[test_index]
+        ### you need to keep y_valid as-is in the same original state as it was given ####
+        if isinstance(Y_XGB, np.ndarray):
+            Y_XGB = pd.Series(Y_XGB,name=targets[0], index=Y_XGB_index)
         ### y_valid here will be transformed into log_y to ensure training and validation ####
+        
         if modeltype == 'Regression':
             if log_y:
                 y_train, y_valid = np.log(Y_XGB.iloc[train_index]), np.log(Y_XGB.iloc[test_index])
@@ -3975,22 +3981,22 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
         else:
             y_train, y_valid = Y_XGB.iloc[train_index], Y_XGB.iloc[test_index]
 
-        ##  scale the x_train and x_test values - use all columns -
-        x_train, y_train, x_test, y_test = data_transform(x_train, y_train, x_test, y_test,
-                                multi_label, scaler=scaler, enc_method=enc_method)
+        ##  scale the x_train and x_valid values - use all columns -
+        x_train, y_train, x_valid, y_valid = data_transform(x_train, y_train, x_valid, y_valid,
+                                modeltype, multi_label, scaler=scaler, enc_method=enc_method)
 
         model = gbm_model.best_estimator_
-        model = xgb_model_fit(model, x_train, y_train, x_test, y_test, modeltype,
+        model = xgboost_model_fit(model, x_train, y_train, x_valid, y_valid, modeltype,
                                 log_y, params, cpu_params)
 
-        #### now make predictions on validation data and compare it to y_test which is in original state ##
+        #### now make predictions on validation data and compare it to y_valid which is in original state ##
         if modeltype == 'Regression':
             if log_y:
-                preds = np.exp(model.predict(x_test))
+                preds = np.exp(model.predict(x_valid))
             else:
-                preds = model.predict(x_test)
+                preds = model.predict(x_valid)
         else:
-            preds = model.predict(x_test)
+            preds = model.predict(x_valid)
 
         feature_importances = pd.DataFrame(model.feature_importances_,
                                            index = X_XGB.columns,
@@ -4006,8 +4012,8 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
                     pred_xgb=model.predict(X_XGB_test_enc[columns])
                 pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
                 pred_xgbs = pred_xgbs.mean(axis=0)
-            #### preds here is for only one fold and we are comparing it to original y_test ####
-            score = np.sqrt(mean_squared_error(y_test, preds))
+            #### preds here is for only one fold and we are comparing it to original y_valid ####
+            score = np.sqrt(mean_squared_error(y_valid, preds))
             print('RMSE score in fold %d = %s' %(folds+1, score))
         else:
             if not isinstance(X_XGB_test, str):
@@ -4020,16 +4026,23 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
                     pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
                     pred_xgbs = stats.mode(pred_xgbs, axis=0)[0][0]
                     pred_probas = np.mean( np.array([ pred_probas, pred_proba ]), axis=0 )
-            #### preds here is for only one fold and we are comparing it to original y_test ####
-            score = balanced_accuracy_score(y_test, preds)
+            #### preds here is for only one fold and we are comparing it to original y_valid ####
+            score = balanced_accuracy_score(y_valid, preds)
             print('Balanced Accuracy score in fold %d = %0.1f%%' %(folds+1, score*100))
         scores.append(score)
-    print('    Time taken for training Light GBM (in minutes) = %0.1f' %(
+    print('    Time taken for Cross Validation of XGBoost (in minutes) = %0.1f' %(
              (time.time()-start_time)/60))
+    print("\nCross-validated Average scores are: ", np.sum(scores)/len(scores))
+    ##### Train on full train data set and predict #################################
+    print('Training model on full train dataset...')
+    start_time1 = time.time()
+    model = gbm_model.best_estimator_
+    model.fit(X_XGB_train_enc, Y_XGB)
+    print('    Time taken for training XGBoost (in minutes) = %0.1f' %(
+             (time.time()-start_time1)/60))
     if verbose:
         plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
                             modeltype=modeltype, top_num='all')
-    print("\nCross-validated Average scores are: ", np.sum(scores)/len(scores))
     print('Returning the following:')
     print('    Model = %s' %model)
     if modeltype == 'Regression':
@@ -4077,7 +4090,7 @@ def complex_LightGBM_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False
     if len(targets) == 1:
         multi_label = False
         if isinstance(Y_XGB, pd.DataFrame):
-            Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0])
+            Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0], index=Y_XGB.index)
     else:
         multi_label = True
     modeltype = analyze_problem_type(Y_XGB, targets)
@@ -4247,7 +4260,7 @@ def simple_LightGBM_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
     if len(targets) == 1:
         multi_label = False
         if isinstance(Y_XGB, pd.DataFrame):
-            Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0])
+            Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0], index=Y_XGB.index)
     else:
         multi_label = True
         print('Multi_label is not supported in simple_LightGBM_model. Try the complex_LightGBM_model...Returning')
@@ -4349,8 +4362,8 @@ def simple_LightGBM_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
         pred_probas = []
     #### First convert test data into numeric using train data ###
     if not isinstance(X_XGB_test, str):
-        _,_, X_XGB_test_enc,_ = data_transform(X_XGB, Y_XGB, X_XGB_test,"",
-                                modeltype, scaler=scaler, enc_method=enc_method)
+        _,_, X_XGB_test_enc,_ = data_transform(X_XGB, Y_XGB, X_XGB_test, "",
+                                modeltype, multi_label, scaler=scaler, enc_method=enc_method)
     #### now run all the folds each one by one ##################################
     start_time = time.time()
     for folds, (train_index, test_index) in tqdm(enumerate(fold.split(X_XGB,Y_XGB))):
