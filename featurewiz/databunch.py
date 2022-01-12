@@ -473,12 +473,12 @@ class DataBunch(object):
                         data_encodet, train_encoder = self.gen_cat_encodet_features(data[encodet_features_names],
                                                                     encoder_name)
                         if not isinstance(data_encodet, str):
-                            data = data.join(data_encodet)
+                            data = pd.concat([data, data_encodet], axis=1)
                         if test_data is not None:
                             test_encodet, _ = self.gen_cat_encodet_features(test_data[encodet_features_names],
                                                                     train_encoder)
                             if not isinstance(test_encodet, str):
-                                test_data = test_data.join(test_encodet)
+                                test_data = pd.concat([test_data, test_encodet], axis=1)
 
                         if verbose > 0:
                             if not isinstance(data_encodet, str):
@@ -504,13 +504,13 @@ class DataBunch(object):
                     data_encodet, train_encoder = self.gen_target_encodet_features(data[encodet_features_names],
                                                                 self.y_train_source, encoder_name)
                     if not isinstance(data_encodet, str):
-                        data = data.join(data_encodet)
+                        data = pd.concat([data, data_encodet], axis=1)
 
                     if test_data is not None:
                         test_encodet, _ = self.gen_target_encodet_features(test_data[encodet_features_names],'',
                                                                 train_encoder)
                         if not isinstance(test_encodet, str):
-                            test_data = test_data.join(test_encodet)
+                            test_data = pd.concat([test_data, test_encodet], axis=1)
 
 
                 if verbose > 0:
@@ -538,6 +538,7 @@ class DataBunch(object):
                         data[rem_col] = 0
                 else:
                     print(' + test and train have similar NaN columns')
+
         # Generate interaction features for Numeric variables
         if num_generator_features:
             if len(num_features) > 1:
@@ -546,14 +547,15 @@ class DataBunch(object):
                 fe_df = self.gen_numeric_interaction_features(data[num_features],
                                                             num_features,
                                                             operations=['/','*','-','+'],)
+                
                 if not isinstance(fe_df, str):
-                    data = data.join(fe_df)
+                    data = pd.concat([data,fe_df],axis=1)
                 if test_data is not None:
                     fe_test = self.gen_numeric_interaction_features(test_data[num_features],
                                                             num_features,
                                                             operations=['/','*','-','+'],)
                     if not isinstance(fe_test, str):
-                        test_data = test_data.join(fe_test)
+                        test_data = pd.concat([test_data, fe_test], axis=1)
 
                 if verbose > 0:
                     if not isinstance(fe_df, str):
@@ -574,25 +576,26 @@ class DataBunch(object):
                                                             encodet_features_names,
                                                             num_col,)
                     if not isinstance(data_encodet, str):
-                        data = data.join(data_encodet)
+                        data = pd.concat([data, data_encodet],axis=1)
                     if test_data is not None:
                         test_encodet, _ = self.gen_groupby_cat_encode_features(
                                                             data,
                                                             encodet_features_names,
                                                             num_col,train_group_encoder)
                         if not isinstance(test_encodet, str):
-                            test_data = test_data.join(test_encodet)
+                            test_data = pd.concat([test_data, test_encodet], axis=1)
 
                 if verbose > 0:
                     addl_features = data_encodet.shape[1]*len(num_features)
                     count_number_features += addl_features
                     print(' + added ', addl_features, ' Group-by Encoded Features using JamesSteinEncoder')
-
+        
         # Drop source cat features
         if not len(cat_encoder_names) == 0:
             ### if there is no categorical encoding, then let the categorical_vars pass through.
             ### If they have been transformed into Cat Encoded variables, then you can drop them!
             data.drop(columns=encodet_features_names, inplace=True)
+        # In this case, there may be some inf values, replace them ######
         data.replace([np.inf, -np.inf], np.nan, inplace=True)
         #data.fillna(0, inplace=True)
         if test_data is not None:
@@ -620,12 +623,13 @@ class DataBunch(object):
             print('#'*50)
             print('> Final Number of Features: ', (X_train.shape[1]))
             print('#'*50)
-            print('New X_train shape: ', X_train.shape, '| X_test shape: ', X_test.shape)
+            print('New X_train rows: %s, X_test rows: %s' %(X_train.shape[0], X_test.shape[0]))
+            print('New X_train columns: %s, X_test columns: %s' %(X_train.shape[1], X_test.shape[1]))
             if len(left_subtract(X_test.columns, X_train.columns)) > 0:
                 print("""There are more columns in test than train 
                     due to missing columns being more in test than train. Continuing...""")
 
-        return (X_train, X_test)
+        return X_train, X_test
 ################################################################################
 def find_rare_class(series, verbose=0):
     ######### Print the % count of each class in a Target variable  #####

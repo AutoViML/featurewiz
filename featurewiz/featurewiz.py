@@ -1330,30 +1330,37 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     normalization=False,
                     random_state=RANDOM_SEED,
                     )
+        
         #### Now you can process the tuple this way #########
         if type(y_train) == dask.dataframe.core.DataFrame:
             ### since y_train is dask df and data_tuple.X_train is a pandas df, you can't merge them.
             y_train = y_train.compute()  ### remember you first have to convert them to a pandas df
-        data1 = data_tuple.X_train.join(y_train) ### data_tuple does not have a y_train, remember!
+        data1 = pd.concat([data_tuple.X_train, y_train], axis=1) ### data_tuple does not have a y_train, remember!
+        
         if isinstance(test_data, str) or test_data is None:
             ### Since you have done a train_test_split using randomized split, you need to put it back again.
-            if dask_xgboost_flag:
+            if type(y_test) == dask.dataframe.core.DataFrame:
                 ### since y_train is dask df and data_tuple.X_train is a pandas df, you can't merge them.
                 y_test = y_test.compute()  ### remember you first have to convert them to a pandas df
-            data2 = data_tuple.X_test.join(y_test)
+            data2 = pd.concat([data_tuple.X_test, y_test], axis=1)
             dataname = data1.append(data2)
+            ### Sometimes there are duplicate values in index when you append. So just remove duplicates here
+            dataname = dataname[~dataname.index.duplicated()]
             dataname = dataname.reindex(train_index)
+            print('    Completed feature engineering. Shape of Train (with target) = %s' %(dataname.shape,))
         else:
             try:
-                if dask_xgboost_flag:
+                if type(y_test) == dask.dataframe.core.DataFrame:
                     ### since y_train is dask df and data_tuple.X_train is a pandas df, you can't merge them.
                     y_test = y_test.compute()  ### remember you first have to convert them to a pandas df
-                test_data = data_tuple.X_test.join(y_test)
+                test_data = pd.concat([data_tuple.X_test, y_test], axis=1)
             except:
                 test_data = copy.deepcopy(data_tuple.X_test)
+            ### Sometimes there are duplicate values in index when you append. So just remove duplicates here
+            test_data = test_data[~test_data.index.duplicated()]
             test_data = test_data.reindex(test_index)
             dataname = copy.deepcopy(data1)
-        print('    Completed feature engineering. Shape of Train (with target) = %s' %(dataname.shape,))
+            print('    Completed feature engineering. Shape of Test (with target) = %s' %(test_data.shape,))
         #################################################################################################
         ###### Train and Test are currently pandas data frames even if dask_xgboost_flag is True ########
         ######   That is because we combined them after feature engg to using Category_Encoders  ########
@@ -1628,14 +1635,14 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         if len(np.intersect1d(train_ids.columns.tolist(),dataname.columns.tolist())) > 0:
             return important_features, dataname[important_features+target]
         else:
-            dataname = train_ids.join(dataname)
-            return important_features, dataname[idcols+important_features+target]
+            dataname = pd.concat([train_ids, dataname], axis=1)
+            return dataname[idcols+important_features+target], important_features
     else:
         print('Returning 2 dataframes: dataname and test_data with %d important features.' %len(important_features))
         if feature_gen or feature_type:
             ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
-            dataname = train_ids.join(dataname)
-            test_data = test_ids.join(test_data)
+            dataname = pd.concat([train_ids, dataname], axis=1)
+            test_data = pd.concat([test_ids, test_data], axis=1)
         if target in list(test_data): ### see if target exists in this test data
             return dataname[idcols+important_features+target], test_data[idcols+important_features+target]
         else:
@@ -1699,9 +1706,9 @@ def draw_feature_importances_multi_label(bst_models, dask_xgboost_flag=False):
                     bst_booster = bst_models[counter].estimators_[0]
                     ax1 = xgboost.plot_importance(bst_booster, height=0.8, show_values=False,
                             importance_type='gain', max_num_features=10, ax=ax[k][l])
+                    ax1.set_title('Multi_label: Top 10 features for first label: round %s' %(counter+1))
                 except:
                     pass
-                ax1.set_title('Multi_label: Top 10 features for first label: round %s' %(counter+1))
             counter += 1
     plt.show();
 ########################################################################################
@@ -1722,9 +1729,9 @@ def draw_feature_importances_single_label(bst_models, dask_xgboost_flag=False):
                     bst_booster = bst_models[counter]
                     ax1 = xgboost.plot_importance(bst_booster, height=0.8, show_values=False,
                             importance_type='gain', max_num_features=10, ax=ax[k][l])
+                    ax1.set_title('Top 10 features with XGB model %s' %(counter+1))
                 except:
                     pass
-                ax1.set_title('Top 10 features with XGB model %s' %(counter+1))
             counter += 1
     plt.show();
 ######################################################################################
