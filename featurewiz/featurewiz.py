@@ -920,7 +920,7 @@ from .encoders import FrequencyEncoder
 
 from sklearn.model_selection import train_test_split
 def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
-            test_data='', feature_engg='', category_encoders='', dask_xgboost_flag=True,
+            test_data='', feature_engg='', category_encoders='', dask_xgboost_flag=False,
             nrows=None,  **kwargs):
     """
     #################################################################################
@@ -963,7 +963,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 ['HashingEncoder', 'SumEncoder', 'PolynomialEncoder', 'BackwardDifferenceEncoder',
                 'OneHotEncoder', 'HelmertEncoder', 'OrdinalEncoder', 'FrequencyEncoder', 'BaseNEncoder',
                 'TargetEncoder', 'CatBoostEncoder', 'WOEEncoder', 'JamesSteinEncoder']
-        dask_xgboost_flag: default = True. This flag enables DASK by default so that you can process large
+        dask_xgboost_flag: default = False. This flag enables DASK by default so that you can process large
             data sets faster using parallel processing. It detects the number of CPUs and GPU's in your machine
             automatically and sets the num of workers for DASK. It also uses DASK XGBoost to run it.
         nrows: default = None: None means all rows will be utilized. If you want to sample "N" rows, set nrows=N.
@@ -1555,7 +1555,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     #########  This is for pandas dataframes only ##################
                     #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
                     try:
-                        dtrain = xgb.DMatrix(X_train, y_train, enable_categorical=True, feature_names=cols_sel)
+                        dtrain = xgb.DMatrix(X_train, y_train, enable_categorical=False, feature_names=cols_sel)
                         bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
                     except Exception as error_msg:
                         print(error_msg)
@@ -1564,7 +1564,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     ### the dtrain syntax can only be used xgboost 1.50 or greater. Dont use it until then.
                     ### use the next line for new xgboost version 1.5.1 abd higher #########
                     try:
-                        dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, enable_categorical=True, feature_names=cols_sel)
+                        dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, enable_categorical=False, feature_names=cols_sel)
                         #### SYNTAX BELOW WORKS WELL. BUT YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
                         bst = xgb.dask.train(client, params, dtrain, num_boost_round=num_rounds)
                     except Exception as error_msg:
@@ -3315,20 +3315,18 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
             score_name = 'Accuracy'
             if multi_label:
                 if isinstance(y_train, np.ndarray):
-                    num_class = np.unique(y_train).max()
+                    num_class = np.unique(y_train).max() + 1
                 else:
-                    num_class = y_train.nunique().max()
+                    num_class = y_train.nunique().max() 
             else:
                 if isinstance(y_train, np.ndarray):
-                    num_class = np.unique(y_train)
+                    num_class = np.unique(y_train).max() + 1
                 else:
                     num_class = y_train.nunique()
 
-    es = lgbm.early_stopping(stopping_rounds=10, verbose=False)
     early_stopping_params={"early_stopping_rounds":10,
                 "eval_metric" : metric, 
                 "eval_set" : [[x_test, y_test]],
-                "callbacks" : [es]
                }
     if modeltype == 'Regression':
         ## there is no num_class in regression for LGBM model ##
@@ -3629,10 +3627,18 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
             eval_metric = 'mlogloss'
             shuffle = True
             stratified = True
-            num_class = y_train.nunique().max()
+            if multi_label:
+                num_class = y_train.nunique().max() 
+            else:
+                if isinstance(y_train, np.ndarray):
+                    num_class = np.unique(y_train).max() + 1
+                elif isinstance(y_train, pd.Series):
+                    num_class = y_train.nunique()
+                else:
+                    num_class = y_train.nunique().max() 
             score_name = 'Accuracy'
 
-
+    
     final_params = {
           'booster' :'gbtree',
           'colsample_bytree': 0.5,
@@ -3717,6 +3723,7 @@ def xgboost_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y,
     early_stopping = 10
     start_time = time.time()
     if str(model).split("(")[0] == 'RandomizedSearchCV':
+        
         model.fit(x_train, y_train, **early_stopping_params)
         print('Time taken for Hyper Param tuning of XGB (in minutes) = %0.1f' %(
                                         (time.time()-start_time)/60))
@@ -3865,9 +3872,12 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
         eval_metric = 'rmse'
     else:
         if multi_label:
-            num_class = Y_XGB.nunique().max()
+            num_class = Y_XGB.nunique().max() 
         else:
-            num_class = Y_XGB.nunique()
+            if isinstance(Y_XGB, np.ndarray):
+                num_class = np.unique(Y_XGB).max() + 1
+            else:
+                num_class = Y_XGB.nunique()
         if num_class == 2:
             num_class = 1
         if num_class <= 2:
@@ -3897,27 +3907,15 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
 
     #testing for GPU
     model = xgb.set_params(**param)
-    if X_XGB.shape[0] >= 1000000:
-        hyper_frac = 0.1
-    elif X_XGB.shape[0] >= 100000:
-        hyper_frac = 0.2
-    elif X_XGB.shape[0] >= 10000:
-        hyper_frac = 0.3
-    else:
-        hyper_frac = 0.4
-    #### now select a random sample from X_XGB ##
+    hyper_frac = 0.2
+    #### now select a random sample from X_XGB and Y_XGB ################
     if modeltype == 'Regression':
-        X_XGB_sample = X_XGB[:int(hyper_frac*X_XGB.shape[0])]
-        Y_XGB_sample = Y_XGB[:int(hyper_frac*X_XGB.shape[0])]
+        X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac,
+                                        random_state=99)
     else:
-        X_XGB_sample = X_XGB.sample(frac=hyper_frac, random_state=99)
-        Y_XGB_sample = Y_XGB.sample(frac=hyper_frac, random_state=99)
-    #########  Now set the number of rows we need to tune hyper params ###
-    nums = int(X_XGB_sample.shape[0]*0.9)
-    X_train = X_XGB_sample[:nums]
-    X_valid = X_XGB_sample[nums:]
-    Y_train = Y_XGB_sample[:nums]
-    Y_valid = Y_XGB_sample[nums:]
+        X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac,
+                                        random_state=99, stratify=Y_XGB)
+
     scoreFunction = { "precision": "precision_weighted","recall": "recall_weighted"}
     params = {
         'learning_rate': sp.stats.uniform(scale=1),
@@ -3941,7 +3939,7 @@ def simple_XGBoost_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
 
     X_train, Y_train, X_valid, Y_valid = data_transform(X_train, Y_train, X_valid, Y_valid,
                                 modeltype, multi_label, scaler=scaler, enc_method=enc_method)
-
+    
     gbm_model = xgboost_model_fit(model, X_train, Y_train, X_valid, Y_valid, modeltype,
                          log_y, params, cpu_params, early_stopping_params)
     #############################################################################
@@ -4314,27 +4312,15 @@ def simple_LightGBM_model(X_XGB, Y_XGB, X_XGB_test, log_y=False, GPU_flag=False,
             Y_XGB.loc[Y_XGB==0] = 1e-15  ### just set something that is zero to a very small number
 
     #testing for GPU
-    if X_XGB.shape[0] >= 1000000:
-        hyper_frac = 0.1
-    elif X_XGB.shape[0] >= 100000:
-        hyper_frac = 0.2
-    elif X_XGB.shape[0] >= 10000:
-        hyper_frac = 0.3
-    else:
-        hyper_frac = 0.4
-    #### now select a random sample from X_XGB ##
+    hyper_frac = 0.2
+    #### now select a random sample from X_XGB and Y_XGB ################
     if modeltype == 'Regression':
-        X_XGB_sample = X_XGB[:int(hyper_frac*X_XGB.shape[0])]
-        Y_XGB_sample = Y_XGB[:int(hyper_frac*X_XGB.shape[0])]
+        X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac,
+                                        random_state=99)
     else:
-        X_XGB_sample = X_XGB.sample(frac=hyper_frac, random_state=99)
-        Y_XGB_sample = Y_XGB.sample(frac=hyper_frac, random_state=99)
-    #########  Now set the number of rows we need to tune hyper params ###
-    nums = int(X_XGB_sample.shape[0]*0.9)
-    X_train = X_XGB_sample[:nums]
-    X_valid = X_XGB_sample[nums:]
-    Y_train = Y_XGB_sample[:nums]
-    Y_valid = Y_XGB_sample[nums:]
+        X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac,
+                                        random_state=99, stratify=Y_XGB)
+
     scoreFunction = { "precision": "precision_weighted","recall": "recall_weighted"}
 
     X_train, Y_train, X_valid, Y_valid = data_transform(X_train, Y_train, X_valid, Y_valid,

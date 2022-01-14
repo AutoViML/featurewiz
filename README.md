@@ -5,7 +5,7 @@
 
 ## Update (Jan 2022)
 <ol>
-<li><b>Featurewiz is now upgraded with XGBOOST 1.5.1 for DASK for blazing fast performance</b> even for very large data sets!
+<li><b>Featurewiz is now upgraded with XGBOOST 1.5.1 for DASK for blazing fast performance</b> even for very large data sets! Set `dask_xgboost_flag = True` to run dask + xgboost.
 <li><b>Featurewiz now runs with a default setting of `nrows=None`.</b> This means it will run using all rows. But if you want it to run faster, then you can change `nrows` to 1000 or whatever, so it will sample that many rows and run.
 <li><b>Featurewiz has four (4) new fast model builder functions:</b> that you can use to build highly performant models with the features selected by featurewiz. They are:<br>
 1. `simple_LightGBM_model()` - simple regression and classification with one target label<br>
@@ -149,7 +149,7 @@ Load a data set (any CSV or text file) into a Pandas dataframe and give it the n
 ```
 outputs = FW.featurewiz(dataname, target, corr_limit=0.70, verbose=2, sep=',', 
 		header=0, test_data='',feature_engg='', category_encoders='',
-		dask_xgboost_flag=True, nrows=None)
+		dask_xgboost_flag=False, nrows=None)
 ```
 
 `outputs`: There will always be multiple objects in output. The objects in that tuple can vary:
@@ -199,7 +199,7 @@ outputs = FW.featurewiz(dataname, target, corr_limit=0.70, verbose=2, sep=',',
     For feature value i, James-Stein estimator returns a weighted average of:
     The mean target value for the observed feature value i.
     The mean target value (regardless of the feature value).
-    - `dask_xgboost_flag`: Default is True and uses dask_xgboost estimator. You can turn it off if it gives an error. Then it will use pandas and xgboost basic to do the job. It may be a little slower.
+    - `dask_xgboost_flag`: Default is False. Set to True to use dask_xgboost estimator. You can turn it off if it gives an error. Then it will use pandas and regular xgboost to do the job.
     - `nrows`: default `None`. You can set the number of rows to read from your datafile if it is too large to fit into either dask or pandas. But you won't have to if you use dask. 
 **Return values**
 -   `outputs`: Output is always a tuple. We can call our outputs in that tuple: out1 and out2.

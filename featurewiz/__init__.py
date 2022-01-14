@@ -35,7 +35,7 @@ version_number = __version__
 print("""%s DASK version = %s. nrows=None uses all rows. Set nrows=1000 to randomly sample fewer rows.
 output = featurewiz(dataname, target, corr_limit=0.70, verbose=2, sep=',', 
 		header=0, test_data='',feature_engg='', category_encoders='',
-		dask_xgboost_flag=True, nrows=None)
+		dask_xgboost_flag=False, nrows=None)
 Create new features via 'feature_engg' flag : ['interactions','groupby','target']
                                 """ %(module_type, version_number))
 ################################################################################
