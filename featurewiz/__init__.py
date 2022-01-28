@@ -26,6 +26,7 @@ from .stacking_models import Stacking_Classifier, Blending_Regressor
 from .featurewiz import EDA_binning_numeric_column_displaying_bins, FE_add_lagged_targets_by_date_category
 from .featurewiz import FE_convert_mixed_datatypes_to_string, FE_drop_rows_with_infinity
 from .featurewiz import EDA_find_columns_with_infinity, FE_split_list_into_columns
+from .featurewiz import FeatureWiz
 ################################################################################
 if __name__ == "__main__":
     module_type = 'Running'

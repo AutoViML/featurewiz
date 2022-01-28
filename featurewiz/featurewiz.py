@@ -187,6 +187,7 @@ def classify_columns(df_preds, verbose=0):
     var_df = pd.Series(dict(train.dtypes)).reset_index(drop=False).rename(
                         columns={0:'type_of_column'})
     sum_all_cols['cols_delete'] = cols_delete
+
     var_df['bool'] = var_df.apply(lambda x: 1 if x['type_of_column'] in ['bool','object']
                         and len(train[x['index']].value_counts()) == 2 else 0, axis=1)
     string_bool_vars = list(var_df[(var_df['bool'] ==1)]['index'])
@@ -3434,3 +3435,49 @@ def select_rows_from_dataframe(train_dataframe, targets, nrows_limit, DS_LEN='')
         train_small = train_dataframe.sample(n=nrows_limit, replace=True, random_state=99)
     return train_small
 ################################################################################################
+class FeatureWiz(BaseEstimator, TransformerMixin):
+    def __init__(self, corr_limit=0.70, verbose=2, sep=',', 
+        header=0, feature_engg='', category_encoders='',
+        dask_xgboost_flag=False, nrows=None):
+        self.features = None
+        self.corr_limit= corr_limit
+        self.verbose=verbose
+        self.sep=sep
+        self.header=header
+        self.test_data = "" ## leave testdata permanently as empty for now ##
+        self.feature_engg=feature_engg
+        self.category_encoders=category_encoders
+        self.dask_xgboost_flag=dask_xgboost_flag
+        self.nrows=nrows
+
+    def fit(self, X, y):
+        start_time = time.time()
+        if isinstance(X, np.ndarray):
+            print('X input must be a dataframe since we use column names to build data pipelines. Returning')
+            return {}, {}
+        df = pd.concat([X, y], axis=1)
+        if isinstance(y, pd.Series):
+            target = y.name
+        elif isinstance(y, pd.DataFrame):
+            target = y.columns.tolist()
+        elif isinstance(X, np.ndarray):
+            print('y must be a pd.Series or pd.DataFrame since we use column names to build data pipeline. Returning')
+            return {}, {}
+        ###### This helps find all the predictor variables 
+        cols = X.columns.tolist()
+        #### Send target variable as it is so that y_train is analyzed properly ###
+        # Select features using featurewiz
+        X_sel, features = featurewiz(df, target, self.corr_limit, self.verbose, self.sep, 
+                self.header, self.test_data, self.feature_engg, self.category_encoders,
+                self.dask_xgboost_flag, self.nrows)
+        
+        # Convert the remaining column names back to integers and drop the
+        difftime = max(1, int(time.time()-start_time))
+        print('    Time taken to create entire pipeline = %s second(s)' %difftime)
+        # column of labels
+        self.features = features
+        return self
+
+    def transform(self, X):
+        return X[self.features]
+    ###################################################################################################

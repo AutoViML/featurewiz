@@ -5,6 +5,16 @@
 
 ## Update (Jan 2022)
 <ol>
+<li><b>FeatureWiz as of version 0.0.90 or higher is a scikit-learn compatible feature selection transformer. You can perform fit and predict as follows. You will get a Transformer that can select the top variables from your dataset.
+
+```
+from featurewiz import FeatureWiz
+features = FeatureWiz(corr_limit=0.70, feature_engg='', category_encoders='', dask_xgboost_flag=False, nrows=None, verbose=2)
+X_train_selected = features.fit_transform(X_train, y_train)
+X_test_selected = features.transform(X_test)
+features.features  ### provides the list of selected features ###
+```
+
 <li><b>Featurewiz is now upgraded with XGBOOST 1.5.1 for DASK for blazing fast performance</b> even for very large data sets! Set `dask_xgboost_flag = True` to run dask + xgboost.
 <li><b>Featurewiz now runs with a default setting of `nrows=None`.</b> This means it will run using all rows. But if you want it to run faster, then you can change `nrows` to 1000 or whatever, so it will sample that many rows and run.
 <li><b>Featurewiz has four (4) new fast model builder functions:</b> that you can use to build highly performant models with the features selected by featurewiz. They are:<br>
@@ -138,8 +148,17 @@ pip install -r requirements.txt
 
 ## Usage
 
-In the same directory, open a Jupyter Notebook and use this line to import the .py file:
+As of Jan 2022, you now invoke featurewiz as a scikit-learn compatible fit and predict transformer pipeline. See syntax below.
 
+```
+from featurewiz import FeatureWiz
+features = FeatureWiz(corr_limit=0.70, feature_engg='', category_encoders='', dask_xgboost_flag=False, nrows=None, verbose=2)
+X_train_selected = features.fit_transform(X_train, y_train)
+X_test_selected = features.transform(X_test)
+features.features  ### provides the list of selected features ###
+```
+
+Alternatively, you can continue to use the existing featurewiz function as it is now:
 ```
 import featurewiz as FW
 ```
