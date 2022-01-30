@@ -39,7 +39,7 @@ from category_encoders.glmm import GLMMEncoder
 from sklearn.preprocessing import LabelEncoder
 from category_encoders.wrapper import PolynomialWrapper
 from .encoders import FrequencyEncoder
-from .ml_models import analyze_problem_type, My_LabelEncoder
+from .ml_models import analyze_problem_type, My_LabelEncoder, get_sample_weight_array
 from . import settings
 settings.init()
 ################################################################################
@@ -1515,7 +1515,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     #########  This is for pandas dataframes only ##################
                     #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
                     try:
-                        dtrain = xgb.DMatrix(X_train, y_train, enable_categorical=False, feature_names=cols_sel)
+                        if settings.modeltype != 'Regression':
+                            wt_array = get_sample_weight_array(y_train)
+                            dtrain = xgb.DMatrix(X_train, label=y_train, weight=wt_array, enable_categorical=False, feature_names=cols_sel)
+                        else:
+                            dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=False, feature_names=cols_sel)
                         bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
                     except Exception as error_msg:
                         print(error_msg)
@@ -1594,7 +1598,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if isinstance(test_data, str) or test_data is None:
         print(f'Returning list of {len(important_features)} important features and dataframe.')
         if len(np.intersect1d(train_ids.columns.tolist(),dataname.columns.tolist())) > 0:
-            return important_features, dataname[important_features+target]
+            return dataname[important_features+target], important_features
         else:
             dataname = pd.concat([train_ids, dataname], axis=1)
             return dataname[idcols+important_features+target], important_features
@@ -3470,7 +3474,6 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         X_sel, features = featurewiz(df, target, self.corr_limit, self.verbose, self.sep, 
                 self.header, self.test_data, self.feature_engg, self.category_encoders,
                 self.dask_xgboost_flag, self.nrows)
-        
         # Convert the remaining column names back to integers and drop the
         difftime = max(1, int(time.time()-start_time))
         print('    Time taken to create entire pipeline = %s second(s)' %difftime)

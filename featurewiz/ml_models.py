@@ -205,6 +205,7 @@ def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classifica
     feature_to_encode = X_train.columns[X_train.dtypes == 'O'].tolist()
     #print('features to label encode: %s' %feature_to_encode)
     #### Do label encoding now #################
+    
     if enc_method == 'label':
         for feat in feature_to_encode:
             # Initia the encoder model
@@ -370,6 +371,10 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
             lgb = MultiOutputClassifier(lgb)
     ########   Now let's perform randomized search to find best hyper parameters ######
     if random_search_flag:
+        if modeltype == 'Regression':
+            scoring = 'neg_mean_squared_error'
+        else:
+            scoring = 'precision'
         model = RandomizedSearchCV(lgb,
                    param_distributions = rand_params,
                    n_iter = 10,
@@ -377,6 +382,8 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
                    random_state = 99,
                    n_jobs=-1,
                    cv = 3,
+                   refit=True,
+                   scoring = scoring,
                    verbose = False)
         ##### This is where we search for hyper params for model #######
         if multi_label:
@@ -480,39 +487,29 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     scoreFunction = { "precision": "precision_weighted","recall": "recall_weighted"}
     random_search_flag =  True
 
-    if multi_label:
-        #### We need a small validation data set for hyper-param tuning #########################
-        hyper_frac = 0.2
-        #### now select a random sample from X_XGB ##
-        if modeltype == 'Regression':
-            X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
-                                random_state=999)
-        else:
-            X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
-                                random_state=999, stratify = Y_XGB)
-        
-        #### First convert test data into numeric using train data ###
-        X_train, Y_train, X_valid, Y_valid = data_transform(X_train, Y_train, X_valid, Y_valid,
-                                    modeltype, multi_label, scaler=scaler, enc_method=enc_method)
-
-        ######  This step is needed for making sure y is transformed to log_y ####################
-        if modeltype == 'Regression' and log_y:
-                Y_train = np.log(Y_train)
-
-        ######  Time to hyper-param tune model using randomizedsearchcv and partial train data #########
-        num_boost_round = xgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
-                             multi_label, log_y, num_boost_round=100)
-
+      #### We need a small validation data set for hyper-param tuning #########################
+    hyper_frac = 0.2
+    #### now select a random sample from X_XGB ##
+    if modeltype == 'Regression':
+        X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
+                            random_state=999)
     else:
-        ######  This step is needed for making sure y is transformed to log_y ######
-        if modeltype == 'Regression' and log_y:
-            ######  Time to hyper-param tune model using randomizedsearchcv and full train data #########
-            num_boost_round = xgbm_model_fit(random_search_flag, X_XGB, np.log(Y_XGB), "", "", modeltype,
-                                 multi_label, log_y, num_boost_round=100)
-        else:
-            ######  Time to hyper-param tune model using randomizedsearchcv and full train data #########
-            num_boost_round = xgbm_model_fit(random_search_flag, X_XGB, Y_XGB, "", "", modeltype,
-                                 multi_label, log_y, num_boost_round=100)
+        X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
+                            random_state=999, stratify = Y_XGB)
+        
+    ######  This step is needed for making sure y is transformed to log_y ####################
+    if modeltype == 'Regression' and log_y:
+            Y_train = np.log(Y_train)
+            Y_valid = np.log(Y_valid)
+
+    #### First convert test data into numeric using train data ###
+    X_train, Y_train, X_valid, Y_valid = data_transform(X_train, Y_train, X_valid, Y_valid,
+                                modeltype, multi_label, scaler=scaler, enc_method=enc_method)
+
+    
+    ######  Time to hyper-param tune model using randomizedsearchcv and partial train data #########
+    num_boost_round = xgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
+                         multi_label, log_y, num_boost_round=100)
 
     #### First convert test data into numeric using train data ###############################
     if not isinstance(X_XGB_test, str):
@@ -525,6 +522,7 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
                                 multi_label, log_y, num_boost_round=num_boost_round)
     
     #############  Time to get feature importances based on full train data   ################
+    
     if multi_label:
         for i,target_name in enumerate(targets):
             each_model = model.estimators_[i]
@@ -573,9 +571,9 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     if multi_label:
         for i,target_name in enumerate(targets):
             each_model = model.estimators_[i]
-            xgb.plot_importance(each_model, title='XGBoost model feature importances for %s' %target_name)
+            xgb.plot_importance(each_model, importance_type='gain', title='XGBoost model feature importances for %s' %target_name)
     else:
-        xgb.plot_importance(model, title='XGBoost final model feature importances')
+        xgb.plot_importance(model, importance_type='gain', title='XGBoost final model feature importances')
     print('Returning the following:')
     print('    Model = %s' %model)
     if modeltype == 'Regression':
@@ -592,9 +590,8 @@ import xgboost as xgb
 def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modeltype,
                          multi_label, log_y, num_boost_round=100):
     start_time = time.time()
-    if multi_label:
-        rand_params = {
-                }
+    if multi_label and not random_search_flag:
+        model = num_boost_round
     else:
         rand_params = {
             'learning_rate': sp.stats.uniform(scale=1),
@@ -610,6 +607,7 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
         stratified = False
         num_class = 0
         score_name = 'Score'
+        scale_pos_weight = 1
     else:
         if modeltype =='Binary_Classification':
             objective='binary:logistic'
@@ -618,6 +616,7 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
             stratified = True
             num_class = 1
             score_name = 'Error Rate'
+            scale_pos_weight = get_scale_pos_weight(y_train)
         else:
             objective = 'multi:softprob'
             eval_metric = 'merror'  ## dont foolishly change to auc or aucpr since it doesnt work in finding feature imps later
@@ -633,8 +632,8 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
                 else:
                     num_class = y_train.nunique().max() 
             score_name = 'Multiclass Error Rate'
-
-    
+            scale_pos_weight = get_scale_pos_weight(y_train)
+    ######################################################
     final_params = {
           'booster' :'gbtree',
           'colsample_bytree': 0.5,
@@ -650,29 +649,40 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
           'eval_metric': eval_metric,
           'verbosity': 0,
           'n_jobs': -1,
-          #grow_policy='lossguide',
+          'scale_pos_weight':scale_pos_weight,
           'num_class': num_class,
           'silent': True
             }
     #######  This is where we split into single and multi label ############
     if multi_label:
         ######   This is for Multi_Label problems ############
-        if modeltype == 'Regression':
-            clf = XGBRegressor(n_jobs=-1, random_state=999, max_depth=6)
-            clf.set_params(**final_params)
-            model = MultiOutputRegressor(clf)
-        else:
-            clf = XGBClassifier(n_jobs=-1, random_state=999, max_depth=6)
-            clf.set_params(**final_params)
-            model = MultiOutputClassifier(clf)
+        rand_params = {'estimator__learning_rate':[0.1, 0.5, 0.01, 0.05],
+          'estimator__n_estimators':[50, 100, 150, 200, 250],
+          'estimator__gamma':[2, 4, 8, 16, 32],
+          'estimator__max_depth':[3, 5, 8, 12],
+          }
         if random_search_flag:
+            if modeltype == 'Regression':
+                clf = XGBRegressor(n_jobs=-1, random_state=999, max_depth=6)
+                clf.set_params(**final_params)
+                model = MultiOutputRegressor(clf, n_jobs=-1)
+            else:
+                clf = XGBClassifier(n_jobs=-1, random_state=999, max_depth=6)
+                clf.set_params(**final_params)
+                model = MultiOutputClassifier(clf, n_jobs=-1)
+            if modeltype == 'Regression':
+                scoring = 'neg_mean_squared_error'
+            else:
+                scoring = 'precision'
             model = RandomizedSearchCV(model,
                        param_distributions = rand_params,
-                       n_iter = 10,
+                       n_iter = 15,
                        return_train_score = True,
                        random_state = 99,
                        n_jobs=-1,
                        cv = 3,
+                       refit=True,
+                       scoring = scoring,
                        verbose = False)        
             model.fit(x_train, y_train)
             print('Time taken for Hyper Param tuning of multi_label XGBoost (in minutes) = %0.1f' %(
@@ -680,7 +690,7 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
             cv_results = pd.DataFrame(model.cv_results_)
             print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
             ### In this case, there is no boost rounds so just return the default num_boost_round
-            return num_boost_round
+            return model.best_estimator_
         else:
             try:
                 model.fit(x_train, y_train)
@@ -688,8 +698,11 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
                 print('Multi_label XGBoost model is crashing during training. Please check your inputs and try again...')
             return model
     else:
-        
         #### This is for Single Label Problems #############
+        #if modeltype != 'Regression':
+        #    wt_array = get_sample_weight_array(y_train)
+        #    dtrain = xgb.DMatrix(x_train, label=y_train, weight=wt_array)
+        #else:
         dtrain = xgb.DMatrix(x_train, label=y_train)
         ########   Now let's perform randomized search to find best hyper parameters ######
         if random_search_flag:
@@ -715,6 +728,99 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
                 print('XGBoost model is crashing. Please check your inputs and try again...')
             return model
 ####################################################################################
+# Calculate class weight
+from sklearn.utils.class_weight import compute_class_weight
+import copy
+from collections import Counter
+def find_rare_class(classes, verbose=0):
+    ######### Print the % count of each class in a Target variable  #####
+    """
+    Works on Multi Class too. Prints class percentages count of target variable.
+    It returns the name of the Rare class (the one with the minimum class member count).
+    This can also be helpful in using it as pos_label in Binary and Multi Class problems.
+    """
+    counts = OrderedDict(Counter(classes))
+    total = sum(counts.values())
+    if verbose >= 1:
+        print('       Class  -> Counts -> Percent')
+        sorted_keys = sorted(counts.keys())
+        for cls in sorted_keys:
+            print("%12s: % 7d  ->  % 5.1f%%" % (cls, counts[cls], counts[cls]/total*100))
+    if type(pd.Series(counts).idxmin())==str:
+        return pd.Series(counts).idxmin()
+    else:
+        return int(pd.Series(counts).idxmin())
+###################################################################################
+def get_sample_weight_array(y_train):
+    y_train = copy.deepcopy(y_train)    
+    if isinstance(y_train, np.ndarray):
+        y_train = pd.Series(y_train)
+    elif isinstance(y_train, pd.Series):
+        pass
+    elif isinstance(y_train, pd.DataFrame):
+        ### if it is a dataframe, return only if it s one column dataframe ##
+        y_train = y_train.iloc[:,0]
+    else:
+        ### if you cannot detect the type or if it is a multi-column dataframe, ignore it
+        return None
+    classes = np.unique(y_train)
+    class_weights = compute_class_weight('balanced', classes=classes, y=y_train)
+    if len(class_weights[(class_weights < 1)]) > 0:
+        ### if the weights are less than 1, then divide them until the lowest weight is 1.
+        class_weights = class_weights/min(class_weights)
+    else:
+        class_weights = (class_weights)
+    ### even after you change weights if they are all below 1.5 do this ##
+    #if (class_weights<=1.5).all():
+    #    class_weights = np.around(class_weights+0.49)
+    class_weights = class_weights.astype(int)    
+    wt = dict(zip(classes, class_weights))
+
+    ### Map class weights to corresponding target class values
+    ### You have to make sure class labels have range (0, n_classes-1)
+    wt_array = y_train.map(wt)
+    #set(zip(y_train, wt_array))
+
+    # Convert wt series to wt array
+    wt_array = wt_array.values
+    return wt_array
+###############################################################################
+from collections import OrderedDict
+def get_scale_pos_weight(y_input):    
+    y_input = copy.deepcopy(y_input)
+    if isinstance(y_input, np.ndarray):
+        y_input = pd.Series(y_input)
+    elif isinstance(y_input, pd.Series):
+        pass
+    elif isinstance(y_input, pd.DataFrame):
+        ### if it is a dataframe, return only if it s one column dataframe ##
+        y_input = y_input.iloc[:,0]
+    else:
+        ### if you cannot detect the type or if it is a multi-column dataframe, ignore it
+        return None
+    classes = np.unique(y_input)
+    rare_class = find_rare_class(y_input)
+    xp = Counter(y_input)
+    class_weights = compute_class_weight('balanced', classes=classes, y=y_input)
+    
+    if len(class_weights[(class_weights < 1)]) > 0:
+        ### if the weights are less than 1, then divide them until the lowest weight is 1.
+        class_weights = class_weights/min(class_weights)
+    else:
+        class_weights = (class_weights)
+    ### even after you change weights if they are all below 1.5 do this ##
+    #if (class_weights<=1.5).all():
+    #    class_weights = np.around(class_weights+0.49)
+
+    class_weights = class_weights.astype(int)
+    class_weights[(class_weights<1)]=1
+    class_rows = class_weights*[xp[x] for x in classes]
+    class_rows = class_rows.astype(int)
+    class_weighted_rows = dict(zip(classes,class_weights))
+    rare_class_weight = class_weighted_rows[rare_class]
+    print('    For class %s, weight = %s' %(rare_class, rare_class_weight))
+    return rare_class_weight
+############################################################################################
 def xgboost_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, params, 
                     cpu_params, early_stopping_params={}):
     early_stopping = 10
@@ -747,11 +853,18 @@ def xgboost_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y,
             if str(model).split("(")[0] == 'RandomizedSearchCV':
                 xgb = model.estimator_
                 xgb.set_params(**cpu_params)
+                if modeltype == 'Regression':
+                    scoring = 'neg_mean_squared_error'
+                else:
+                    scoring = 'precision'
                 model = RandomizedSearchCV(xgb,
-                                                   param_distributions = params,
-                                                   n_iter = 10,
-                                                   n_jobs=-1,
-                                                   cv=5)
+                                           param_distributions = params,
+                                           n_iter = 15,
+                                           n_jobs=-1,
+                                           cv = 3,
+                                           scoring=scoring,
+                                           refit=True,
+                                           )
                 model.fit(x_train, y_train, **early_stopping_params)
                 return model
             else:
@@ -930,15 +1043,20 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
                 "eval_metric" : eval_metric, 
                 "eval_set" : [[X_valid, Y_valid]]
                }
-
+    if modeltype == 'Regression':
+        scoring = 'neg_mean_squared_error'
+    else:
+        scoring = 'precision'
     model = RandomizedSearchCV(xgb.set_params(**param),
                                        param_distributions = params,
-                                       n_iter = 10,
+                                       n_iter = 15,
                                        return_train_score = True,
                                        random_state = 99,
                                        n_jobs=-1,
-                                       #cv = 3,
-                                        verbose = False)
+                                       cv = 3,
+                                       refit=True,
+                                       scoring=scoring,
+                                       verbose = False)
 
     X_train, Y_train, X_valid, Y_valid = data_transform(X_train, Y_train, X_valid, Y_valid,
                                 modeltype, multi_label, scaler=scaler, enc_method=enc_method)
@@ -1166,8 +1284,9 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
     ######  This step is needed for making sure y is transformed to log_y ######
     if modeltype == 'Regression' and log_y:
             Y_train = np.log(Y_train)
-    random_search_flag =  True
+            Y_valid = np.log(Y_valid)
 
+    random_search_flag =  True
     ######  Time to hyper-param tune model using randomizedsearchcv #########
     gbm_model = lightgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
                          multi_label, log_y, model="")
