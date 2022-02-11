@@ -55,7 +55,8 @@ def analyze_problem_type(train, target, verbose=0) :
     train = copy.deepcopy(train)
     if isinstance(train, pd.Series):
         train = pd.DataFrame(train)
-    cat_limit = 30 ### this determines the number of categories to name integers as classification ##
+    ### the number of categories cannot be more than 2% of train size ####
+    cat_limit = int(train.shape[0]*0.02) ### this determines the number of categories to name integers as classification ##
     float_limit = 15 ### this limits the number of float variable categories for it to become cat var
     if isinstance(target, str):
         target = [target]
@@ -66,14 +67,14 @@ def analyze_problem_type(train, target, verbose=0) :
         targ = target[0]
         model_label = 'Multi_Label'
     ####  This is where you detect what kind of problem it is #################
-    if  train[targ].dtype in ['int64', 'int32','int16']:
+    if  train[targ].dtype in ['int64', 'int32','int16','int8']:
         if len(train[targ].unique()) <= 2:
             model_class = 'Binary_Classification'
         elif len(train[targ].unique()) > 2 and len(train[targ].unique()) <= cat_limit:
             model_class = 'Multi_Classification'
         else:
             model_class = 'Regression'
-    elif  train[targ].dtype in ['float16','float32','float64']:
+    elif  train[targ].dtype in ['float16','float32','float64','float']:
         if len(train[targ].unique()) <= 2:
             model_class = 'Binary_Classification'
         elif len(train[targ].unique()) > 2 and len(train[targ].unique()) <= float_limit:
@@ -632,7 +633,7 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
                 else:
                     num_class = y_train.nunique().max() 
             score_name = 'Multiclass Error Rate'
-            scale_pos_weight = get_scale_pos_weight(y_train)
+            scale_pos_weight = 1  ### use sample_weights in multi-class settings ##
     ######################################################
     final_params = {
           'booster' :'gbtree',
@@ -699,11 +700,11 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
             return model
     else:
         #### This is for Single Label Problems #############
-        #if modeltype != 'Regression':
-        #    wt_array = get_sample_weight_array(y_train)
-        #    dtrain = xgb.DMatrix(x_train, label=y_train, weight=wt_array)
-        #else:
-        dtrain = xgb.DMatrix(x_train, label=y_train)
+        if modeltype == 'Multi_Classification':
+            wt_array = get_sample_weight_array(y_train)
+            dtrain = xgb.DMatrix(x_train, label=y_train, weight=wt_array)
+        else:
+            dtrain = xgb.DMatrix(x_train, label=y_train)
         ########   Now let's perform randomized search to find best hyper parameters ######
         if random_search_flag:
             cv_results = xgb.cv(final_params, dtrain, num_boost_round=400, nfold=5, 
@@ -842,10 +843,10 @@ def xgboost_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y,
             else:
                 if modeltype == 'Binary_Classification':
                     objective='binary:logistic'
-                    eval_metric = 'error'
+                    eval_metric = 'auc'
                 else:
                     objective='multi:softprob'
-                    eval_metric = 'merror'
+                    eval_metric = 'auc'
                 model.fit(x_train, y_train, early_stopping_rounds=early_stopping, eval_metric = eval_metric,
                                 eval_set=[(x_test, y_test)], verbose=0)
         except:
@@ -996,12 +997,12 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
             num_class = 1
         if num_class <= 2:
             objective='binary:logistic'
-            eval_metric = 'error'
-            score_name = 'Error Rate'
+            eval_metric = 'auc'
+            score_name = 'ROC AUC'
         else:
             objective='multi:softprob'
-            eval_metric = 'merror'
-            score_name = 'Multiclass Error Rate'
+            eval_metric = 'auc'
+            score_name = 'Multiclass ROC AUC'
         xgb = XGBClassifier(
                          booster = 'gbtree',
                          colsample_bytree=0.5,
@@ -1159,21 +1160,34 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     start_time1 = time.time()
     model = gbm_model.best_estimator_
     model.fit(X_XGB_train_enc, Y_XGB)
-    print('    Time taken for training XGBoost (in minutes) = %0.1f' %(
-             (time.time()-start_time1)/60))
+    if not isinstance(X_XGB_test, str):
+        pred_xgbs = model.predict(X_XGB_test_enc)
+        if modeltype != 'Regression':
+            pred_probas = model.predict_proba(X_XGB_test_enc)
+        else:
+            pred_probas = np.array([])
+    else:
+        pred_xgbs = np.array([])
+        pred_probas = np.array([])
+    print('    Time taken for training XGBoost (in minutes) = %0.1f' %((time.time()-start_time1)/60))
     if verbose:
         plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
                             modeltype=modeltype, top_num='all')
     print('Returning the following:')
-    print('    Model = %s' %model)
     if modeltype == 'Regression':
         if not isinstance(X_XGB_test, str):
             print('    final predictions', pred_xgbs[:10])
+        else:
+            print('    no X_test given. Returning empty array.')
+        print('    Model = %s' %model)
         return (pred_xgbs, model)
     else:
         if not isinstance(X_XGB_test, str):
             print('    final predictions (may need to be transformed to original labels)', pred_xgbs[:10])
             print('    predicted probabilities', pred_probas[:1])
+        else:
+            print('    no X_test given. Returning empty array.')
+        print('    Model = %s' %model)
         return (pred_xgbs, pred_probas, model)
 ##################################################################################
 def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
@@ -1480,7 +1494,7 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
         pred_probas = []
     #### First convert test data into numeric using train data ###
     if not isinstance(X_XGB_test, str):
-        _,_, X_XGB_test_enc,_ = data_transform(X_XGB, Y_XGB, X_XGB_test, "",
+        X_XGB_train_enc,_, X_XGB_test_enc,_ = data_transform(X_XGB, Y_XGB, X_XGB_test, "",
                                 modeltype, multi_label, scaler=scaler, enc_method=enc_method)
     #### now run all the folds each one by one ##################################
     start_time = time.time()
@@ -1546,20 +1560,40 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
             score = balanced_accuracy_score(y_test, preds)
             print('AUC score in fold %d = %0.1f%%' %(folds+1, score*100))
         scores.append(score)
-    print('    Time taken for training Light GBM (in minutes) = %0.1f' %(
-             (time.time()-start_time)/60))
+    print("\nCross-validated average AUC scores are: ", np.sum(scores)/len(scores))
+    #############  F I N A L   T R A I N I N G  ###################################
+    print('Training model on full train dataset...')
+    start_time1 = time.time()
+    model = gbm_model.best_estimator_
+    model.fit(X_XGB_train_enc, Y_XGB)
+    if not isinstance(X_XGB_test, str):
+        pred_xgbs = model.predict(X_XGB_test_enc)
+        if modeltype != 'Regression':
+            pred_probas = model.predict_proba(X_XGB_test_enc)
+        else:
+            pred_probas = np.array([])
+    else:
+        pred_xgbs = np.array([])
+        pred_probas = np.array([])
+    print('    Time taken for training LightGBM (in minutes) = %0.1f' %((time.time()-start_time1)/60))
     if verbose:
         plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
                             modeltype=modeltype, top_num='all')
-    print("\nCross-validated average AUC scores are: ", np.sum(scores)/len(scores))
     print('Returning the following:')
-    print('    Model = %s' %model)
     if modeltype == 'Regression':
-        print('    final predictions', pred_xgbs[:10])
+        if not isinstance(X_XGB_test, str):
+            print('    final predictions', pred_xgbs[:10])
+        else:
+            print('    no X_test given. Returning empty array.')
+        print('    Model = %s' %model)
         return (pred_xgbs, model)
     else:
-        print('    final predictions (may need to be transformed to original labels)', pred_xgbs[:10])
-        print('    predicted probabilities', pred_probas[:1])
+        if not isinstance(X_XGB_test, str):
+            print('    final predictions (may need to be transformed to original labels)', pred_xgbs[:10])
+            print('    predicted probabilities', pred_probas[:1])
+        else:
+            print('    no X_test given. Returning empty array.')
+        print('    Model = %s' %model)
         return (pred_xgbs, pred_probas, model)
 ########################################################################################
 def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype, top_num='all'):
