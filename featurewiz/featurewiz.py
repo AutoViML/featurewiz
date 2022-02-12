@@ -3562,12 +3562,12 @@ def remove_special_chars_in_names(df, target=None, verbose=0):
     """
     df = copy.deepcopy(df)
     target = copy.deepcopy(target)
-    if isinstance(target, str):
-        sel_preds = [x for x in list(df) if x not in [target]]
-        df = df[sel_preds+[target]]
     if target is None:
         sel_preds = list(df)
         df = df[sel_preds]
+    elif isinstance(target, str):
+        sel_preds = [x for x in list(df) if x not in [target]]
+        df = df[sel_preds+[target]]
     else:
         sel_preds = [x for x in list(df) if x not in target]
         df = df[sel_preds+target]
@@ -3583,7 +3583,7 @@ def remove_special_chars_in_names(df, target=None, verbose=0):
     if target is None:
         df.columns = sel_preds
         return df
-    if isinstance(target, str):
+    elif isinstance(target, str):
         target = "_".join(target.split(" "))
         for each in list(special_chars):
             target = "_".join(target.split(each))
