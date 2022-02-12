@@ -56,8 +56,11 @@ def analyze_problem_type(train, target, verbose=0) :
     if isinstance(train, pd.Series):
         train = pd.DataFrame(train)
     ### the number of categories cannot be more than 2% of train size ####
-    cat_limit = int(train.shape[0]*0.02) ### this determines the number of categories to name integers as classification ##
-    float_limit = 15 ### this limits the number of float variable categories for it to become cat var
+    ### this determines the number of categories above which integer target becomes a regression problem ##
+    cat_limit = int(train.shape[0]*0.02) 
+    cat_limit = min(cat_limit, 100) ## anything over 100 categories is a regression problem ##
+    cat_limit = max(cat_limit, 10) ### anything above at least 10 categories is a Regression problem
+    float_limit = 15 ### number of categories a float target above which it becomes a Regression problem
     if isinstance(target, str):
         target = [target]
     if len(target) == 1:
@@ -394,7 +397,12 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
         print('Time taken for Hyper Param tuning of LGBM (in minutes) = %0.1f' %(
                                         (time.time()-start_time)/60))
         cv_results = pd.DataFrame(model.cv_results_)
-        print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
+        if modeltype == 'Regression':
+            print('Mean cross-validated train %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_train_score'].mean()))))
+            print('Mean cross-validated test %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_test_score'].mean()))))
+        else:
+            print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_train_score'].mean()))
+            print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
     else:
         try:
             model.fit(x_train, y_train,  verbose=-1)
@@ -420,7 +428,9 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     X_test: pandas dataframe only: do not send in numpy arrays. This is the X_test of your dataset.
     log_y: default = False: If True, it means use the log of the target variable "y" to train and test.
     GPU_flag: if your machine has a GPU set this flag and it will use XGBoost GPU to speed up processing.
-    scaler : default is StandardScaler(). But you can send in MinMaxScaler() as input to change it or any other scaler.
+    scaler : default is empty string which means to use StandardScaler.
+            But you can explicity send in "minmax' to select MinMaxScaler().
+            Alternatively, you can send in a scaler object that you define here: MaxAbsScaler(), etc.
     enc_method: default is 'label' encoding. But you can choose 'glmm' as an alternative. But those are the only two.
     verbose: default = 0. Choosing 1 will give you lot more output.
 
@@ -447,16 +457,22 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
         multi_label = True
     modeltype = analyze_problem_type(Y_XGB, targets)
     columns =  X_XGB.columns
-    ##### Now continue with scaler pre-processing ###########
+    ###################################################################################
+    #########     S C A L E R     P R O C E S S I N G      B E G I N S    ############
+    ###################################################################################
     if isinstance(scaler, str):
         if not scaler == '':
             scaler = scaler.lower()
-    if scaler == 'standard':
-        scaler = StandardScaler()
-    elif scaler == 'minmax':
-        scaler = MinMaxScaler()
+            if scaler == 'standard':
+                scaler = StandardScaler()
+            elif scaler == 'minmax':
+                scaler = MinMaxScaler()
+            else:
+                scaler = StandardScaler()
+        else:
+            scaler = StandardScaler()
     else:
-        scaler = StandardScaler()
+        pass
     #########     G P U     P R O C E S S I N G      B E G I N S    ############
     ###### This is where we set the CPU and GPU parameters for XGBoost
     if GPU_flag:
@@ -495,9 +511,13 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
         X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
                             random_state=999)
     else:
-        X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
+        try:
+            X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
                             random_state=999, stratify = Y_XGB)
-        
+        except:
+            ## In some small cases there are too few samples to stratify hence just split them as is 
+            X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
+                                random_state=999)        
     ######  This step is needed for making sure y is transformed to log_y ####################
     if modeltype == 'Regression' and log_y:
             Y_train = np.log(Y_train)
@@ -572,9 +592,11 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     if multi_label:
         for i,target_name in enumerate(targets):
             each_model = model.estimators_[i]
-            xgb.plot_importance(each_model, importance_type='gain', title='XGBoost model feature importances for %s' %target_name)
+            xgb.plot_importance(each_model, importance_type='gain', max_num_features=top_num,
+                title='XGBoost model feature importances for %s' %target_name)
     else:
-        xgb.plot_importance(model, importance_type='gain', title='XGBoost final model feature importances')
+        xgb.plot_importance(model, importance_type='gain', max_num_features=top_num,
+                            title='XGBoost final model feature importances')
     print('Returning the following:')
     print('    Model = %s' %model)
     if modeltype == 'Regression':
@@ -689,7 +711,12 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
             print('Time taken for Hyper Param tuning of multi_label XGBoost (in minutes) = %0.1f' %(
                                             (time.time()-start_time)/60))
             cv_results = pd.DataFrame(model.cv_results_)
-            print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
+            if modeltype == 'Regression':
+                print('Mean cross-validated train %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_train_score'].mean()))))
+                print('Mean cross-validated test %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_test_score'].mean()))))
+            else:
+                print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_train_score'].mean()))
+                print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
             ### In this case, there is no boost rounds so just return the default num_boost_round
             return model.best_estimator_
         else:
@@ -927,16 +954,22 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     ##### Start your analysis of the data ############
     modeltype = analyze_problem_type(Y_XGB, targets)
     columns =  X_XGB.columns
-    ##### Now continue with scaler pre-processing ###########
+    ###################################################################################
+    #########     S C A L E R     P R O C E S S I N G      B E G I N S    ############
+    ###################################################################################
     if isinstance(scaler, str):
         if not scaler == '':
             scaler = scaler.lower()
-    if scaler == 'standard':
-        scaler = StandardScaler()
-    elif scaler == 'minmax':
-        scaler = MinMaxScaler()
+            if scaler == 'standard':
+                scaler = StandardScaler()
+            elif scaler == 'minmax':
+                scaler = MinMaxScaler()
+            else:
+                scaler = StandardScaler()
+        else:
+            scaler = StandardScaler()
     else:
-        scaler = StandardScaler()
+        pass
     #########     G P U     P R O C E S S I N G      B E G I N S    ############
     ###### This is where we set the CPU and GPU parameters for XGBoost
     if GPU_flag:
@@ -1222,6 +1255,7 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
     X_XGB_test = copy.deepcopy(X_test)
     ####################################
     start_time = time.time()
+    top_num = 10
     if isinstance(Y_XGB, pd.Series):
         targets = [Y_XGB.name]
     else:
@@ -1242,16 +1276,22 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
         X_XGB.columns = columns
         if not isinstance(X_XGB_test, str):
             X_XGB_test.columns = columns
-    ##### Now continue with scaler pre-processing ###########
+    ###################################################################################
+    #########     S C A L E R     P R O C E S S I N G      B E G I N S    ############
+    ###################################################################################
     if isinstance(scaler, str):
         if not scaler == '':
             scaler = scaler.lower()
-    if scaler == 'standard':
-        scaler = StandardScaler()
-    elif scaler == 'minmax':
-        scaler = MinMaxScaler()
+            if scaler == 'standard':
+                scaler = StandardScaler()
+            elif scaler == 'minmax':
+                scaler = MinMaxScaler()
+            else:
+                scaler = StandardScaler()
+        else:
+            scaler = StandardScaler()
     else:
-        scaler = StandardScaler()
+        pass
     #########     G P U     P R O C E S S I N G      B E G I N S    ############
     ###### This is where we set the CPU and GPU parameters for XGBoost
     if GPU_flag:
@@ -1289,8 +1329,13 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
         X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
                             random_state=999)
     else:
-        X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
+        try:
+            X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
                             random_state=999, stratify = Y_XGB)
+        except:
+            ## In some small cases, you cannot stratify since there are too few samples. So leave it as is ##
+            X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac, 
+                                random_state=999)
 
     #### First convert test data into numeric using train data ###
     X_train, Y_train, X_valid, Y_valid = data_transform(X_train, Y_train, X_valid, Y_valid,
@@ -1352,9 +1397,11 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
              (time.time()-start_time)/60))
     if multi_label:
         for i,target_name in enumerate(targets):
-            lgbm.plot_importance(model.estimators_[i], title='LGBM model feature importances for %s' %target_name)
+            lgbm.plot_importance(model.estimators_[i], importance_type='gain', max_num_features=top_num,
+                title='LGBM model feature importances for %s' %target_name)
     else:
-        lgbm.plot_importance(model, title='LGBM final model feature importances')
+        lgbm.plot_importance(model, importance_type='gain', max_num_features=top_num,
+                title='LGBM final model feature importances')
     print('Returning the following:')
     print('    Model = %s' %model)
     if modeltype == 'Regression':
@@ -1420,16 +1467,22 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
         X_XGB.columns = columns
         if not isinstance(X_XGB_test, str):
             X_XGB_test.columns = columns
-    ##### Now continue with scaler pre-processing ###########
+    ###################################################################################
+    #########     S C A L E R     P R O C E S S I N G      B E G I N S    ############
+    ###################################################################################
     if isinstance(scaler, str):
         if not scaler == '':
             scaler = scaler.lower()
-    if scaler == 'standard':
-        scaler = StandardScaler()
-    elif scaler == 'minmax':
-        scaler = MinMaxScaler()
+            if scaler == 'standard':
+                scaler = StandardScaler()
+            elif scaler == 'minmax':
+                scaler = MinMaxScaler()
+            else:
+                scaler = StandardScaler()
+        else:
+            scaler = StandardScaler()
     else:
-        scaler = StandardScaler()
+        pass
     #########     G P U     P R O C E S S I N G      B E G I N S    ############
     ###### This is where we set the CPU and GPU parameters for XGBoost
     if GPU_flag:
@@ -1560,7 +1613,7 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
             score = balanced_accuracy_score(y_test, preds)
             print('AUC score in fold %d = %0.1f%%' %(folds+1, score*100))
         scores.append(score)
-    print("\nCross-validated average AUC scores are: ", np.sum(scores)/len(scores))
+    print("\nCross-validated average scores are: ", np.sum(scores)/len(scores))
     #############  F I N A L   T R A I N I N G  ###################################
     print('Training model on full train dataset...')
     start_time1 = time.time()
@@ -1600,21 +1653,24 @@ def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype, top_num='all
     add_items=0
     for item in ls:
         add_items +=item
+    
     if isinstance(top_num, str):
-        df_cv=pd.DataFrame(add_items/len(ls),index=train_set.columns,
+        feat_imp=pd.DataFrame(add_items/len(ls),index=train_set.columns,
             columns=["importance"]).sort_values('importance', ascending=False)
-        df_cv=df_cv.reset_index()
-        feat_imp = pd.Series(df_cv.importance.values, 
-            index=df_cv.drop(["importance"], axis=1)).sort_values(axis='index',ascending=False)
+        feat_imp2=feat_imp[feat_imp>0.00005]
+        #df_cv=df_cv.reset_index()
+        #### don't add [:top_num] at the end of this statement since it will error #######
+        #feat_imp = pd.Series(df_cv.importance.values, 
+        #    index=df_cv.drop(["importance"], axis=1)).sort_values(axis='index',ascending=False)
     else:
         ## this limits the number of items to the top_num items
-        df_cv=pd.DataFrame(add_items/len(ls),index=train_set.columns[:top_num],
+        feat_imp=pd.DataFrame(add_items/len(ls),index=train_set.columns[:top_num],
             columns=["importance"]).sort_values('importance', ascending=False)
-        df_cv=df_cv.reset_index()
-        feat_imp = pd.Series(df_cv.importance.values, 
-            index=df_cv.drop(["importance"], axis=1)).sort_values(axis='index',ascending=False)[:top_num]
+        feat_imp2=feat_imp[feat_imp>0.00005]
+        #df_cv=df_cv.reset_index()
+        #feat_imp = pd.Series(df_cv.importance.values, 
+        #    index=df_cv.drop(["importance"], axis=1)).sort_values(axis='index',ascending=False)[:top_num]
     ##### Now plot the feature importances #################        
-    feat_imp2=feat_imp[feat_imp>0.00005]
     imp_columns=[]
     for item in pd.DataFrame(feat_imp2).reset_index()["index"].tolist():
         fcols=re.sub("[(),]","",str(item))
@@ -1628,7 +1684,10 @@ def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype, top_num='all
     len(imp_columns)
     fig = plt.figure(figsize=(15,8))
     ax1=plt.subplot(2, 2, 1)
-    feat_imp.nlargest(5).plot(kind='barh', ax=ax1, title='Feature importances of model on test data')
+    if isinstance(top_num, str):
+        feat_imp2[:].plot(kind='barh', ax=ax1, title='Feature importances of model on test data')
+    else:
+        feat_imp2[:top_num].plot(kind='barh', ax=ax1, title='Feature importances of model on test data')
     if modeltype == 'Regression':
         ax2=plt.subplot(2, 2, 2)
         pd.Series(y_preds).plot(ax=ax2, color='b', title='Model predictions on test data');

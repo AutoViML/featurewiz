@@ -1022,6 +1022,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     print('     Loaded. Shape = %s' %(dataname.shape,))
     ##################    L O A D    T E S T   D A T A      ######################
     dataname = remove_duplicate_cols_in_dataset(dataname)
+    dataname = remove_special_chars_in_names(dataname, target, verbose=1)
+    if dask_xgboost_flag:
+        train = remove_special_chars_in_names(train, target)
     train_index = dataname.index
     
     ######################################################################################
@@ -1059,6 +1062,10 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         test_data = remove_duplicate_cols_in_dataset(test_data)
         test_index = test_data.index
         print('     Loaded test data. Shape = %s' %(test_data.shape,))
+        #######  Once again remove the same in test data as well ###
+        test_data = remove_special_chars_in_names(test_data)
+        if dask_xgboost_flag:
+            test = remove_special_chars_in_names(test)
     #############    C L A S S I F Y    F E A T U R E S      ####################
     if nrows is None:
         nrows_limit = maxrows
@@ -1098,6 +1105,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         train_index = dataname.index
         if test_data is not None:
             test_index = test_data.index
+
     ################   X G B O O S T      D E F A U L T S      ######################################
     #### If there are more than 30 categorical variables in a data set, it is worth reducing features.
     ####  Otherwise. XGBoost is pretty good at finding the best features whether cat or numeric !
@@ -1481,7 +1489,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         iter_limit = int(train_p.shape[1]/5+0.5)
     print('Current number of predictors = %d ' %(train_p.shape[1],))
     if dask_xgboost_flag:
-        print('Dask version = %s' %dask.__version__)
+        print('    Dask version = %s' %dask.__version__)
         ### You can remove dask_ml here since you don't do any split of train test here ##########
         #from dask_ml.model_selection import train_test_split
         ### check available memory and allocate at least 1GB of it in the Client in DASK #############################
@@ -1494,7 +1502,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         import gc
         client.run(gc.collect) 
         train_p = client.persist(train_p)
-    print('XGBoost version: %s' %xgb.__version__)
+    print('    XGBoost version: %s' %xgb.__version__)
     ### This is to convert the target labels to proper numeric columns ######
     cat_targets = dataname[target].select_dtypes(include='object').columns.tolist() + dataname[target].select_dtypes(include='category').columns.tolist()
     ### check if they are not starting from zero ##################
@@ -3544,4 +3552,47 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         return X[self.features]
-    ###################################################################################################
+###################################################################################################
+import copy
+def remove_special_chars_in_names(df, target=None, verbose=0):
+    """
+    This function removes special chars in names of columns
+    Send in a dataframe and a target (could be string or list)
+    It will return back the same dataframe with special chars removed from column names.
+    """
+    df = copy.deepcopy(df)
+    target = copy.deepcopy(target)
+    if isinstance(target, str):
+        sel_preds = [x for x in list(df) if x not in [target]]
+        df = df[sel_preds+[target]]
+    if target is None:
+        sel_preds = list(df)
+        df = df[sel_preds]
+    else:
+        sel_preds = [x for x in list(df) if x not in target]
+        df = df[sel_preds+target]
+    orig_preds = copy.deepcopy(sel_preds)
+    #####   column names must not have any special characters #####
+    sel_preds = ["_".join(x.split(" ")) for x in sel_preds]
+    special_chars = "()/\\?<>'=~!@#$%^&*+"
+    for each in list(special_chars):
+        sel_preds = ["_".join(x.split(each)) for x in sel_preds ]
+    #### Now you convert the target too ############
+    if left_subtract(orig_preds, sel_preds) and verbose:
+        print('Alert! Removed special characters in names of columns. You must use these new column names for XGBoost.')
+    if target is None:
+        df.columns = sel_preds
+        return df
+    if isinstance(target, str):
+        target = "_".join(target.split(" "))
+        for each in list(special_chars):
+            target = "_".join(target.split(each))
+        df.columns = sel_preds+[target]
+        return df
+    else:
+        target = ["_".join(x.split(" ")) for x in target ]
+        for each in list(special_chars):
+            target = ["_".join(x.split(each)) for x in target ]
+        df.columns = sel_preds+target
+        return df
+##########################################################################################
