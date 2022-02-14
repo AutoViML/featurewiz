@@ -657,9 +657,13 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
             df_fit = df_fit.dropna()
         else:
             print('There are no null values in dataset.')
-        ##### Ready to perform fit and find mutual information score ####       
+        ##### Reduce memory usage and find mutual information score ####       
         try:
             df_fit = reduce_mem_usage(df_fit)
+        except:
+            print('Reduce memeory erroring. Continuing...')
+        ##### Ready to perform fit and find mutual information score ####       
+        try:
             fs.fit(df_fit, df[target])
         except:
             print('Select K Best erroring. Returning with all variables...')
@@ -1791,10 +1795,12 @@ def reduce_mem_usage(df):
         cols = cols.tolist()
     for col in cols:
         col_type = df[col].dtype
-        
         if col_type != object:
-            c_min = df[col].min()
-            c_max = df[col].max()
+            try:
+                c_min = df[col].min()
+                c_max = df[col].max()
+            except:
+                continue
             if type(df) == dask.dataframe.core.DataFrame:
                 c_min = c_min.compute()
                 c_max = c_max.compute()

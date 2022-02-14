@@ -183,22 +183,30 @@ def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classifica
             targets = Y_train.columns
             Y_train_encoded = copy.deepcopy(Y_train)
             for each_target in targets:
-                mlb = My_LabelEncoder()
-                Y_train_encoded[each_target] = mlb.fit_transform(Y_train[each_target])
-                if not isinstance(Y_test, str):
-                    Y_test_encoded= mlb.transform(Y_test)
+                if Y_train[each_target].dtype not in ['int64', 'int32','int16','int8', 'float16','float32','float64','float']:
+                    mlb = My_LabelEncoder()
+                    Y_train_encoded[each_target] = mlb.fit_transform(Y_train[each_target])
+                    if not isinstance(Y_test, str):
+                        Y_test_encoded= mlb.transform(Y_test)
+                    else:
+                        Y_test_encoded = copy.deepcopy(Y_test)
                 else:
-                    Y_test_encoded = copy.deepcopy(Y_test)
+                    Y_train_encoded = copy.deepcopy(Y_train)
+                    Y_test_encoded = copy.deepcopy(Y_test)                    
         else:
             Y_train_encoded = copy.deepcopy(Y_train)
             Y_test_encoded = copy.deepcopy(Y_test)
     else:
         if modeltype != 'Regression':
-            mlb = My_LabelEncoder()
-            Y_train_encoded= mlb.fit_transform(Y_train)
-            if not isinstance(Y_test, str):
-                Y_test_encoded= mlb.transform(Y_test)
+            if Y_train.dtype not in ['int64', 'int32','int16','int8', 'float16','float32','float64','float']:
+                mlb = My_LabelEncoder()
+                Y_train_encoded= mlb.fit_transform(Y_train)
+                if not isinstance(Y_test, str):
+                    Y_test_encoded= mlb.transform(Y_test)
+                else:
+                    Y_test_encoded = copy.deepcopy(Y_test)
             else:
+                Y_train_encoded = copy.deepcopy(Y_train)
                 Y_test_encoded = copy.deepcopy(Y_test)
         else:
             Y_train_encoded = copy.deepcopy(Y_train)
@@ -206,7 +214,9 @@ def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classifica
     
     #### This is where we find out if test data is given ####
     ####### Set up feature to encode  ####################
-    feature_to_encode = X_train.columns[X_train.dtypes == 'O'].tolist()
+    feature_to_encode = X_train.select_dtypes(include='object').columns.tolist(
+                    )+X_train.select_dtypes(include='datetime').columns.tolist(
+                    )+X_train.select_dtypes(include='category').columns.tolist()
     #print('features to label encode: %s' %feature_to_encode)
     #### Do label encoding now #################
     
@@ -246,6 +256,7 @@ def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classifica
             X_test_encoded = X_test_encoded.fillna(0)
 
     # fit the scaler to the entire train and transform the test set
+    
     scaler.fit(X_train_encoded)
     # transform training set
     X_train_scaled = pd.DataFrame(scaler.transform(X_train_encoded), 
@@ -522,7 +533,7 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     if modeltype == 'Regression' and log_y:
             Y_train = np.log(Y_train)
             Y_valid = np.log(Y_valid)
-
+    
     #### First convert test data into numeric using train data ###
     X_train, Y_train, X_valid, Y_valid = data_transform(X_train, Y_train, X_valid, Y_valid,
                                 modeltype, multi_label, scaler=scaler, enc_method=enc_method)
@@ -839,7 +850,7 @@ def get_scale_pos_weight(y_input):
     ### even after you change weights if they are all below 1.5 do this ##
     #if (class_weights<=1.5).all():
     #    class_weights = np.around(class_weights+0.49)
-
+    
     class_weights = class_weights.astype(int)
     class_weights[(class_weights<1)]=1
     class_rows = class_weights*[xp[x] for x in classes]
