@@ -1564,6 +1564,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             ############################################################################################################
             ######### This is where we find out whether to use single or multi-label for xgboost #######################
             ############################################################################################################
+            
             if settings.multi_label:
                 if settings.modeltype == 'Regression':
                     clf = XGBRegressor(n_jobs=-1, n_estimators=100, max_depth=4, random_state=99)
@@ -2391,6 +2392,7 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
         dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
         ### this is where you create the time series features #####
         dtf, ts_adds = _create_ts_features(df=dtf, tscol=ts_column)
+    ####### This is where we make sure train and test have the same number of columns ####
     try:
         if not ts_adds_in:
             ts_adds_copy = copy.deepcopy(ts_adds)
@@ -2406,8 +2408,10 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
             rem_ts_cols = ts_adds
             dtf = dtf[rem_cols+rem_ts_cols]
         else:
-            rem_cols = left_subtract(dtf.columns.tolist(), ts_adds_in)
-            dtf = dtf[rem_cols+ts_adds_in]
+            #rem_cols = left_subtract(dtf.columns.tolist(), ts_adds_in)
+            rem_cols = left_subtract(ts_adds, ts_adds_in)
+            dtf.drop(rem_cols, axis=1, inplace=True)
+            #dtf = dtf[rem_cols+ts_adds_in]
             rem_ts_cols = ts_adds_in
         # If you had reset the index earlier, set it back before returning
         # to  make it consistent with the dataframe that was sent as input

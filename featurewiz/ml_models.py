@@ -97,57 +97,85 @@ def analyze_problem_type(train, target, verbose=0) :
 #####################################################################################
 from sklearn.base import TransformerMixin, BaseEstimator
 from collections import defaultdict
-class My_LabelEncoder(TransformerMixin):
+class My_LabelEncoder(BaseEstimator, TransformerMixin):
     """
     ################################################################################################
-    ######  This Label Encoder class works just like sklearn's Label Encoder!  #####################
-    #####  You can label encode any column in a data frame using this new class. But unlike sklearn,
-    the beauty of this function is that it can take care of NaN's and unknown (future) values.
-    It uses the same fit() and fit_transform() methods of sklearn's LabelEncoder class.
+    ######     The My_LabelEncoder class works just like sklearn's Label Encoder but better! #######
+    #####  It label encodes any object or category dtype in your dataset. It also handles NaN's.####
+    ##  The beauty of this function is that it takes care of encoding unknown (future) values. #####
+    ##################### This is the BEST working version - don't mess with it!! ##################
     ################################################################################################
-    ##################### This is the best working version - don't mess with it! ###################
     Usage:
-          MLB = My_LabelEncoder()
-          train[column] = MLB.fit_transform(train[column])
-          test[column] = MLB.transform(test[column])
+          le = My_LabelEncoder()
+          le.fit_transform(train[column]) ## this will give your transformed values as an array
+          le.transform(test[column]) ### this will give your transformed values as an array
+              
+    Usage in Column Transformers and Pipelines:
+          No. It cannot be used in pipelines since it need to produce two columns for the next stage in pipeline.
+          See my other module called My_LabelEncoder_Pipe() to see how it can be used in Pipelines.
     """
     def __init__(self):
         self.transformer = defaultdict(str)
         self.inverse_transformer = defaultdict(str)
-
-    def fit(self,testx):
+        self.max_val = 0
+        
+    def fit(self,testx, y=None):
+        ## testx must still be a pd.Series for this encoder to work!
         if isinstance(testx, pd.Series):
             pass
         elif isinstance(testx, np.ndarray):
             testx = pd.Series(testx)
         else:
-            return testx
-        outs = np.unique(testx.factorize()[0])
-        ins = testx.value_counts(dropna=False).index
-        #if -1 in outs:
+            #### There is no way to transform dataframes since you will get a nested renamer error if you try ###
+            ### But if it is a one-dimensional dataframe, convert it into a Series
+            #### Do not change this since I have tested it and it works.
+            if testx.shape[1] == 1:
+                testx = pd.Series(testx.values.ravel(),name=testx.columns[0])
+            else:
+                #### Since it is multi-dimensional, So in this case, just return the object as is
+                return self
+        
+        ins = np.unique(testx.factorize()[1]).tolist()
+        outs = np.unique(testx.factorize()[0]).tolist()
+        #ins = testx.value_counts(dropna=False).index        
+        if -1 in outs:
         #   it already has nan if -1 is in outs. No need to add it.
-        #    ins.insert(0,np.nan)
-        self.transformer = dict(zip(ins,outs.tolist()))
-        self.inverse_transformer = dict(zip(outs.tolist(),ins))
+            if not np.nan in ins:
+                ins.insert(0,np.nan)
+        self.transformer = dict(zip(ins,outs))
+        self.inverse_transformer = dict(zip(outs,ins))
         return self
 
-    def transform(self, testx):
+    def transform(self, testx, y=None):
+        ## testx must still be a pd.Series for this encoder to work!
         if isinstance(testx, pd.Series):
             pass
         elif isinstance(testx, np.ndarray):
             testx = pd.Series(testx)
         else:
-            return testx
+            #### There is no way to transform dataframes since you will get a nested renamer error if you try ###
+            ### But if it is a one-dimensional dataframe, convert it into a Series
+            #### Do not change this since I have tested it and it works.
+            if testx.shape[1] == 1:
+                testx = pd.Series(testx.values.ravel(),name=testx.columns[0])
+            else:
+                #### Since it is multi-dimensional, So in this case, just return the data as is
+                #### Do not change this since I have tested it and it works.
+                return testx
         ### now convert the input to transformer dictionary values
-        ins = np.unique(testx.factorize()[1]).tolist()
-        missing = [x for x in ins if x not in self.transformer.keys()]
+        new_ins = np.unique(testx.factorize()[1]).tolist()
+        missing = [x for x in new_ins if x not in self.transformer.keys()]
         if len(missing) > 0:
             for each_missing in missing:
-                max_val = np.max(list(self.transformer.values())) + 1
-                self.transformer[each_missing] = max_val
-                self.inverse_transformer[max_val] = each_missing
-        outs = testx.map(self.transformer).values
-        testk = testx.map(self.transformer)
+                self.transformer[each_missing] = int(self.max_val + 1)
+                self.inverse_transformer[int(self.max_val+1)] = each_missing
+                self.max_val = int(self.max_val+1)
+        else:
+            self.max_val = np.max(list(self.transformer.values()))
+        ### To handle category dtype you must do the next step #####
+        #### Do not change this since I have tested it and it works.
+        testk = testx.map(self.transformer) 
+        
         if testx.dtype not in [np.int16, np.int32, np.int64, float, bool, object]:
             if testx.isnull().sum().sum() > 0:
                 fillval = self.transformer[np.nan]
@@ -159,9 +187,10 @@ class My_LabelEncoder(TransformerMixin):
                 testk = testk.astype(int)
                 return testk
         else:
+            outs = testx.map(self.transformer).values.astype(int)
             return outs
 
-    def inverse_transform(self, testx):
+    def inverse_transform(self, testx, y=None):
         ### now convert the input to transformer dictionary values
         if isinstance(testx, pd.Series):
             outs = testx.map(self.inverse_transformer).values
@@ -174,10 +203,8 @@ class My_LabelEncoder(TransformerMixin):
 from sklearn.impute import SimpleImputer
 def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classification',
             multi_label=False, enc_method='label', scaler = StandardScaler()):
-    ##### First make sure that the originals are not modified ##########
-    X_train_encoded = copy.deepcopy(X_train)
-    X_test_encoded = copy.deepcopy(X_test)
     ##### Use My_Label_Encoder to transform label targets if needed #####
+    
     if multi_label:
         if modeltype != 'Regression':
             targets = Y_train.columns
@@ -212,24 +239,39 @@ def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classifica
             Y_train_encoded = copy.deepcopy(Y_train)
             Y_test_encoded = copy.deepcopy(Y_test)
     
-    #### This is where we find out if test data is given ####
-    ####### Set up feature to encode  ####################
-    feature_to_encode = X_train.select_dtypes(include='object').columns.tolist(
-                    )+X_train.select_dtypes(include='datetime').columns.tolist(
-                    )+X_train.select_dtypes(include='category').columns.tolist()
-    #print('features to label encode: %s' %feature_to_encode)
-    #### Do label encoding now #################
     
+    #### This is where we find datetime vars and convert them to strings ####
+    datetime_feats = X_train.select_dtypes(include='datetime').columns.tolist()
+    ### if there are datetime values, convert them into features here ###
+    from .featurewiz import FE_create_time_series_features
+    for date_col in datetime_feats:
+        fillnum = X_train[date_col].mode()[0]
+        X_train[date_col].fillna(fillnum,inplace=True)
+        X_train, ts_adds = FE_create_time_series_features(X_train, date_col)
+        if not isinstance(X_test, str):
+            X_test[date_col].fillna(fillnum,inplace=True)
+            X_test, _ = FE_create_time_series_features(X_test, date_col, ts_adds)
+        print('        Adding time series features from %s to data...' %date_col)
+    ####### Set up feature to encode  ####################
+    ##### First make sure that the originals are not modified ##########
+    X_train_encoded = copy.deepcopy(X_train)
+    X_test_encoded = copy.deepcopy(X_test)
+    feature_to_encode = X_train.select_dtypes(include='object').columns.tolist(
+                    )+X_train.select_dtypes(include='category').columns.tolist()
+    #### Do label encoding now #################
     if enc_method == 'label':
         for feat in feature_to_encode:
             # Initia the encoder model
             lbEncoder = My_LabelEncoder()
+            fillnum = X_train[feat].mode()[0]
+            X_train[feat].fillna(fillnum,inplace=True)
             # fit the train data
             lbEncoder.fit(X_train[feat])
             # transform training set
             X_train_encoded[feat] = lbEncoder.transform(X_train[feat])
             # transform test set
             if not isinstance(X_test_encoded, str):
+                X_test[feat].fillna(fillnum,inplace=True)
                 X_test_encoded[feat] = lbEncoder.transform(X_test[feat])
     elif enc_method == 'glmm':
         # Initialize the encoder model
@@ -256,7 +298,6 @@ def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classifica
             X_test_encoded = X_test_encoded.fillna(0)
 
     # fit the scaler to the entire train and transform the test set
-    
     scaler.fit(X_train_encoded)
     # transform training set
     X_train_scaled = pd.DataFrame(scaler.transform(X_train_encoded), 
@@ -265,6 +306,8 @@ def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classifica
     if not isinstance(X_test_encoded, str):
         X_test_scaled = pd.DataFrame(scaler.transform(X_test_encoded), 
             columns=X_test_encoded.columns, index=X_test_encoded.index)
+    else:
+        X_test_scaled = ""
     return X_train_scaled, Y_train_encoded, X_test_scaled, Y_test_encoded
 ##################################################################################
 from sklearn.model_selection import KFold, cross_val_score,StratifiedKFold
@@ -456,6 +499,7 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     ####################################
     start_time = time.time()
     top_num = 10
+    num_boost_round = 400
     if isinstance(Y_XGB, pd.Series):
         targets = [Y_XGB.name]
     else:
@@ -541,7 +585,7 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     
     ######  Time to hyper-param tune model using randomizedsearchcv and partial train data #########
     num_boost_round = xgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
-                         multi_label, log_y, num_boost_round=100)
+                         multi_label, log_y, num_boost_round=num_boost_round)
 
     #### First convert test data into numeric using train data ###############################
     if not isinstance(X_XGB_test, str):
@@ -645,15 +689,15 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
     else:
         if modeltype =='Binary_Classification':
             objective='binary:logistic'
-            eval_metric = 'error' ## dont foolishly change to auc or aucpr since it doesnt work in finding feature imps later
+            eval_metric = 'auc' ## dont change this. AUC works well.
             shuffle = True
             stratified = True
             num_class = 1
-            score_name = 'Error Rate'
+            score_name = 'AUC'
             scale_pos_weight = get_scale_pos_weight(y_train)
         else:
             objective = 'multi:softprob'
-            eval_metric = 'merror'  ## dont foolishly change to auc or aucpr since it doesnt work in finding feature imps later
+            eval_metric = 'auc'  ## dont change this. AUC works well for now.
             shuffle = True
             stratified = True
             if multi_label:
@@ -665,7 +709,7 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
                     num_class = y_train.nunique()
                 else:
                     num_class = y_train.nunique().max() 
-            score_name = 'Multiclass Error Rate'
+            score_name = 'Multiclass AUC'
             scale_pos_weight = 1  ### use sample_weights in multi-class settings ##
     ######################################################
     final_params = {
@@ -749,8 +793,12 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
                 stratified=stratified, metrics=eval_metric, early_stopping_rounds=10, seed=999, shuffle=shuffle)
             # Update best eval_metric
             best_eval = 'test-'+eval_metric+'-mean'
-            mean_mae = cv_results[best_eval].min()
-            boost_rounds = cv_results[best_eval].argmin()
+            if modeltype == 'Regression':
+                mean_mae = cv_results[best_eval].min()
+                boost_rounds = cv_results[best_eval].argmin()
+            else:
+                mean_mae = cv_results[best_eval].max()
+                boost_rounds = cv_results[best_eval].argmax()                
             print("Cross-validated %s = %0.3f in num rounds = %s" %(score_name, mean_mae, boost_rounds))
             print('Time taken for Hyper Param tuning of XGBoost (in minutes) = %0.1f' %(
                                                 (time.time()-start_time)/60))
