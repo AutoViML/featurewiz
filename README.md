@@ -1,11 +1,11 @@
 # featurewiz
 
-![banner](featurewiz_logo.jpg)
+![banner](https://i.ibb.co/0Vc5f7c/featurewiz-logo.jpg)
 <p>
 
 ## Update (Jan 2022)
 <ol>
-<li><b>FeatureWiz as of version 0.0.90 or higher is a scikit-learn compatible feature selection transformer.</b> You can perform fit and predict as follows. You will get a Transformer that can select the top variables from your dataset.
+<li><b>FeatureWiz as of version 0.0.90 or higher is a scikit-learn compatible feature selection transformer.</b> You can perform fit and predict as follows. You will get a Transformer that can select the top variables from your dataset. You can also use it in sklearn pipelines as a Transformer.
 
 ```
 from featurewiz import FeatureWiz
