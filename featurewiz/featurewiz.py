@@ -452,7 +452,7 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse
                 print('    Could not read compressed file. Please unzip and try again...')
                 return None
     elif isinstance(dataname,pd.DataFrame):
-
+        
         #### this means they have given a dataframe name to use directly in processing #####
         if nrows is None:
             dfte = copy.deepcopy(dataname)
@@ -465,6 +465,7 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse
         print('    Shape of your Data Set loaded: %s' %(dfte.shape,))
         if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
             print('You have duplicate column names in your data set. Removing duplicate columns now...')
+            
             dfte = dfte[list(dfte.columns[~dfte.columns.duplicated(keep='first')])]
         return dfte
     else:
@@ -1014,6 +1015,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             dataname = pd.read_csv(dataname, sep=sep, header=header, nrows=nrows)
     else:
         #### This is where we get a dataframe as an input #################
+        
         if dask_xgboost_flag:
             if not nrows is None:
                 dataname = dataname.sample(n=nrows, replace=True, random_state=9999)
@@ -1029,6 +1031,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     dataname = remove_duplicate_cols_in_dataset(dataname)
     #### Save the original column names ############################
     orig_col_names = dataname.columns.tolist()
+    pdb.set_trace()
     dataname = remove_special_chars_in_names(dataname, target, verbose=1)
     new_col_names = dataname.columns.tolist()
     col_name_mapper = dict(zip(new_col_names,orig_col_names))
@@ -1589,9 +1592,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     try:
                         if settings.modeltype == 'Multi_Classification':
                             wt_array = get_sample_weight_array(y_train)
-                            dtrain = xgb.DMatrix(X_train, label=y_train, weight=wt_array, enable_categorical=False, feature_names=cols_sel)
+                            dtrain = xgb.DMatrix(X_train, label=y_train, weight=wt_array, feature_names=cols_sel)
                         else:
-                            dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=False, feature_names=cols_sel)
+                            dtrain = xgb.DMatrix(X_train, label=y_train, feature_names=cols_sel)
                         bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
                     except Exception as error_msg:
                         print(error_msg)
@@ -1600,7 +1603,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     ### the dtrain syntax can only be used xgboost 1.50 or greater. Dont use it until then.
                     ### use the next line for new xgboost version 1.5.1 abd higher #########
                     try:
-                        dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, enable_categorical=False, feature_names=cols_sel)
+                        dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, feature_names=cols_sel)
                         #### SYNTAX BELOW WORKS WELL. BUT YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
                         bst = xgb.dask.train(client, params, dtrain, num_boost_round=num_rounds)
                     except Exception as error_msg:
@@ -1800,7 +1803,7 @@ def reduce_mem_usage(df):
     https://www.kaggle.com/arjanso/reducing-dataframe-memory-size-by-65
         for this function to reduce memory usage.
     #####################################################################
-    It is a bit slow as it iterate through all the columns of a dataframe and modifies data types
+    It is a bit slow as it iterates through all the columns of a dataframe and modifies data types
         to reduce memory usage. But it has been shown to reduce memory usage by 65% or so.       
     """
     start_mem = df.memory_usage().sum() / 1024**2
@@ -1810,6 +1813,7 @@ def reduce_mem_usage(df):
     cols = df.columns
     if type(df) == dask.dataframe.core.DataFrame:
         cols = cols.tolist()
+
     for col in cols:
         col_type = df[col].dtype
         if col_type != object:
