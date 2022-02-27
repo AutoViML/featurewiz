@@ -479,8 +479,12 @@ def load_dask_data(filename, sep, ):
     path to the file.
     """
     if isinstance(filename, str):
-        dft = dd.read_csv(filename, blocksize='default')
-        print('    Too big to fit into pandas. Hence loaded file %s into a Dask dataframe ...' % filename)
+        if re.search(r'(.csv)', filename):
+            print('**INFO: to increase the performance, you can convert your `csv` file to `feather` format using `df.to_feather("path/to/save/file.feather")`**'.center(100, ' ')
+            dft = dd.read_csv(filename, blocksize='default')
+            print('    Too big to fit into pandas. Hence loaded file %s into a Dask dataframe ...' % filename)
+        else:
+            dft = dd.read_feather(filename)
     else:
         ### If filename is not a string, it must be a dataframe and can be loaded
         dft =   dd.from_pandas(filename, npartitions=1)
