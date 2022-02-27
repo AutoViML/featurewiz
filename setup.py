@@ -32,6 +32,7 @@ setuptools.setup(
         "dask>=2021.11.0",
         "lightgbm>=3.0.0",
         "distributed>=2021.11.0",
+        "feather-format"
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
