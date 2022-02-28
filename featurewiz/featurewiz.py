@@ -1035,7 +1035,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     dataname = remove_duplicate_cols_in_dataset(dataname)
     #### Save the original column names ############################
     orig_col_names = dataname.columns.tolist()
-    pdb.set_trace()
+    
     dataname = remove_special_chars_in_names(dataname, target, verbose=1)
     new_col_names = dataname.columns.tolist()
     col_name_mapper = dict(zip(new_col_names,orig_col_names))
