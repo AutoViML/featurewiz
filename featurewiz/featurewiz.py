@@ -74,6 +74,7 @@ from dask.distributed import Client, progress
 import psutil
 import json
 from sklearn.model_selection import train_test_split
+
 #######################################################################################################
 def classify_features(dfte, depVar, verbose=0):
     dfte = copy.deepcopy(dfte)
@@ -480,12 +481,8 @@ def load_dask_data(filename, sep, ):
     path to the file.
     """
     if isinstance(filename, str):
-        if re.search(r'(.csv)', filename):
-            print('**INFO: to increase the performance, you can convert your `csv` file to `feather` format using `df.to_feather("path/to/save/file.feather")`**'.center(100, ' ')
             dft = dd.read_csv(filename, blocksize='default')
             print('    Too big to fit into pandas. Hence loaded file %s into a Dask dataframe ...' % filename)
-        else:
-            dft = dd.read_feather(filename)
     else:
         ### If filename is not a string, it must be a dataframe and can be loaded
         dft =   dd.from_pandas(filename, npartitions=1)
@@ -1005,21 +1002,28 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     print('Loading train data...')
     if isinstance(dataname, str):
         #### This is where we get a filename as a string as an input #################
-        if dask_xgboost_flag:
-            try:
-                print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
-                dataname = pd.read_csv(dataname, sep=sep, header=header, nrows=nrows)
-                dataname = reduce_mem_usage(dataname)
-                train = load_dask_data(dataname, sep)
-            except:
-                print('File could not be loaded into dask. Check the path or filename and try again')
-                return None
+        if re.search(r'(.ftr)', dataname):
+            print("""**INFO: Feather format allowed. Loading feather file...**""")
+            import feather
+            dataname = pd.read_feather(dataname, use_threads=True)
+            train = load_dask_data(dataname, sep)
         else:
-            train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
-            dataname = pd.read_csv(dataname, sep=sep, header=header, nrows=nrows)
+            print("""**INFO: to increase file loading performance, convert huge `csv` files to `feather` format using `df.to_feather("path/to/save/file.feather")`**""")
+            print('**INFO: featurewiz can now read feather formatted files...***')
+            if dask_xgboost_flag:
+                try:
+                    print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
+                    dataname = pd.read_csv(dataname, sep=sep, header=header, nrows=nrows)
+                    dataname = reduce_mem_usage(dataname)
+                    train = load_dask_data(dataname, sep)
+                except:
+                    print('File could not be loaded into dask. Check the path or filename and try again')
+                    return None
+            else:
+                train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
+                dataname = reduce_mem_usage(train)
     else:
         #### This is where we get a dataframe as an input #################
-        
         if dask_xgboost_flag:
             if not nrows is None:
                 dataname = dataname.sample(n=nrows, replace=True, random_state=9999)
@@ -1051,21 +1055,29 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ######################################################################################
     if isinstance(test_data, str):
         if test_data != '':
-            ### only if test_data is a filename load this #####
-            print('Loading test data filename = %s...' %test_data)
-            if dask_xgboost_flag:
-                print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
-                ### nrows does not apply to test data in the case of featurewiz ###############
-                test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=None)
-                ### sometimes, test_data returns None if there is an error. ##########
-                if test_data is not None:
-                    test_data = reduce_mem_usage(test_data)
-                    ### test_data is the pandas dataframe object and test is dask dataframe object ##
-                    test = load_dask_data(test_data, sep)
+            if re.search(r'(.ftr)', test_data):
+                print("""**INFO: Feather format allowed. Loading feather file...**""")
+                import feather
+                test_data = pd.read_feather(test_data, use_threads=True)
+                test = load_dask_data(test_data, sep)
             else:
-                #### load the entire test dataframe - there is no limit applicable there #########
-                test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose)
-                test = copy.deepcopy(test_data)
+                print("""**INFO: to increase file loading performance, convert huge `csv` files to `feather` format using `df.to_feather("path/to/save/file.feather")`**""")
+                print('**INFO: featurewiz can now read feather formatted files...***')
+                ### only if test_data is a filename load this #####
+                print('Loading test data filename = %s...' %test_data)
+                if dask_xgboost_flag:
+                    print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
+                    ### nrows does not apply to test data in the case of featurewiz ###############
+                    test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=None)
+                    ### sometimes, test_data returns None if there is an error. ##########
+                    if test_data is not None:
+                        test_data = reduce_mem_usage(test_data)
+                        ### test_data is the pandas dataframe object and test is dask dataframe object ##
+                        test = load_dask_data(test_data, sep)
+                else:
+                    #### load the entire test dataframe - there is no limit applicable there #########
+                    test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose)
+                    test = copy.deepcopy(test_data)
         else:
             print('No test data filename given...')
             test_data = None
