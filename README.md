@@ -5,7 +5,7 @@
 
 ## Update (March 2022)
 <ol>
-<li><b>featurewiz as of version 0.1.04 or higher can read `feather-format` files at blazing speeds. See example below on how to convert your CSV files to feather. Then you can feed those '.ftr' files to featurewiz and it will read it 10-100X faster!
+<li><b>featurewiz as of version 0.1.04 or higher can read `feather-format` files at blazing speeds. See example below on how to convert your CSV files to feather. Then you can feed those '.ftr' files to featurewiz and it will read it 10-100X faster!</b>
 
 ![feather_example](feather_example.jpg)
 

@@ -999,17 +999,17 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ##########   dataname will be the name of the pandas version of train data      ######
     ##########           train will be the Dask version of train data               ######
     ######################################################################################
-    print('Loading train data...')
+    print('**INFO: featurewiz can now read feather formatted files. Loading train data...')
     if isinstance(dataname, str):
         #### This is where we get a filename as a string as an input #################
-        if re.search(r'(.ftr)', dataname):
-            print("""**INFO: Feather format allowed. Loading feather file...**""")
+        if re.search(r'(.ftr)', dataname) or re.search(r'(.feather)', dataname):
+            print("""**INFO: Feather format allowed. Loading feather formatted file...**""")
             import feather
             dataname = pd.read_feather(dataname, use_threads=True)
             train = load_dask_data(dataname, sep)
         else:
-            print("""**INFO: to increase file loading performance, convert huge `csv` files to `feather` format using `df.to_feather("path/to/save/file.feather")`**""")
-            print('**INFO: featurewiz can now read feather formatted files...***')
+            print("""**INFO: to increase file loading performance, convert huge `csv` files to `feather` format""")
+            print("""**    Use `df.reset_index(drop=True).to_feather("path/to/save/file.ftr") to save file to disk`**""")
             if dask_xgboost_flag:
                 try:
                     print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
@@ -1299,7 +1299,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             for each_target in copy_targets:
                 if cat_targets or sorted(np.unique(dataname[each_target].values))[0] != 0:
                     mlb = My_LabelEncoder()
-                    dataname[each_target] = mlb.fit_transform(dataname[each_target]).values
+                    dataname[each_target] = mlb.fit_transform(dataname[each_target])
                     try:
                         ## try converting the pandas target to dask target ###
                         train[each_target] = dd.from_pandas(dataname[each_target], npartitions=1)
