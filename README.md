@@ -3,6 +3,13 @@
 ![banner](https://i.ibb.co/0Vc5f7c/featurewiz-logo.jpg)
 <p>
 
+## Update (March 2022)
+<ol>
+<li><b>featurewiz as of version 0.1.04 or higher can read `feather-format` files at blazing speeds. See example below on how to convert your CSV files to feather. Then you can feed those '.ftr' files to featurewiz and it will read it 10-100X faster!
+
+![feather_example](feather_example.jpg)
+
+
 ## Update (Jan 2022)
 <ol>
 <li><b>FeatureWiz as of version 0.0.90 or higher is a scikit-learn compatible feature selection transformer.</b> You can perform fit and predict as follows. You will get a Transformer that can select the top variables from your dataset. You can also use it in sklearn pipelines as a Transformer.
