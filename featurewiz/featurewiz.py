@@ -480,12 +480,13 @@ def load_dask_data(filename, sep, ):
     ts_column as a Time Series index. Note that filename should contain the full
     path to the file.
     """
+    n_workers = get_cpu_worker_count()
     if isinstance(filename, str):
             dft = dd.read_csv(filename, blocksize='default')
             print('    Too big to fit into pandas. Hence loaded file %s into a Dask dataframe ...' % filename)
     else:
         ### If filename is not a string, it must be a dataframe and can be loaded
-        dft =   dd.from_pandas(filename, npartitions=1)
+        dft =   dd.from_pandas(filename, npartitions=n_workers)
         print('    Converted pandas dataframe into a Dask dataframe ...' )
     return dft
 ##################################################################################
@@ -655,6 +656,7 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
         ##### you must ensure there are no infinite nor null values in corr_list df ##
         df_fit = df[corr_list]
         ### Now check if there are any NaN values in the dataset #####
+        
         if df_fit.isnull().sum().sum() > 0:
             df_fit = df_fit.dropna()
         else:
@@ -664,11 +666,12 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
             df_fit = reduce_mem_usage(df_fit)
         except:
             print('Reduce memeory erroring. Continuing...')
-        ##### Ready to perform fit and find mutual information score ####       
+        ##### Ready to perform fit and find mutual information score ####
+        
         try:
             fs.fit(df_fit, df[target])
         except:
-            print('Select K Best erroring. Returning with all variables...')
+            print('SelectKBest() function is erroring. Returning with all variables...')
             return corr_list
         ##########################################################################
         try:
@@ -1047,7 +1050,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if dask_xgboost_flag:
         train = remove_special_chars_in_names(train, target)
     train_index = dataname.index
-    
+
     ######################################################################################
     ##################    L O A D      T E S T     D A T A   #############################
     ##########   test_data will be the name of the pandas version of test data      #####
@@ -1154,11 +1157,14 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     #########     G P U     P R O C E S S I N G      B E G I N S    ############
     ###### This is where we set the CPU and GPU parameters for XGBoost
     GPU_exists = check_if_GPU_exists()
+    n_workers = get_cpu_worker_count()
     #####   Set the Scoring Parameters here based on each model and preferences of user ###
     cpu_params = {}
     param = {}
+    cpu_tree_method = 'hist'
+    tree_method = 'hist'
     cpu_params['nthread'] = -1
-    cpu_params['tree_method'] = 'hist'
+    cpu_params['tree_method'] = tree_method
     cpu_params['eta'] = 0.01
     cpu_params['subsample'] = 0.5
     cpu_params['grow_policy'] = 'depthwise' #'lossguide'
@@ -1170,8 +1176,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     cpu_params['predictor'] = 'cpu_predictor'
     cpu_params['num_parallel_tree'] = 1
     if GPU_exists:
+        tree_method = 'gpu_hist'
         param['nthread'] = -1
-        param['tree_method'] = 'gpu_hist'
+        param['tree_method'] = tree_method
         param['eta'] = 0.01
         param['subsample'] = 0.5
         param['grow_policy'] = 'depthwise' # 'lossguide' # 
@@ -1189,6 +1196,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     #################################################################################
     #############   D E T E C T  SINGLE OR MULTI-LABEL PROBLEM      #################
     #################################################################################
+    
     if isinstance(target, str):
         target = [target]
         settings.multi_label = False
@@ -1302,13 +1310,13 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     dataname[each_target] = mlb.fit_transform(dataname[each_target])
                     try:
                         ## try converting the pandas target to dask target ###
-                        train[each_target] = dd.from_pandas(dataname[each_target], npartitions=1)
+                        train[each_target] = dd.from_pandas(dataname[each_target], npartitions=n_workers)
                     except:
                         print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
                     if test_data is not None:
                         test_data[each_target] = mlb.transform(test_data[each_target])
                         try:
-                            test[each_target] = dd.from_pandas(test_data[each_target], npartitions=1)
+                            test[each_target] = dd.from_pandas(test_data[each_target], npartitions=n_workers)
                         except:
                             print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
                     print('Completed label encoding of target variable = %s' %each_target)
@@ -1316,6 +1324,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ######################################################################################
     ######    B E F O R E    U S I N G    D A T A B U N C H  C H E C K ###################
     ######################################################################################
+    
     ## Before using DataBunch check if certain encoders work with certain kind of data!
     if feature_type:
         final_cat_encoders = feature_type
@@ -1524,7 +1533,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         #from dask_ml.model_selection import train_test_split
         ### check available memory and allocate at least 1GB of it in the Client in DASK #############################
         n_workers = get_cpu_worker_count()
-        memory_free = str(max(1, int(psutil.virtual_memory()[0]/(n_workers*1e9))))+'GB'
+        ### Avoid reducing the free memory - leave it as big as it wants to be ###
+        memory_free = str(max(1, int(psutil.virtual_memory()[0]/(1*1e9))))+'GB'
         print('    Using Dask XGBoost algorithm with %s virtual CPUs and %s memory limit...' %(get_cpu_worker_count(), memory_free))
         client = Client(n_workers= n_workers, threads_per_worker=1, processes=True, silence_logs=50,
                         memory_limit=memory_free)
@@ -1574,6 +1584,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             if settings.modeltype == 'Regression':
                 objective = 'reg:squarederror'
                 params = {'objective': objective, 
+                                'tree_method': tree_method,
                                    "silent":True, "verbosity": 0, 'min_child_weight': 0.5}
             else:
                 #### This is for Classifiers only ##########                    
@@ -1581,12 +1592,15 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     objective = 'binary:logistic'
                     num_class = 1
                     params = {'objective': objective, 'num_class': num_class,
+                                'tree_method': tree_method,
                                     "silent":True,  "verbosity": 0,  'min_child_weight': 0.5}
                 else:
                     objective = 'multi:softmax'
                     num_class  =  dataname[target].nunique()[0]
+                    # Use GPU training algorithm if needed
                     params = {'objective': objective, 
-                                    "silent":True, "verbosity": 0,   'min_child_weight': 0.5, 'num_class': num_class}
+                                'tree_method': tree_method,
+                                "silent":True, "verbosity": 0,   'min_child_weight': 0.5, 'num_class': num_class}
             ############################################################################################################
             ######### This is where we find out whether to use single or multi-label for xgboost #######################
             ############################################################################################################
@@ -1623,6 +1637,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                         #### SYNTAX BELOW WORKS WELL. BUT YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
                         bst = xgb.dask.train(client, params, dtrain, num_boost_round=num_rounds)
                     except Exception as error_msg:
+                        if settings.modeltype == 'Regression':
+                            params = {'tree_method': cpu_tree_method}
+                        else:
+                            params = {'tree_method': cpu_tree_method,'num_class': num_class}
+                        bst = xgb.dask.train(client, params, dtrain, num_boost_round=num_rounds)
                         print(error_msg)
             ################################################################################
             if not dask_xgboost_flag:
@@ -3583,6 +3602,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             return {}, {}
         ###### This helps find all the predictor variables 
         cols = X.columns.tolist()
+
         #### Send target variable as it is so that y_train is analyzed properly ###
         # Select features using featurewiz
         features, X_sel = featurewiz(df, target, self.corr_limit, self.verbose, self.sep, 
