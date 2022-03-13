@@ -1012,7 +1012,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             train = load_dask_data(dataname, sep)
         else:
             print("""**INFO: to increase file loading performance, convert huge `csv` files to `feather` format""")
-            print("""**    Use `df.reset_index(drop=True).to_feather("path/to/save/file.ftr") to save file to disk`**""")
+            print("""**INFO: Use `df.reset_index(drop=True).to_feather("path/to/save/file.ftr")` to save file in feather format**""")
             if dask_xgboost_flag:
                 try:
                     print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
@@ -1221,10 +1221,12 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         date_time_vars = features_dict['date_vars']
         date_cols = copy.deepcopy(date_time_vars)
         #### Do this only if date time columns exist in your data set!
+        date_col_mappers = {}
         for date_col in date_cols:
             print('Processing %s column for date time features....' %date_col)
             dataname, ts_adds = FE_create_time_series_features(dataname, date_col)
-            #date_col_adds_train = left_subtract(date_df_train.columns.tolist(),date_col)
+            date_col_mapper = dict([(x,date_col) for x in ts_adds])
+            date_col_mappers.update(date_col_mapper)
             #print('    Adding %d column(s) from date-time column %s in train' %(len(date_col_adds_train),date_col))
             #train = train.join(date_df_train, rsuffix='2')
             if isinstance(test_data,str) or test_data is None:
@@ -1488,6 +1490,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     preds = final_list+important_cats
     print('Final list of selected vars after SULOV = %s' %len(preds))
     #######You must convert category variables into integers ###############
+    
     if len(important_cats) > 0:
         dataname, test_data = FE_convert_all_object_columns_to_numeric(dataname,  test_data)
     print('############## F E A T U R E   S E L E C T I O N  ####################')
@@ -1716,6 +1719,10 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             important_features2 = copy.deepcopy(important_features)
             print('    Could not revert column names to original. Try replacing them manually.')
         print(f'Returning list of {len(important_features)} important features and a dataframe.')
+        if len(date_cols) > 0:
+            date_replacer = date_col_mappers.get  # For faster gets.
+            important_features1 = [date_replacer(n, n) for n in important_features2]
+            important_features2 = find_remove_duplicates(important_features1)
         if len(np.intersect1d(train_ids.columns.tolist(),dataname.columns.tolist())) > 0:
             return important_features2, dataname[important_features+target]
         else:
