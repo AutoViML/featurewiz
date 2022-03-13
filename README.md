@@ -1,6 +1,6 @@
 # featurewiz
 
-![banner](https://i.ibb.co/0Vc5f7c/featurewiz-logo.jpg)
+![banner](featurewiz_logos.png)
 <p>
 
 ## Update (March 2022)
