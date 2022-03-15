@@ -39,7 +39,8 @@ from category_encoders.glmm import GLMMEncoder
 from sklearn.preprocessing import LabelEncoder
 from category_encoders.wrapper import PolynomialWrapper
 from .encoders import FrequencyEncoder
-from .ml_models import analyze_problem_type, My_LabelEncoder, get_sample_weight_array
+from .ml_models import analyze_problem_type, get_sample_weight_array
+from .my_encoders import My_LabelEncoder
 from . import settings
 settings.init()
 ################################################################################
@@ -829,6 +830,7 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
     test: (optional) this is the transformed test dataframe if given.
     ######################################################################################
     """
+    
     train = copy.deepcopy(train)
     test = copy.deepcopy(test)
     #### This is to fill all numeric columns with a missing number ##########
