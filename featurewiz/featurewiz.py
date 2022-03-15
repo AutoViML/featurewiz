@@ -1217,9 +1217,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ########     C L A S S I F Y    V A R I A B L E S           ##########################
     ###### Now we detect the various types of variables to see how to convert them to numeric
     ######################################################################################
+    date_cols = features_dict['date_vars']
     if len(features_dict['date_vars']) > 0:
-        date_time_vars = features_dict['date_vars']
-        date_cols = copy.deepcopy(date_time_vars)
+        date_time_vars = copy.deepcopy(date_cols)
         #### Do this only if date time columns exist in your data set!
         date_col_mappers = {}
         for date_col in date_cols:
@@ -1693,10 +1693,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             print('Dask XGBoost is crashing. Returning with currently selected features...')
         else:
             print('Regular XGBoost is crashing. Returning with currently selected features...')
-        if isinstance(test_data, str) or test_data is None:
-            return dataname[important_features+target], important_features
-        else:
-            return dataname[important_features+target], test_data[important_features]
     ######    E    N     D      O  F      X  G  B  O  O  S  T    S E L E C T I O N ####################
     print('            Total time taken for XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
     important_features = list(OrderedDict.fromkeys(important_features))
@@ -1730,6 +1726,10 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             return important_features2, dataname[important_features+target]
     else:
         print('Returning 2 dataframes: dataname and test_data with %d important features.' %len(important_features))
+        if len(date_cols) > 0:
+            date_replacer = date_col_mappers.get  # For faster gets.
+            important_features1 = [date_replacer(n, n) for n in important_features]
+            important_features = find_remove_duplicates(important_features1)
         if feature_gen or feature_type:
             ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
             dataname = pd.concat([train_ids, dataname], axis=1)
