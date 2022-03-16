@@ -830,7 +830,7 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
     test: (optional) this is the transformed test dataframe if given.
     ######################################################################################
     """
-    
+    pdb.set_trace()
     train = copy.deepcopy(train)
     test = copy.deepcopy(test)
     #### This is to fill all numeric columns with a missing number ##########
@@ -870,6 +870,7 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
                 ### if there is an extra column in train that is not in test, then remove it from consideration
                 lis = copy.deepcopy(lis_test)
     if not (len(lis)==0):
+        
         for everycol in lis:
             #print('    Converting %s to numeric' %everycol)
             MLB = My_LabelEncoder()

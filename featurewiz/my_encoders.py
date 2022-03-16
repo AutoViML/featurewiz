@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import TransformerMixin, BaseEstimator
 from collections import defaultdict
+import pdb
 class My_LabelEncoder(BaseEstimator, TransformerMixin):
     """
     ################################################################################################
@@ -67,6 +68,7 @@ class My_LabelEncoder(BaseEstimator, TransformerMixin):
                 #### Since it is multi-dimensional, So in this case, just return the data as is
                 #### Do not change this since I have tested it and it works.
                 return testx
+
         ### now convert the input to transformer dictionary values
         new_ins = np.unique(testx.factorize()[1]).tolist()
         missing = [x for x in new_ins if x not in self.transformer.keys()]
@@ -81,19 +83,17 @@ class My_LabelEncoder(BaseEstimator, TransformerMixin):
         #### Do not change this since I have tested it and it works.
         testk = testx.map(self.transformer) 
         
-        if testx.dtype not in [np.int16, np.int32, np.int64, float, bool, object]:
-            if testx.isnull().sum().sum() > 0:
+        if testx.isnull().sum().sum() > 0:
+            if testx.dtype not in [np.int16, np.int32, np.int64, float, bool, object]:
                 fillval = self.transformer[np.nan]
-                testk = testx.cat.add_categories([fillval])
+                testk = testk.map(self.transformer).fillna(fillval).values.astype(int)
+            else:
                 testk = testk.fillna(fillval)
                 testk = testx.map(self.transformer).values.astype(int)
-                return testk
-            else:
-                testk = testx.map(self.transformer).values.astype(int)
-                return testk
+            return testk
         else:
-            outs = testx.map(self.transformer).values.astype(int)
-            return outs
+            testk = testx.map(self.transformer).values.astype(int)
+            return testk
 
     def inverse_transform(self, testx, y=None):
         ### now convert the input to transformer dictionary values

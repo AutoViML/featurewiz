@@ -35,6 +35,7 @@ from pathlib import Path
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 #sklearn categorical encoding
 import category_encoders as ce
+from .my_encoders import My_LabelEncoder
 
 #sklearn modelling
 from sklearn.model_selection import KFold
