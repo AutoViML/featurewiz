@@ -84,8 +84,8 @@ class My_LabelEncoder(BaseEstimator, TransformerMixin):
         testk = testx.map(self.transformer) 
         
         if testx.isnull().sum().sum() > 0:
+            fillval = self.transformer[np.nan]
             if testx.dtype not in [np.int16, np.int32, np.int64, float, bool, object]:
-                fillval = self.transformer[np.nan]
                 testk = testk.map(self.transformer).fillna(fillval).values.astype(int)
             else:
                 testk = testk.fillna(fillval)
