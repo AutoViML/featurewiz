@@ -39,7 +39,7 @@ from category_encoders.glmm import GLMMEncoder
 from sklearn.preprocessing import LabelEncoder
 from category_encoders.wrapper import PolynomialWrapper
 from .encoders import FrequencyEncoder
-from .ml_models import analyze_problem_type, get_sample_weight_array
+from .ml_models import analyze_problem_type, get_sample_weight_array, check_if_GPU_exists
 from .my_encoders import My_LabelEncoder
 from . import settings
 settings.init()
@@ -183,8 +183,11 @@ def classify_columns(df_preds, verbose=0):
     sum_all_cols = dict()
     orig_cols_total = train.shape[1]
     #Types of columns
+    cols_delete = []
     cols_delete = [col for col in list(train) if (len(train[col].value_counts()) == 1
                                        ) | (train[col].isnull().sum()/len(train) >= 0.90)]
+    inf_cols = EDA_find_columns_with_infinity(train)
+    cols_delete += inf_cols
     train = train[left_subtract(list(train),cols_delete)]
     var_df = pd.Series(dict(train.dtypes)).reset_index(drop=False).rename(
                         columns={0:'type_of_column'})
@@ -528,7 +531,33 @@ def EDA_find_columns_with_infinity(df):
             add_cols.append(col)
             sum_cols += inf_sum1
             sum_cols += inf_sum2
+    if sum_cols > 0:
+        print('    there are %d rows and %d columns with infinity in them...' %(sum_cols,len(add_cols)))
+        print("    after removing columns with infinity, shape of dataset = (%d, %d)" %(df.shape[0],(df.shape[1]-len(add_cols))))
     return add_cols
+####################################################################################
+def FE_find_remove_columns_with_infinity(df):
+    """
+    This function finds all columns in a dataframe that have inifinite values (np.inf or -np.inf)
+    It returns a list of column names. If the list is empty, it means no columns were found.
+    """
+    add_cols = []
+    sum_cols = 0
+    for col in df.columns:
+        inf_sum1 = 0 
+        inf_sum2 = 0
+        inf_sum1 = len(df[df[col]==np.inf])
+        inf_sum2 = len(df[df[col]==-np.inf])
+        if (inf_sum1 > 0) or (inf_sum2 > 0):
+            add_cols.append(col)
+            sum_cols += inf_sum1
+            sum_cols += inf_sum2
+    if sum_cols > 0:
+        print("Found and removing %d columns that have infinity in them" %sum_cols)
+        nocols = [x for x in df.columns if x not in add_cols]
+        return df[nocols]
+    else:
+        return df
 ####################################################################################
 import copy
 def FE_drop_rows_with_infinity(df, cols_list, fill_value=None):
@@ -1043,10 +1072,18 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     dataname = remove_duplicate_cols_in_dataset(dataname)
     #### Save the original column names ############################
     orig_col_names = dataname.columns.tolist()
-    
+    #### You need to change the target name if you have changed the column names ###    
     dataname = remove_special_chars_in_names(dataname, target, verbose=1)
     new_col_names = dataname.columns.tolist()
     col_name_mapper = dict(zip(new_col_names,orig_col_names))
+    col_name_replacer = dict(zip(orig_col_names,new_col_names))
+    item_replacer = col_name_replacer.get  # For faster gets.
+    if isinstance(target, str):
+        targets = [target]
+        targets = [item_replacer(n, n) for n in targets]
+        target = targets[0]
+    else:
+        target = [item_replacer(n, n) for n in target]
     ######   XGBoost cannot handle special chars in column names ###########
     if dask_xgboost_flag:
         train = remove_special_chars_in_names(train, target)
@@ -1295,9 +1332,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ########## Now we need to select the right model to run repeatedly ####
     if target is None or len(target) == 0:
         cols_list = list(dataname)
-        settings.modeltype = 'Clustering'
+        settings.modeltype, _ = 'Clustering'
     else:
-        settings.modeltype = analyze_problem_type(dataname, target)
+        settings.modeltype, _ = analyze_problem_type(dataname[target], target)
         cols_list = left_subtract(list(dataname),target)
         ##########################################################################
         ###########   L A B E L    E N C O D I N G   O F   T A R G E T   #########
@@ -1757,20 +1794,6 @@ def remove_highly_correlated_vars_fast(df, corr_limit=0.70):
     print('Highly correlated columns to remove: %s' %to_drop)
     return to_drop
 #####################################################################################
-import os
-def check_if_GPU_exists():
-    GPU_exists = False
-    if not GPU_exists:
-        try:
-            os.environ['NVIDIA_VISIBLE_DEVICES']
-            print('GPU active on this device')
-            return True
-        except:
-            print('No GPU active on this device')
-            return False
-    else:
-        return True
-#############################################################################################
 import multiprocessing
 def get_cpu_worker_count():
     return multiprocessing.cpu_count()
@@ -3565,7 +3588,7 @@ def select_rows_from_dataframe(train_dataframe, targets, nrows_limit, DS_LEN='')
     if test_size <= 0:
         test_size = 0.9
     ###   Float variables are considered Regression #####################################
-    modeltype = analyze_problem_type(train_dataframe, copy_targets, verbose=0)
+    modeltype, _ = analyze_problem_type(train_dataframe[copy_targets], copy_targets, verbose=0)
     print('    loading a random sample of %d rows into pandas for EDA' %nrows_limit)
     ####### If it is a classification problem, you need to stratify and select sample ###
     if modeltype != 'Regression':

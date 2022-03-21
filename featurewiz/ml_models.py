@@ -51,50 +51,6 @@ warnings.filterwarnings("ignore")
 import copy
 #################################################################################
 #### Regression or Classification type problem
-def analyze_problem_type(train, target, verbose=0) :
-    target = copy.deepcopy(target)
-    train = copy.deepcopy(train)
-    if isinstance(train, pd.Series):
-        train = pd.DataFrame(train)
-    ### the number of categories cannot be more than 2% of train size ####
-    ### this determines the number of categories above which integer target becomes a regression problem ##
-    cat_limit = int(train.shape[0]*0.02) 
-    cat_limit = min(cat_limit, 100) ## anything over 100 categories is a regression problem ##
-    cat_limit = max(cat_limit, 10) ### anything above at least 10 categories is a Regression problem
-    float_limit = 15 ### number of categories a float target above which it becomes a Regression problem
-    if isinstance(target, str):
-        target = [target]
-    if len(target) == 1:
-        targ = target[0]
-        model_label = 'Single_Label'
-    else:
-        targ = target[0]
-        model_label = 'Multi_Label'
-    ####  This is where you detect what kind of problem it is #################
-    if  train[targ].dtype in ['int64', 'int32','int16','int8']:
-        if len(train[targ].unique()) <= 2:
-            model_class = 'Binary_Classification'
-        elif len(train[targ].unique()) > 2 and len(train[targ].unique()) <= cat_limit:
-            model_class = 'Multi_Classification'
-        else:
-            model_class = 'Regression'
-    elif  train[targ].dtype in ['float16','float32','float64','float']:
-        if len(train[targ].unique()) <= 2:
-            model_class = 'Binary_Classification'
-        elif len(train[targ].unique()) > 2 and len(train[targ].unique()) <= float_limit:
-            model_class = 'Multi_Classification'
-        else:
-            model_class = 'Regression'
-    else:
-        if len(train[targ].unique()) <= 2:
-            model_class = 'Binary_Classification'
-        else:
-            model_class = 'Multi_Classification'
-    ########### print this for the start of next step ###########
-    if verbose <= 1:
-        print('''#### %s %s Feature Selection Started ####''' %(
-                                model_label,model_class))
-    return model_class
 #####################################################################################
 from sklearn.impute import SimpleImputer
 def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classification',
@@ -231,10 +187,14 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
             'num_leaves': sp.stats.randint(20, 100),
            'n_estimators': sp.stats.randint(100,500),
             "max_depth": sp.stats.randint(3, 15),
+            'class_weight':[None, 'balanced']
                 }
-
+    gpu_exists = check_if_GPU_exists()
     if modeltype == 'Regression':
-        lgb = lgbm.LGBMRegressor()
+        if gpu_exists:
+            lgb = lgbm.LGBMRegressor(device="gpu")
+        else:
+            lgb = lgbm.LGBMRegressor()
         objective = 'regression' 
         metric = 'rmse'
         is_unbalance = False
@@ -242,7 +202,10 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
         score_name = 'Score'
     else:
         if modeltype =='Binary_Classification':
-            lgb = lgbm.LGBMClassifier()
+            if gpu_exists:
+                lgb = lgbm.LGBMClassifier(device="gpu")
+            else:
+                lgb = lgbm.LGBMClassifier()
             objective = 'binary'
             metric = 'auc'
             is_unbalance = True
@@ -250,7 +213,10 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
             score_name = 'ROC AUC'
             num_class = 1
         else:
-            lgb = lgbm.LGBMClassifier()
+            if gpu_exists:
+                lgb = lgbm.LGBMClassifier(device="gpu")
+            else:
+                lgb = lgbm.LGBMClassifier()
             objective = 'multiclass'
             #objective = 'multiclassova'
             metric = 'multi_logloss'
@@ -274,18 +240,10 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
                }
     if modeltype == 'Regression':
         ## there is no num_class in regression for LGBM model ##
-        lgbm_params = {'learning_rate': 0.001,
+        lgbm_params = {
                        'objective': objective,
                        'metric': metric,
                        'boosting_type': 'gbdt',
-                       'max_depth': 8,
-                       'subsample': 0.2,
-                       'colsample_bytree': 0.3,
-                       'reg_alpha': 0.54,
-                       'reg_lambda': 0.4,
-                       'min_split_gain': 0.7,
-                       'min_child_weight': 26,
-                        'num_leaves': 32,
                        'save_binary': True,
                        'seed': 1337, 'feature_fraction_seed': 1337,
                        'bagging_seed': 1337, 'drop_seed': 1337, 
@@ -294,18 +252,10 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
                         'n_estimators': 400,
                     }
     else:
-        lgbm_params = {'learning_rate': 0.001,
+        lgbm_params = {
                        'objective': objective,
                        'metric': metric,
                        'boosting_type': 'gbdt',
-                       'max_depth': 8,
-                       'subsample': 0.2,
-                       'colsample_bytree': 0.3,
-                       'reg_alpha': 0.54,
-                       'reg_lambda': 0.4,
-                       'min_split_gain': 0.7,
-                       'min_child_weight': 26,
-                        'num_leaves': 32,
                        'save_binary': True,
                        'seed': 1337, 'feature_fraction_seed': 1337,
                        'bagging_seed': 1337, 'drop_seed': 1337, 
@@ -360,8 +310,18 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
             print('lightgbm model is crashing. Please check your inputs and try again...')
     return model
 ##############################################################################################
+import os
+def check_if_GPU_exists():
+    try:
+        os.environ['NVIDIA_VISIBLE_DEVICES']
+        print('GPU active on this device')
+        return True
+    except:
+        print('No GPU active on this device')
+        return False
+#############################################################################################
 def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
-                                scaler = '', enc_method='label', n_splits=5, verbose=-1):
+                                scaler = '', enc_method='label', n_splits=5, verbose=0):
     """
     This model is called complex because it handle multi-label, mulit-class datasets which XGBoost ordinarily cant.
     Just send in X_train, y_train and what you want to predict, X_test
@@ -406,7 +366,15 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
             Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0], index=Y_XGB.index)
     else:
         multi_label = True
-    modeltype = analyze_problem_type(Y_XGB, targets)
+    modeltype, _ = analyze_problem_type(Y_XGB, targets)
+    ### XGBoost #####
+    if modeltype == 'Binary_Classification':
+        print('# XGBoost is a good choice since it is better for binary classification problems.')
+    elif modeltype == 'Multi_Classification':
+        print('# Avoid XGBoost for this problem since LightGBM is better for multi-class than XGBoost.')
+    else:
+        print('# Simple XGBoost is a better choice compared to complex_XGBoost_model for Regression problems.')
+
     columns =  X_XGB.columns
     ###################################################################################
     #########     S C A L E R     P R O C E S S I N G      B E G I N S    ############
@@ -424,28 +392,6 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
             scaler = StandardScaler()
     else:
         pass
-    #########     G P U     P R O C E S S I N G      B E G I N S    ############
-    ###### This is where we set the CPU and GPU parameters for XGBoost
-    if GPU_flag:
-        GPU_exists = check_if_GPU_exists()
-    else:
-        GPU_exists = False
-    #####   Set the Scoring Parameters here based on each model and preferences of user ###
-    cpu_params = {}
-    param = {}
-    cpu_params['tree_method'] = 'hist'
-    cpu_params['gpu_id'] = 0
-    cpu_params['updater'] = 'grow_colmaker'
-    cpu_params['predictor'] = 'cpu_predictor'
-    if GPU_exists:
-        param['tree_method'] = 'gpu_hist'
-        param['gpu_id'] = 0
-        param['updater'] = 'grow_gpu_hist' #'prune'
-        param['predictor'] = 'gpu_predictor'
-        print('    Hyper Param Tuning XGBoost with GPU parameters. This will take time. Please be patient...')
-    else:
-        param = copy.deepcopy(cpu_params)
-        print('    Hyper Param Tuning XGBoost with CPU parameters. This will take time. Please be patient...')
     #################################################################################
     if modeltype == 'Regression':
         if log_y:
@@ -569,11 +515,16 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
     else:
         rand_params = {
             'learning_rate': sp.stats.uniform(scale=1),
-            'gamma': sp.stats.randint(0, 100),
+            'gamma': sp.stats.randint(0, 32),
             'n_estimators': sp.stats.randint(100,500),
             "max_depth": sp.stats.randint(3, 15),
+            'class_weight':[None, 'balanced'],
                 }
-
+    #####   Set the params for GPU and CPU here ###
+    tree_method = 'hist'
+    if check_if_GPU_exists():
+        tree_method = 'gpu_hist'
+    ######   This is where we set the default parameters ###########
     if modeltype == 'Regression':
         objective = 'reg:squarederror' 
         eval_metric = 'rmse'
@@ -610,17 +561,10 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
     ######################################################
     final_params = {
           'booster' :'gbtree',
-          'colsample_bytree': 0.5,
-          'alpha': 0.015,
-          'gamma': 4,
-          'learning_rate': 0.01,
-          'max_depth': 8,
-          'min_child_weight': 2,
-          'reg_lambda': 0.5,
-          'subsample': 0.7,
           'random_state': 99,
           'objective': objective,
           'eval_metric': eval_metric,
+          'tree_method': tree_method,
           'verbosity': 0,
           'n_jobs': -1,
           'scale_pos_weight':scale_pos_weight,
@@ -632,8 +576,9 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
         ######   This is for Multi_Label problems ############
         rand_params = {'estimator__learning_rate':[0.1, 0.5, 0.01, 0.05],
           'estimator__n_estimators':[50, 100, 150, 200, 250],
-          'estimator__gamma':[2, 4, 8, 16, 32],
+          'estimator__gamma':[0, 2, 4, 8, 16, 32],
           'estimator__max_depth':[3, 5, 8, 12],
+          'class_weight':[None, 'balanced']
           }
         if random_search_flag:
             if modeltype == 'Regression':
@@ -809,7 +754,7 @@ def xgboost_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y,
     early_stopping = 10
     start_time = time.time()
     if str(model).split("(")[0] == 'RandomizedSearchCV':
-
+        
         model.fit(x_train, y_train, **early_stopping_params)
         print('Time taken for Hyper Param tuning of XGB (in minutes) = %0.1f' %(
                                         (time.time()-start_time)/60))
@@ -907,7 +852,15 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
         print('Multi_label is not supported in simple_XGBoost_model. Try the complex_XGBoost_model...Returning')
         return {}
     ##### Start your analysis of the data ############
-    modeltype = analyze_problem_type(Y_XGB, targets)
+    modeltype, _ = analyze_problem_type(Y_XGB, targets)
+    ### XGBoost #####
+    if modeltype == 'Binary_Classification':
+        print('# XGBoost is a good choice since it is better for binary classification problems.')
+    elif modeltype == 'Multi_Classification':
+        print('# Avoid XGBoost for this problem since LightGBM is better for multi-class than XGBoost.')
+    else:
+        print('# Simple XGBoost is a good choice compared to complex_XGBoost_model for Regression problems.')
+
     columns =  X_XGB.columns
     ###################################################################################
     #########     S C A L E R     P R O C E S S I N G      B E G I N S    ############
@@ -934,6 +887,9 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     #####   Set the Scoring Parameters here based on each model and preferences of user ###
     cpu_params = {}
     param = {}
+    tree_method = 'hist'
+    if GPU_exists:
+        tree_method = 'gpu_hist'
     cpu_params['tree_method'] = 'hist'
     cpu_params['gpu_id'] = 0
     cpu_params['updater'] = 'grow_colmaker'
@@ -968,7 +924,7 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
           	              eval_metric='rmse',
                           verbosity = 0,
                           n_jobs=-1,
-                          #grow_policy='lossguide',
+                          tree_method=tree_method,
                           silent = True)
         objective='reg:squarederror'
         eval_metric = 'rmse'
@@ -1005,7 +961,7 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
                          subsample=0.7,
                          random_state=99,
                          n_jobs=-1,
-                         #grow_policy='lossguide',
+                         tree_method=tree_method,
                          num_class = num_class,
                          verbosity = 0,
                          silent = True)
@@ -1028,10 +984,7 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
        'n_estimators': sp.stats.randint(100,500),
         "max_depth": sp.stats.randint(3, 15),
             }
-    early_stopping_params={"early_stopping_rounds":5,
-                "eval_metric" : eval_metric, 
-                "eval_set" : [[X_valid, Y_valid]]
-               }
+
     if modeltype == 'Regression':
         scoring = 'neg_mean_squared_error'
     else:
@@ -1049,7 +1002,12 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
 
     X_train, Y_train, X_valid, Y_valid = data_transform(X_train, Y_train, X_valid, Y_valid,
                                 modeltype, multi_label, scaler=scaler, enc_method=enc_method)
-    
+
+    #### Don't move this. It has to be done after you transform Y_valid to numeric ########
+    early_stopping_params={"early_stopping_rounds":5,
+                "eval_metric" : eval_metric, 
+                "eval_set" : [[X_valid, Y_valid]]
+               }
     gbm_model = xgboost_model_fit(model, X_train, Y_train, X_valid, Y_valid, modeltype,
                          log_y, params, cpu_params, early_stopping_params)
     #############################################################################
@@ -1077,6 +1035,7 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     for folds, (train_index, test_index) in tqdm(enumerate(fold.split(X_XGB,Y_XGB))):
         
         x_train, x_valid = X_XGB.iloc[train_index], X_XGB.iloc[test_index]
+        
         ### you need to keep y_valid as-is in the same original state as it was given ####
         if isinstance(Y_XGB, np.ndarray):
             Y_XGB = pd.Series(Y_XGB,name=targets[0], index=Y_XGB_index)
@@ -1221,7 +1180,15 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
             Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0], index=Y_XGB.index)
     else:
         multi_label = True
-    modeltype = analyze_problem_type(Y_XGB, targets)
+    modeltype, _ = analyze_problem_type(Y_XGB, targets)
+    ### LightGBM #####
+    if modeltype == 'Binary_Classification':
+        print('# LightGBM is not a good choice since XGBoost is better for binary classification problems.')
+    elif modeltype == 'Multi_Classification':
+        print('# LightGBM is a good choice since it is better for multi-class than XGBoost.')
+    else:
+        print('# LightGBM is a poor choice compared to XGBoost for Regression problems.')
+
     columns =  X_XGB.columns
     #### In some cases, there are special chars in column names. Remove them. ###
     if np.array([':' in x for x in columns]).any():
@@ -1247,29 +1214,9 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
             scaler = StandardScaler()
     else:
         pass
-    #########     G P U     P R O C E S S I N G      B E G I N S    ############
-    ###### This is where we set the CPU and GPU parameters for XGBoost
-    if GPU_flag:
-        GPU_exists = check_if_GPU_exists()
-    else:
-        GPU_exists = False
-    #####   Set the Scoring Parameters here based on each model and preferences of user ###
-    cpu_params = {}
-    param = {}
-    cpu_params['tree_method'] = 'hist'
-    cpu_params['gpu_id'] = 0
-    cpu_params['updater'] = 'grow_colmaker'
-    cpu_params['predictor'] = 'cpu_predictor'
-    if GPU_exists:
-        param['tree_method'] = 'gpu_hist'
-        param['gpu_id'] = 0
-        param['updater'] = 'grow_gpu_hist' #'prune'
-        param['predictor'] = 'gpu_predictor'
-        print('    Hyper Param Tuning LightGBM with GPU parameters. This will take time. Please be patient...')
-    else:
-        param = copy.deepcopy(cpu_params)
-        print('    Hyper Param Tuning LightGBM with CPU parameters. This will take time. Please be patient...')
-    #################################################################################
+    #############################################################################
+    #########     G P U     P R O C E S S I N G      B E G I N S    #############
+    #############################################################################
     if modeltype == 'Regression':
         if log_y:
             Y_XGB.loc[Y_XGB==0] = 1e-15  ### just set something that is zero to a very small number
@@ -1412,7 +1359,15 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
         print('Multi_label is not supported in simple_LightGBM_model. Try the complex_LightGBM_model...Returning')
         return {}
     ##### Start your analysis of the data ############
-    modeltype = analyze_problem_type(Y_XGB, targets)
+    modeltype, _ = analyze_problem_type(Y_XGB, targets)
+    ### LightGBM #####
+    if modeltype == 'Binary_Classification':
+        print('# LightGBM is not a good choice since XGBoost is better for binary classification problems.')
+    elif modeltype == 'Multi_Classification':
+        print('# LightGBM is a good choice since it is better for multi-class than XGBoost.')
+    else:
+        print('# LightGBM is a poor choice compared to XGBoost for Regression problems.')
+
     columns =  X_XGB.columns
     #### In some cases, there are special chars in column names. Remove them. ###
     if np.array([':' in x for x in columns]).any():
@@ -1438,8 +1393,9 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
             scaler = StandardScaler()
     else:
         pass
+    ############################################################################
     #########     G P U     P R O C E S S I N G      B E G I N S    ############
-    ###### This is where we set the CPU and GPU parameters for XGBoost
+    ###### This is where we set the CPU and GPU parameters for XGBoost #########
     if GPU_flag:
         GPU_exists = check_if_GPU_exists()
     else:
@@ -1509,22 +1465,19 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     for folds, (train_index, test_index) in tqdm(enumerate(fold.split(X_XGB,Y_XGB))):
         x_train, x_test = X_XGB.iloc[train_index], X_XGB.iloc[test_index]
         ### you need to keep y_test as-is in the same original state as it was given ####
+        y_train = Y_XGB.iloc[train_index]
         y_test = Y_XGB.iloc[test_index]
         ### y_valid here will be transformed into log_y to ensure training and validation ####
         if modeltype == 'Regression':
             if log_y:
-                y_train, y_valid = np.log(Y_XGB.iloc[train_index]), np.log(Y_XGB.iloc[test_index])
-            else:
-                y_train, y_valid = Y_XGB.iloc[train_index], Y_XGB.iloc[test_index]
-        else:
-            y_train, y_valid = Y_XGB.iloc[train_index], Y_XGB.iloc[test_index]
+                y_train, y_test = np.log(Y_XGB.iloc[train_index]), np.log(Y_XGB.iloc[test_index])
 
         ##  scale the x_train and x_test values - use all columns -
-        x_train, y_train, x_test, _ = data_transform(x_train, y_train, x_test, y_test,
+        x_train, y_train, x_test, y_test = data_transform(x_train, y_train, x_test, y_test,
                                 modeltype, multi_label, scaler=scaler, enc_method=enc_method)
 
         model = gbm_model.best_estimator_
-        model = lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_valid, modeltype,
+        model = lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modeltype,
                                 multi_label, log_y, model=model)
 
         #### now make predictions on validation data and compare it to y_test which is in original state ##
@@ -1565,6 +1518,7 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
                     pred_xgbs = stats.mode(pred_xgbs, axis=0)[0][0]
                     pred_probas = np.mean( np.array([ pred_probas, pred_proba ]), axis=0 )
             #### preds here is for only one fold and we are comparing it to original y_test ####
+            
             score = balanced_accuracy_score(y_test, preds)
             print('AUC score in fold %d = %0.1f%%' %(folds+1, score*100))
         scores.append(score)
@@ -1650,3 +1604,69 @@ def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype, top_num='all
         ax2=plt.subplot(2, 2, 2)
         pd.Series(y_preds).hist(ax=ax2, color='b', label='Model predictions histogram on test data');
 ##################################################################################
+def analyze_problem_type(y_train, target, verbose=0) :  
+    y_train = copy.deepcopy(y_train)
+    cat_limit = 30 ### this determines the number of categories to name integers as classification ##
+    float_limit = 15 ### this limits the number of float variable categories for it to become cat var
+    if isinstance(target, str):
+        multi_label = False
+        string_target = True
+    else:
+        if len(target) == 1:
+            multi_label = False
+            string_target = False
+        else:
+            multi_label = True
+            string_target = False
+
+    ####  This is where you detect what kind of problem it is #################
+    if string_target or type(y_train) == pd.Series:
+        ## If target is a string then we should test for dtypes this way #####
+        if  y_train.dtype in ['int64', 'int32','int16']:
+            if len(np.unique(y_train)) <= 2:
+                model_class = 'Binary_Classification'
+            elif len(y_train.unique()) > 2 and len(y_train.unique()) <= cat_limit:
+                model_class = 'Multi_Classification'
+            else:
+                model_class = 'Regression'
+        elif  y_train.dtype in ['float16','float32','float64']:
+            if len(y_train.unique()) <= 2:
+                model_class = 'Binary_Classification'
+            elif len(y_train.unique()) > 2 and len(y_train.unique()) <= float_limit:
+                model_class = 'Multi_Classification'
+            else:
+                model_class = 'Regression'
+        else:
+            if len(y_train.unique()) <= 2:
+                model_class = 'Binary_Classification'
+            else:
+                model_class = 'Multi_Classification'
+    else:
+        for i in range(y_train.shape[1]):
+            ### if target is a list, then we should test dtypes a different way ###
+            if y_train.dtypes.values.all() in ['int64', 'int32','int16']:
+                if len(np.unique(y_train.iloc[:,0])) <= 2:
+                    model_class = 'Binary_Classification'
+                elif len(np.unique(y_train.iloc[:,0])) > 2 and len(np.unique(y_train.iloc[:,0])) <= cat_limit:
+                    model_class = 'Multi_Classification'
+                else:
+                    model_class = 'Regression'
+            elif  y_train.dtypes.values.all() in ['float16','float32','float64']:
+                if len(np.unique(y_train.iloc[:,0])) <= 2:
+                    model_class = 'Binary_Classification'
+                elif len(np.unique(y_train.iloc[:,0])) > 2 and len(np.unique(y_train.iloc[:,0])) <= float_limit:
+                    model_class = 'Multi_Classification'
+                else:
+                    model_class = 'Regression'
+            else:
+                if len(np.unique(y_train.iloc[:,0])) <= 2:
+                    model_class = 'Binary_Classification'
+                else:
+                    model_class = 'Multi_Classification'
+    ########### print this for the start of next step ###########
+    if multi_label:
+        print('''#### %s %s problem ####''' %('Multi_Label', model_class))
+    else:
+        print('''#### %s %s problem ####''' %('Single_Label', model_class))
+    return model_class, multi_label
+###############################################################################
