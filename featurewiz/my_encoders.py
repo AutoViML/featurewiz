@@ -84,7 +84,11 @@ class My_LabelEncoder(BaseEstimator, TransformerMixin):
         testk = testx.map(self.transformer) 
         
         if testx.isnull().sum().sum() > 0:
-            fillval = self.transformer[np.nan]
+            try:
+                fillval = self.transformer[np.nan]
+            except:
+                ### if there is no NaN in train set but there are NaN's in test set, just use -1 as fill value ##
+                fillval = -1
             if testx.dtype not in [np.int16, np.int32, np.int64, float, bool, object]:
                 testk = testk.map(self.transformer).fillna(fillval).values.astype(int)
             else:

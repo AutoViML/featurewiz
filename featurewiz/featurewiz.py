@@ -213,14 +213,20 @@ def classify_columns(df_preds, verbose=0):
     var_df['cat'] = 0
     var_df['id_col'] = 0
     discrete_or_nlp_vars = var_df.loc[discrete_or_nlp==1]['index'].values.tolist()
-    if len(var_df.loc[discrete_or_nlp==1]) != 0:
-        for col in discrete_or_nlp_vars:
+    copy_discrete_or_nlp_vars = copy.deepcopy(discrete_or_nlp_vars)
+    if len(discrete_or_nlp_vars) > 0:
+        for col in copy_discrete_or_nlp_vars:
             #### first fill empty or missing vals since it will blowup ###
             train[col] = train[col].fillna('  ')
             if train[col].map(lambda x: len(x) if type(x)==str else 0).mean(
-                ) >= max_nlp_char_size and len(train[col].value_counts()
-                        ) <= int(0.9*len(train)) and col not in string_bool_vars:
+                ) >= 50 and len(train[col].value_counts()
+                        ) >= int(0.9*len(train)) and col not in string_bool_vars:
                 var_df.loc[var_df['index']==col,'nlp_strings'] = 1
+            elif train[col].map(lambda x: len(x) if type(x)==str else 0).mean(
+                ) >= max_nlp_char_size and train[col].map(lambda x: len(x) if type(x)==str else 0).mean(
+                ) < 50 and len(train[col].value_counts()
+                        ) <= int(0.9*len(train)) and col not in string_bool_vars:
+                var_df.loc[var_df['index']==col,'discrete_strings'] = 1
             elif len(train[col].value_counts()) > cat_limit and len(train[col].value_counts()
                         ) <= int(0.9*len(train)) and col not in string_bool_vars:
                 var_df.loc[var_df['index']==col,'discrete_strings'] = 1
@@ -1354,6 +1360,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     except:
                         print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
                     if test_data is not None:
+                        
                         test_data[each_target] = mlb.transform(test_data[each_target])
                         try:
                             test[each_target] = dd.from_pandas(test_data[each_target], npartitions=n_workers)
