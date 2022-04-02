@@ -996,6 +996,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     max_cats = 15
     maxrows = 10000
     RANDOM_SEED = 42
+    
     ############################################################################
     cat_encoders_list = list(settings.cat_encoders_names.keys())
     ### Just set defaults here which can be overridden by user input ####
@@ -1077,12 +1078,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ##################    L O A D    T E S T   D A T A      ######################
     dataname = remove_duplicate_cols_in_dataset(dataname)
     #### Save the original column names ############################
-    orig_col_names = dataname.columns.tolist()
-    #### You need to change the target name if you have changed the column names ###    
-    dataname = remove_special_chars_in_names(dataname, target, verbose=1)
-    new_col_names = dataname.columns.tolist()
-    col_name_mapper = dict(zip(new_col_names,orig_col_names))
-    col_name_replacer = dict(zip(orig_col_names,new_col_names))
+    #### You need to change the target name if you have changed the column names ### 
+    dataname, col_name_mapper = remove_special_chars_in_names(dataname, target, verbose=1)
+    col_name_replacer = dict([(y,x) for (x,y) in col_name_mapper.items()])
     item_replacer = col_name_replacer.get  # For faster gets.
     if isinstance(target, str):
         targets = [target]
@@ -1092,9 +1090,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         target = [item_replacer(n, n) for n in target]
     ######   XGBoost cannot handle special chars in column names ###########
     if dask_xgboost_flag:
-        train = remove_special_chars_in_names(train, target)
+        train, _ = remove_special_chars_in_names(train, target)
     train_index = dataname.index
-
+    
     ######################################################################################
     ##################    L O A D      T E S T     D A T A   #############################
     ##########   test_data will be the name of the pandas version of test data      #####
@@ -1139,9 +1137,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         test_index = test_data.index
         print('     Loaded test data. Shape = %s' %(test_data.shape,))
         #######  Once again remove the same in test data as well ###
-        test_data = remove_special_chars_in_names(test_data)
+        test_data, _ = remove_special_chars_in_names(test_data)
         if dask_xgboost_flag:
-            test = remove_special_chars_in_names(test)
+            test, _ = remove_special_chars_in_names(test)
     #############    C L A S S I F Y    F E A T U R E S      ####################
     if nrows is None:
         nrows_limit = maxrows
@@ -1336,6 +1334,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ##### Now we need to re-set the catvars again since we have created new features #####
     rem_vars = copy.deepcopy(catvars)
     ########## Now we need to select the right model to run repeatedly ####
+    
     if target is None or len(target) == 0:
         cols_list = list(dataname)
         settings.modeltype, _ = 'Clustering'
@@ -1360,7 +1359,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     except:
                         print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
                     if test_data is not None:
-                        
+
                         test_data[each_target] = mlb.transform(test_data[each_target])
                         try:
                             test[each_target] = dd.from_pandas(test_data[each_target], npartitions=n_workers)
@@ -1771,6 +1770,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             return important_features2, dataname[important_features+target]
     else:
         print('Returning 2 dataframes: dataname and test_data with %d important features.' %len(important_features))
+        
         if len(date_cols) > 0:
             date_replacer = date_col_mappers.get  # For faster gets.
             important_features1 = [date_replacer(n, n) for n in important_features]
@@ -3664,6 +3664,7 @@ def remove_special_chars_in_names(df, target=None, verbose=0):
     It will return back the same dataframe with special chars removed from column names.
     """
     df = copy.deepcopy(df)
+    col_mapper = dict()
     target = copy.deepcopy(target)
     if target is None:
         sel_preds = list(df)
@@ -3675,6 +3676,7 @@ def remove_special_chars_in_names(df, target=None, verbose=0):
         sel_preds = [x for x in list(df) if x not in target]
         df = df[sel_preds+target]
     orig_preds = copy.deepcopy(sel_preds)
+    orig_cols = df.columns.tolist()
     #####   column names must not have any special characters #####
     sel_preds = ["_".join(x.split(" ")) for x in sel_preds]
     special_chars = "()/\\?<>'=~!@#$%^&*+"
@@ -3683,19 +3685,28 @@ def remove_special_chars_in_names(df, target=None, verbose=0):
     #### Now you convert the target too ############
     if left_subtract(orig_preds, sel_preds) and verbose:
         print('\nWarning: Removed special characters in names of columns. You must use these new column names for XGBoost.')
+    else:
+        print('No special characters in dataset predictors. Now checking target variable...')
+    #### Now we check the target for special characters #######
     if target is None:
         df.columns = sel_preds
-        return df
+        new_cols = sel_preds
+        col_mapper = dict(zip(new_cols, orig_cols))
+        return df, col_mapper
     elif isinstance(target, str):
         target = "_".join(target.split(" "))
         for each in list(special_chars):
             target = "_".join(target.split(each))
         df.columns = sel_preds+[target]
-        return df
+        new_cols = sel_preds+[target]
+        col_mapper = dict(zip(new_cols, orig_cols))
+        return df, col_mapper
     else:
         target = ["_".join(x.split(" ")) for x in target ]
         for each in list(special_chars):
             target = ["_".join(x.split(each)) for x in target ]
         df.columns = sel_preds+target
-        return df
+        col_mapper = dict(zip(new_cols, orig_cols))
+        new_cols = sel_preds+target
+        return df, col_mapper
 ##########################################################################################
