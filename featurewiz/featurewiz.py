@@ -187,6 +187,10 @@ def classify_columns(df_preds, verbose=0):
     cols_delete = [col for col in list(train) if (len(train[col].value_counts()) == 1
                                        ) | (train[col].isnull().sum()/len(train) >= 0.90)]
     inf_cols = EDA_find_columns_with_infinity(train)
+    mixed_cols = [x for x in list(train) if len(train[x].dropna().apply(type).value_counts()) > 1]
+    if len(mixed_cols) > 0:
+        print('    Removing %s column(s) due to mixed data type detected...' %mixed_cols)
+    cols_delete += mixed_cols
     cols_delete += inf_cols
     train = train[left_subtract(list(train),cols_delete)]
     var_df = pd.Series(dict(train.dtypes)).reset_index(drop=False).rename(
@@ -996,7 +1000,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     max_cats = 15
     maxrows = 10000
     RANDOM_SEED = 42
-    
+    mem_limit = 500 ### amount of memory consumed by pandas df before reducing_mem function called
     ############################################################################
     cat_encoders_list = list(settings.cat_encoders_names.keys())
     ### Just set defaults here which can be overridden by user input ####
@@ -1054,14 +1058,18 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 try:
                     print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
                     dataname = pd.read_csv(dataname, sep=sep, header=header, nrows=nrows)
-                    dataname = reduce_mem_usage(dataname)
+                    if (dataname.memory_usage().sum()/1000000) > mem_limit:
+                        dataname = reduce_mem_usage(dataname)
                     train = load_dask_data(dataname, sep)
                 except:
                     print('File could not be loaded into dask. Check the path or filename and try again')
                     return None
             else:
                 train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
-                dataname = reduce_mem_usage(train)
+                if (train.memory_usage().sum()/1000000) > mem_limit:
+                    dataname = reduce_mem_usage(train)
+                else:
+                    dataname = copy.deepcopy(train)
     else:
         #### This is where we get a dataframe as an input #################
         if dask_xgboost_flag:
@@ -1069,15 +1077,20 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 dataname = dataname.sample(n=nrows, replace=True, random_state=9999)
                 print('Sampling %s rows from dataframe given' %nrows)
             print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
-            dataname = reduce_mem_usage(dataname)
+            if (dataname.memory_usage().sum()/1000000) > mem_limit:
+                dataname = reduce_mem_usage(dataname)
             train = load_dask_data(dataname, sep)
         else:
             train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
-            dataname = reduce_mem_usage(train)
+            if (train.memory_usage().sum()/1000000) > mem_limit:
+                dataname = reduce_mem_usage(train)
+            else:
+                dataname = copy.deepcopy(train)
     print('     Loaded. Shape = %s' %(dataname.shape,))
     ##################    L O A D    T E S T   D A T A      ######################
     dataname = remove_duplicate_cols_in_dataset(dataname)
-    #### Save the original column names ############################
+    #### Convert mixed data types to string data type  ############################
+    #dataname = FE_convert_mixed_datatypes_to_string(dataname)
     #### You need to change the target name if you have changed the column names ### 
     dataname, col_name_mapper = remove_special_chars_in_names(dataname, target, verbose=1)
     col_name_replacer = dict([(y,x) for (x,y) in col_name_mapper.items()])
@@ -1091,6 +1104,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ######   XGBoost cannot handle special chars in column names ###########
     if dask_xgboost_flag:
         train, _ = remove_special_chars_in_names(train, target)
+        #train = FE_convert_mixed_datatypes_to_string(train)
+
     train_index = dataname.index
     
     ######################################################################################
@@ -1138,8 +1153,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         print('     Loaded test data. Shape = %s' %(test_data.shape,))
         #######  Once again remove the same in test data as well ###
         test_data, _ = remove_special_chars_in_names(test_data)
+        ##### convert mixed data types to string ############
+        #test_data = FE_convert_mixed_datatypes_to_string(test_data)
         if dask_xgboost_flag:
             test, _ = remove_special_chars_in_names(test)
+            #test = FE_convert_mixed_datatypes_to_string(test)
     #############    C L A S S I F Y    F E A T U R E S      ####################
     if nrows is None:
         nrows_limit = maxrows
@@ -1164,7 +1182,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         date_time_vars = features_dict['date_vars']
         dataname = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows,
                              parse_dates=date_time_vars)
-        dataname = reduce_mem_usage(dataname)
+        if (dataname.memory_usage().sum()/1000000) > mem_limit:
+            dataname = reduce_mem_usage(dataname)
         train = load_dask_data(dataname, sep)
         if not test_data is None:
             ### You must load the entire test data - there is no limit there ##################
@@ -2763,7 +2782,7 @@ def EDA_classify_and_return_cols_by_type(df1):
     nlpcols = []
     for each_cat in cats:
         try:
-            if df1[each_cat].map(len).mean() >=40:
+            if df1[each_cat].fillna('missing').map(len).mean() >= 40:
                 nlpcols.append(each_cat)
                 catcols.remove(each_cat)
         except:
@@ -3576,7 +3595,7 @@ def FE_split_list_into_columns(df, col, cols_in=[]):
         df = df.drop(col,axis=1)
     else:
         if len(df[col].map(type).value_counts())==1 and df[col].map(type).value_counts().index[0]==list:
-            max_col_length = df[col].map(len).max()
+            max_col_length = df[col].fillna('missing').map(len).max()
             cols = [col+'_'+str(i) for i in range(max_col_length)]
             df[cols] = df[col].apply(pd.Series)
             df = df.drop(col,axis=1)
