@@ -3725,7 +3725,7 @@ def remove_special_chars_in_names(df, target=None, verbose=0):
         for each in list(special_chars):
             target = ["_".join(x.split(each)) for x in target ]
         df.columns = sel_preds+target
-        col_mapper = dict(zip(new_cols, orig_cols))
         new_cols = sel_preds+target
+        col_mapper = dict(zip(new_cols, orig_cols))
         return df, col_mapper
 ##########################################################################################
