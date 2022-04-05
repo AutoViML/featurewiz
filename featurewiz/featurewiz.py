@@ -541,9 +541,13 @@ def EDA_find_remove_columns_with_infinity(df, remove=False):
         if remove:
             ### here you need to use df since the whole dataset is involved ###
             nocols = [x for x in df.columns if x not in add_cols]
-            print("    after removing columns with infinity, shape of dataset = (%s, %s)" %(df.shape,(df[nocols].shape,)))
+            print("    Shape of dataset before %s and after %s removing columns with infinity" %(df.shape,(df[nocols].shape,)))
             return df[nocols]
+        else:
+            ## this will be a list of columns with infinity ####
+            return add_cols
     else:
+        ## this will be an empty list if there are no columns with infinity
         return add_cols
 ####################################################################################
 import copy
@@ -1066,8 +1070,10 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     print('     Loaded. Shape = %s' %(dataname.shape,))
     ##################    L O A D    T E S T   D A T A      ######################
     dataname = remove_duplicate_cols_in_dataset(dataname)
+
     #### Convert mixed data types to string data type  ############################
     #dataname = FE_convert_mixed_datatypes_to_string(dataname)
+    
     #### You need to change the target name if you have changed the column names ### 
     dataname, col_name_mapper = remove_special_chars_in_names(dataname, target, verbose=1)
     col_name_replacer = dict([(y,x) for (x,y) in col_name_mapper.items()])
@@ -3605,7 +3611,11 @@ def select_rows_from_dataframe(train_dataframe, targets, nrows_limit, DS_LEN='')
             ### You need to remove rows that have very class samples - that is a problem while splitting train_small
             list_of_few_classes = train_dataframe[each_target].value_counts()[train_dataframe[each_target].value_counts()<=3].index.tolist()
             train_dataframe = train_dataframe.loc[~(train_dataframe[each_target].isin(list_of_few_classes))]
-        train_small, _ = train_test_split(train_dataframe, test_size=test_size, stratify=train_dataframe[targets])
+        try:
+            train_small, _ = train_test_split(train_dataframe, test_size=test_size, stratify=train_dataframe[targets])
+        except:
+            ## This split sometimes errors. It is then better to split using a random sample ##
+            train_small = train_dataframe.sample(n=nrows_limit, replace=True, random_state=99)
     else:
         ### For Regression problems: load a small sample of data into a pandas dataframe ##
         train_small = train_dataframe.sample(n=nrows_limit, replace=True, random_state=99)
@@ -3632,7 +3642,14 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         if isinstance(X, np.ndarray):
             print('X input must be a dataframe since we use column names to build data pipelines. Returning')
             return {}, {}
-        df = pd.concat([X, y], axis=1)
+        X_index = X.index
+        y_index = y.index
+        if (X_index == y_index).all():
+            df = pd.concat([X, y], axis=1)
+        else:
+            df = pd.concat([X.reset_index(drop=True), y], axis=1)
+            df.index = X_index
+        ### Now you can process the X and y datasets ####
         if isinstance(y, pd.Series):
             target = y.name
         elif isinstance(y, pd.DataFrame):
@@ -3640,9 +3657,6 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         elif isinstance(X, np.ndarray):
             print('y must be a pd.Series or pd.DataFrame since we use column names to build data pipeline. Returning')
             return {}, {}
-        ###### This helps find all the predictor variables 
-        cols = X.columns.tolist()
-
         #### Send target variable as it is so that y_train is analyzed properly ###
         # Select features using featurewiz
         features, X_sel = featurewiz(df, target, self.corr_limit, self.verbose, self.sep, 
