@@ -186,7 +186,7 @@ def classify_columns(df_preds, verbose=0):
     cols_delete = []
     cols_delete = [col for col in list(train) if (len(train[col].value_counts()) == 1
                                        ) | (train[col].isnull().sum()/len(train) >= 0.90)]
-    inf_cols = EDA_find_columns_with_infinity(train)
+    inf_cols = EDA_find_remove_columns_with_infinity(train)
     mixed_cols = [x for x in list(train) if len(train[x].dropna().apply(type).value_counts()) > 1]
     if len(mixed_cols) > 0:
         print('    Removing %s column(s) due to mixed data type detected...' %mixed_cols)
@@ -525,49 +525,26 @@ def return_dictionary_list(lst_of_tuples):
         orDict[key].append(val)
     return orDict
 ##################################################################################
-def EDA_find_columns_with_infinity(df):
+import copy
+def EDA_find_remove_columns_with_infinity(df, remove=False):
     """
     This function finds all columns in a dataframe that have inifinite values (np.inf or -np.inf)
     It returns a list of column names. If the list is empty, it means no columns were found.
+    If remove flag is set, then it returns a smaller dataframe with inf columns removed.
     """
-    add_cols = []
-    sum_cols = 0
-    for col in df.columns:
-        inf_sum1 = 0 
-        inf_sum2 = 0
-        inf_sum1 = len(df[df[col]==np.inf])
-        inf_sum2 = len(df[df[col]==-np.inf])
-        if (inf_sum1 > 0) or (inf_sum2 > 0):
-            add_cols.append(col)
-            sum_cols += inf_sum1
-            sum_cols += inf_sum2
-    if sum_cols > 0:
-        print('    there are %d rows and %d columns with infinity in them...' %(sum_cols,len(add_cols)))
-        print("    after removing columns with infinity, shape of dataset = (%d, %d)" %(df.shape[0],(df.shape[1]-len(add_cols))))
-    return add_cols
-####################################################################################
-def FE_find_remove_columns_with_infinity(df):
-    """
-    This function finds all columns in a dataframe that have inifinite values (np.inf or -np.inf)
-    It returns a list of column names. If the list is empty, it means no columns were found.
-    """
-    add_cols = []
-    sum_cols = 0
-    for col in df.columns:
-        inf_sum1 = 0 
-        inf_sum2 = 0
-        inf_sum1 = len(df[df[col]==np.inf])
-        inf_sum2 = len(df[df[col]==-np.inf])
-        if (inf_sum1 > 0) or (inf_sum2 > 0):
-            add_cols.append(col)
-            sum_cols += inf_sum1
-            sum_cols += inf_sum2
-    if sum_cols > 0:
-        print("Found and removing %d columns that have infinity in them" %sum_cols)
-        nocols = [x for x in df.columns if x not in add_cols]
-        return df[nocols]
+    nums = df.select_dtypes(include='number').columns.tolist()
+    dfx = df[nums]
+    sum_rows = np.isinf(dfx).values.sum()
+    add_cols =  list(dfx.columns.to_series()[np.isinf(dfx).any()])
+    if sum_rows > 0:
+        print('    there are %d rows and %d columns with infinity in them...' %(sum_rows,len(add_cols)))
+        if remove:
+            ### here you need to use df since the whole dataset is involved ###
+            nocols = [x for x in df.columns if x not in add_cols]
+            print("    after removing columns with infinity, shape of dataset = (%s, %s)" %(df.shape,(df[nocols].shape,)))
+            return df[nocols]
     else:
-        return df
+        return add_cols
 ####################################################################################
 import copy
 def FE_drop_rows_with_infinity(df, cols_list, fill_value=None):
@@ -607,7 +584,7 @@ def FE_drop_rows_with_infinity(df, cols_list, fill_value=None):
         print('        dropped %d rows due to infinite values in data' %dropped_rows)
         print('    Shape of dataset after dropping rows: %s' %(df.shape[0]))
     ###  Double check that all columns have been fixed ###############
-    cols_with_infinity = EDA_find_columns_with_infinity(df)
+    cols_with_infinity = EDA_find_remove_columns_with_infinity(df)
     if cols_with_infinity:
         print('    There are still %d columns with infinite values. Returning...' %len(cols_with_infinity))
     else:
@@ -1512,7 +1489,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ############     S   U  L  O   V       M   E   T   H   O  D      ###############################
     #### If the data dimension is less than 5o Million then do SULOV - otherwise skip it! #########
     ################################################################################################
-    cols_with_infinity = EDA_find_columns_with_infinity(dataname)
+    cols_with_infinity = EDA_find_remove_columns_with_infinity(dataname)
     # first you must drop rows that have inf in them ####
     if cols_with_infinity:
         print('Dropped %d columns which contain infinity in dataset' %len(cols_with_infinity))
@@ -1693,7 +1670,12 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                             dtrain = xgb.DMatrix(X_train, label=y_train, feature_names=cols_sel)
                         bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
                     except Exception as error_msg:
+                        if settings.modeltype == 'Regression':
+                            params = {'tree_method': cpu_tree_method}
+                        else:
+                            params = {'tree_method': cpu_tree_method,'num_class': num_class}
                         print(error_msg)
+                        bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
                 else:
                     ##########   Training XGBoost model using dask_xgboost #########################
                     ### the dtrain syntax can only be used xgboost 1.50 or greater. Dont use it until then.
@@ -1751,14 +1733,15 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 draw_feature_importances_multi_label(bst_models, dask_xgboost_flag)
             else:
                 draw_feature_importances_single_label(bst_models, dask_xgboost_flag)
+        important_features = list(OrderedDict.fromkeys(important_features))
     except:
         if dask_xgboost_flag:
             print('Dask XGBoost is crashing. Returning with currently selected features...')
         else:
             print('Regular XGBoost is crashing. Returning with currently selected features...')
+        important_features = copy.deepcopy(preds)
     ######    E    N     D      O  F      X  G  B  O  O  S  T    S E L E C T I O N ####################
     print('            Total time taken for XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
-    important_features = list(OrderedDict.fromkeys(important_features))
     print('No ID variables %s are selected since they are not considered important for modeling' %idcols)
     if len(important_features) <= 30:
         print('Selected %d important features:\n%s' %(len(important_features), important_features))
