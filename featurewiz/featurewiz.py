@@ -19,8 +19,8 @@
 #################################################################################
 import pandas as pd
 import numpy as np
-np.random.seed(99)
 import random
+np.random.seed(99)
 random.seed(42)
 from sklearn.model_selection import KFold
 from sklearn.model_selection import GridSearchCV
@@ -101,12 +101,14 @@ def classify_features(dfte, depVar, verbose=0):
         continuous_vars = var_df['continuous_vars']
     preds = [x for x in orig_preds if x not in IDcols+cols_delete+discrete_string_vars]
     if len(IDcols+cols_delete+discrete_string_vars) == 0:
-        print('        No variables removed since no ID or low-information variables found in data set')
+        print('        No variables were removed since no ID or low-information variables found in data set')
     else:
-        print('        %d variable(s) will be ignored since they are ID or low-information variables'
+        print('        %d variable(s) will be removed or ignored since they are ID or low-information variables'
                                 %len(IDcols+cols_delete+discrete_string_vars))
-        if verbose >= 1:
-            print('    List of variables ignored: %s' %(IDcols+cols_delete+discrete_string_vars))
+        if len(IDcols+cols_delete+discrete_string_vars) <= 30:
+            print('    \tvariables ignored = %s' %(IDcols+cols_delete+discrete_string_vars))
+        else:
+            print('    \tmore than %s variables to be removed; too many to print...' %len(IDcols+cols_delete+discrete_string_vars))
     #############  Check if there are too many columns to visualize  ################
     ppt = pprint.PrettyPrinter(indent=4)
     if verbose==1 and len(cols_list) <= max_cols_analyzed:
@@ -173,7 +175,9 @@ def classify_columns(df_preds, verbose=0):
     #### If there are 30 chars are more in a discrete_string_var, it is then considered an NLP variable
     max_nlp_char_size = 30
     max_cols_to_print = 30
-    print('############## C L A S S I F Y I N G  V A R I A B L E S  ####################')
+    print('#######################################################################################')
+    print('######################## C L A S S I F Y I N G  V A R I A B L E S  ####################')
+    print('#######################################################################################')
     print('Classifying variables in data set...')
     #### Cat_Limit defines the max number of categories a column can have to be called a categorical colum
     cat_limit = 35
@@ -432,7 +436,6 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse
                         print('    max_rows_analyzed is smaller than dataset shape %d...' %dfte.shape[0])
                         dfte = dfte.sample(nrows, replace=False, random_state=99)
                         print('        randomly sampled %d rows from read CSV file' %nrows)
-                print('    Shape of your Data Set loaded: %s' %(dfte.shape,))
                 if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
                     print('You have duplicate column names in your data set. Removing duplicate columns now...')
                     dfte = dfte[list(dfte.columns[~dfte.columns.duplicated(keep='first')])]
@@ -490,9 +493,9 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse
 ##### This function loads a time series data and sets the index as a time series
 def load_dask_data(filename, sep, ):
     """
-    This function loads a given filename into a pandas dataframe and sets the
-    ts_column as a Time Series index. Note that filename should contain the full
-    path to the file.
+    This function loads a given filename into a dask dataframe.
+    If the input is a pandas DataFrame, it converts it into a dask dataframe.
+    Note that filename should contain the full path to the file.
     """
     n_workers = get_cpu_worker_count()
     if isinstance(filename, str):
@@ -620,8 +623,9 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
         df[each_num] = df[each_num].fillna(0)
     target = copy.deepcopy(target)
 
-    print('Searching for highly correlated variables from %d variables using SULOV method' %len(numvars))
-    print('#####  SULOV : Searching for Uncorrelated List Of Variables (takes time...) ############')
+    print('#######################################################################################')
+    print('#####  Searching for Uncorrelated List Of Variables (SULOV) in %s features ############' %len(numvars))
+    print('#######################################################################################')
     
     correlation_dataframe = df[numvars].corr().abs().astype(np.float16)
     ######### This is how you create a dictionary of which var is highly correlated to a list of vars ####
@@ -832,7 +836,7 @@ def return_factorized_dict(ls):
 ###########################################################################################
 ############## CONVERSION OF STRING COLUMNS TO NUMERIC using MY_LABELENCODER #########
 #######################################################################################
-def FE_convert_all_object_columns_to_numeric(train, test=""):
+def FE_convert_all_object_columns_to_numeric(train, test="", features=[]):
     """
     FE stands for Feature Engineering - it means this function performs feature engineering
     ######################################################################################
@@ -855,6 +859,8 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
     test = copy.deepcopy(test)
     #### This is to fill all numeric columns with a missing number ##########
     nums = train.select_dtypes('number').columns.tolist()
+    nums = [x for x in nums if x in features]
+    #### We don't want to look for ID columns and deleted columns ########
     if len(nums) == 0:
         pass
     else:
@@ -880,6 +886,7 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
                             test[each_col] = test[each_col].astype(int)
     ###### Now we convert all object columns to numeric ##########
     lis = []
+    error_columns = []
     lis = train.select_dtypes('object').columns.tolist() + train.select_dtypes('category').columns.tolist()
     if not isinstance(test, str):
         if test is None:
@@ -900,9 +907,10 @@ def FE_convert_all_object_columns_to_numeric(train, test=""):
                     else:
                         test[everycol] = MLB.transform(test[everycol])
             except:
-                print('Error converting %s column from string to numeric. Continuing...' %everycol)
+                print('    error converting %s column from string to numeric. Continuing...' %everycol)
+                error_columns.append(everycol)
                 continue
-    return train, test
+    return train, test, error_columns
 ###################################################################################
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
 from sklearn.feature_selection import SelectKBest
@@ -1067,27 +1075,34 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 dataname = reduce_mem_usage(train)
             else:
                 dataname = copy.deepcopy(train)
-    print('     Loaded. Shape = %s' %(dataname.shape,))
+    print('    Loaded train data. Shape = %s' %(dataname.shape,))
     ##################    L O A D    T E S T   D A T A      ######################
     dataname = remove_duplicate_cols_in_dataset(dataname)
 
     #### Convert mixed data types to string data type  ############################
     #dataname = FE_convert_mixed_datatypes_to_string(dataname)
     
-    #### You need to change the target name if you have changed the column names ### 
-    dataname, col_name_mapper = remove_special_chars_in_names(dataname, target, verbose=1)
+    ######   XGBoost cannot handle special chars in column names ###########
+    old_col_names = dataname.columns.tolist()
+    new_col_names, special_char_flag = make_column_names_unique(dataname)
+    if special_char_flag:
+        dataname.columns = new_col_names
+        if dask_xgboost_flag:
+            train = load_dask_data(dataname, sep)
+
+    ###### Now save the old and new columns in a dictionary to use them later ###
+    col_name_mapper = dict(zip(new_col_names, old_col_names))
     col_name_replacer = dict([(y,x) for (x,y) in col_name_mapper.items()])
     item_replacer = col_name_replacer.get  # For faster gets.
-    if isinstance(target, str):
-        targets = [target]
-        targets = [item_replacer(n, n) for n in targets]
-        target = targets[0]
-    else:
-        target = [item_replacer(n, n) for n in target]
-    ######   XGBoost cannot handle special chars in column names ###########
-    if dask_xgboost_flag:
-        train, _ = remove_special_chars_in_names(train, target)
-        #train = FE_convert_mixed_datatypes_to_string(train)
+
+    #### You need to change the target name if you have changed the column names ### 
+    if special_char_flag:
+        if isinstance(target, str):
+            targets = [target]
+            targets = [item_replacer(n, n) for n in targets]
+            target = targets[0]
+        else:
+            target = [item_replacer(n, n) for n in target]
 
     train_index = dataname.index
     
@@ -1133,14 +1148,17 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if test_data is not None:
         test_data = remove_duplicate_cols_in_dataset(test_data)
         test_index = test_data.index
-        print('     Loaded test data. Shape = %s' %(test_data.shape,))
+        print('    Loaded test data. Shape = %s' %(test_data.shape,))
         #######  Once again remove the same in test data as well ###
-        test_data, _ = remove_special_chars_in_names(test_data)
+        new_col_test, special_char_flag_test = make_column_names_unique(test_data)
+        if special_char_flag_test:
+            test_data.columns = new_col_test
+            if dask_xgboost_flag:
+                ### Re-load test into dask in case names have been changed ###
+                test = load_dask_data(test_data, sep)
         ##### convert mixed data types to string ############
         #test_data = FE_convert_mixed_datatypes_to_string(test_data)
-        if dask_xgboost_flag:
-            test, _ = remove_special_chars_in_names(test)
-            #test = FE_convert_mixed_datatypes_to_string(test)
+        #test = FE_convert_mixed_datatypes_to_string(test)
     #############    C L A S S I F Y    F E A T U R E S      ####################
     if nrows is None:
         nrows_limit = maxrows
@@ -1158,6 +1176,16 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         features_dict = classify_features(train_small, target)
     else:
         features_dict = classify_features(dataname, target)
+    #### Now we have to drop certain cols that must be deleted #####################
+    remove_cols = features_dict['discrete_string_vars'] + features_dict['cols_delete']
+    if len(remove_cols) > 0:
+        print('train data shape before dropping %d columns = %s' %(len(remove_cols), dataname.shape,))
+        dataname.drop(remove_cols, axis=1, inplace=True)
+        print('\ttrain data shape after dropping columns = %s' %(dataname.shape,))
+        train = load_dask_data(dataname, sep)
+        if not test_data is None:
+            test_data.drop(remove_cols, axis=1, inplace=True)
+            test = load_dask_data(test_data, sep)
     ################    Load data frame with date var features correctly this time ################
     if len(features_dict['date_vars']) > 0:
         print('Caution: Since there are date-time variables in datatset, it is best to load them using pandas')
@@ -1295,9 +1323,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         if len(cols_in_both) > 0:
             print('Removing %s columns(s) which are in both cols to be deleted and cat vars given as input' %cols_in_both)
     cols_to_remove = features_dict['cols_delete'] + idcols + features_dict['discrete_string_vars']
-    print('Removing %d columns from further processing since ID or low information variables' %len(cols_to_remove))
-    if verbose:
-        print('    columns removed: %s' %cols_to_remove)
     preds = [x for x in list(dataname) if x not in target+cols_to_remove]
     print('    After removing redundant variables from further processing, features left = %d' %len(preds))
     numvars = dataname[preds].select_dtypes(include = 'number').columns.tolist()
@@ -1347,16 +1372,22 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         ###########   L A B E L    E N C O D I N G   O F   T A R G E T   #########
         ##########################################################################
         ### This is to convert the target labels to proper numeric columns ######
+        target_conversion_flag = False
         cat_targets = dataname[target].select_dtypes(include='object').columns.tolist() + dataname[target].select_dtypes(include='category').columns.tolist()
+        copy_targets = copy.deepcopy(targets)
+        for each_target in copy_targets:
+            if cat_targets or sorted(np.unique(dataname[each_target].values))[0] != 0:
+                print('    target labels need to be converted...')
+                target_conversion_flag = True
         ### check if they are not starting from zero ##################
         if settings.modeltype != 'Regression':
             copy_targets = copy.deepcopy(target)
             for each_target in copy_targets:
-                if cat_targets or sorted(np.unique(dataname[each_target].values))[0] != 0:
+                if target_conversion_flag:
                     mlb = My_LabelEncoder()
                     dataname[each_target] = mlb.fit_transform(dataname[each_target])
                     try:
-                        ## try converting the pandas target to dask target ###
+                        ## After converting train, just load it into dask again ##
                         train[each_target] = dd.from_pandas(dataname[each_target], npartitions=n_workers)
                     except:
                         print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
@@ -1364,11 +1395,13 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
 
                         test_data[each_target] = mlb.transform(test_data[each_target])
                         try:
+                            ## After converting test, just load it into dask again ##
                             test[each_target] = dd.from_pandas(test_data[each_target], npartitions=n_workers)
                         except:
                             print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
                     print('Completed label encoding of target variable = %s' %each_target)
-                    print('How model predictions need to be transformed for %s:\n%s' %(each_target, mlb.inverse_transformer))
+                    print('How model predictions need to be transformed for %s:\n\t%s' %(each_target, mlb.inverse_transformer))
+
     ######################################################################################
     ######    B E F O R E    U S I N G    D A T A B U N C H  C H E C K ###################
     ######################################################################################
@@ -1535,11 +1568,20 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         final_list = final_list.tolist()
     preds = final_list+important_cats
     print('Final list of selected vars after SULOV = %s' %len(preds))
-    #######You must convert category variables into integers ###############
-    
+    #######You must convert category variables into integers ###############    
+    print('Readying dataset for Recursive XGBoost by converting all features to numeric...')
     if len(important_cats) > 0:
-        dataname, test_data = FE_convert_all_object_columns_to_numeric(dataname,  test_data)
-    print('############## F E A T U R E   S E L E C T I O N  ####################')
+        dataname, test_data, error_columns = FE_convert_all_object_columns_to_numeric(dataname,  test_data, preds)
+        important_cats = left_subtract(important_cats, error_columns)
+        print('    removing %s object columns that could not be converted to numeric' %len(error_columns))
+        dataname.drop(error_columns, axis=1, inplace=True)
+        print('Shape of train data after pruning = %s' %(dataname.shape,) )
+        if not isinstance(test_data, str):
+            test_data.drop(error_columns, axis=1, inplace=True)
+            print('    Shape of test data after pruning = %s' %(test_data.shape,) )
+    print('#######################################################################################')
+    print('#####    R E C U R S I V E   X G B O O S T : F E A T U R E   S E L E C T I O N  #######')
+    print('#######################################################################################')
     important_features = []
     #######################################################################
     #####   This is for DASK XGB Regressor and XGB Classifier problems ####
@@ -1559,11 +1601,16 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ########   Now if dask_xgboost_flag is True, convert pandas dfs back to Dask Dataframes     #####
     #################################################################################################
     if dask_xgboost_flag:
+        ### we reload the dataframes into dask since columns may have been dropped ##
         print('    using DASK XGBoost')  
         train = load_dask_data(dataname, sep)
+        if not isinstance(test_data, str):
+            test = load_dask_data(test_data, sep)
     else:
+        ### we reload the dataframes into dask since columns may have been dropped ##
         print('    using regular XGBoost') 
         train = copy.deepcopy(dataname)
+        test = copy.deepcopy(test_data)
     ########  Conversion completed for train and test data ##########
     print('Train and Test loaded into Dask dataframes successfully after feature_engg completed')
    #### If Category Encoding took place, these cat variables are no longer needed in Train. So remove them!
@@ -1590,21 +1637,15 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         print('Dask client configuration: %s' %client)
         import gc
         client.run(gc.collect) 
-        train_p = client.persist(train_p)
+        #train_p = client.persist(train_p)
     print('    XGBoost version: %s' %xgb.__version__)
     ### This is to convert the target labels to proper numeric columns ######
-    cat_targets = dataname[target].select_dtypes(include='object').columns.tolist() + dataname[target].select_dtypes(include='category').columns.tolist()
     ### check if they are not starting from zero ##################
-    if settings.modeltype != 'Regression':
-        if cat_targets or sorted(np.unique(dataname[target[0]].values))[0] != 0:
-            ### since dataname is still a pandas df, you need to convert it into dask df ##
-            y_train = load_dask_data(dataname[target], sep)
-        else:
-            ### train is already a dask dataframe -> you can leave it as it is
-            y_train = train[target]
-    else:
+    if dask_xgboost_flag:
         ### train is already a dask dataframe -> you can leave it as it is
         y_train = train[target]
+    else:
+        y_train = dataname[target]
     #### Now we process the numeric  values through DASK XGBoost repeatedly ###################
     try:
         for i in range(0,train_p.shape[1],iter_limit):
@@ -1634,7 +1675,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 objective = 'reg:squarederror'
                 params = {'objective': objective, 
                                 'tree_method': tree_method,
-                                   "silent":True, "verbosity": 0, 'min_child_weight': 0.5}
+                                   "silent":True, "verbosity": 0, 'min_child_weight': 0.1}
             else:
                 #### This is for Classifiers only ##########                    
                 if settings.modeltype == 'Binary_Classification':
@@ -1642,14 +1683,14 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     num_class = 1
                     params = {'objective': objective, 'num_class': num_class,
                                 'tree_method': tree_method,
-                                    "silent":True,  "verbosity": 0,  'min_child_weight': 0.5}
+                                    "silent":True,  "verbosity": 0,  'min_child_weight': 0.1}
                 else:
                     objective = 'multi:softmax'
                     num_class  =  dataname[target].nunique()[0]
                     # Use GPU training algorithm if needed
                     params = {'objective': objective, 
                                 'tree_method': tree_method,
-                                "silent":True, "verbosity": 0,   'min_child_weight': 0.5, 'num_class': num_class}
+                                "silent":True, "verbosity": 0,   'min_child_weight': 0.1, 'num_class': num_class}
             ############################################################################################################
             ######### This is where we find out whether to use single or multi-label for xgboost #######################
             ############################################################################################################
@@ -1666,8 +1707,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 bst.fit(X_train, y_train)
             else:
                 if not dask_xgboost_flag:
-                    #########  This is for pandas dataframes only ##################
+                    ################################################################################
+                    #########  Training Regular XGBoost on pandas dataframes only ##################
+                    ################################################################################
                     #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
+                    
                     try:
                         if settings.modeltype == 'Multi_Classification':
                             wt_array = get_sample_weight_array(y_train)
@@ -1676,6 +1720,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                             dtrain = xgb.DMatrix(X_train, label=y_train, feature_names=cols_sel)
                         bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
                     except Exception as error_msg:
+                        print('Regular XGBoost is crashing due to: %s' %error_msg)
                         if settings.modeltype == 'Regression':
                             params = {'tree_method': cpu_tree_method}
                         else:
@@ -1683,19 +1728,22 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                         print(error_msg)
                         bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
                 else:
+                    ################################################################################
                     ##########   Training XGBoost model using dask_xgboost #########################
+                    ################################################################################
                     ### the dtrain syntax can only be used xgboost 1.50 or greater. Dont use it until then.
                     ### use the next line for new xgboost version 1.5.1 abd higher #########
                     try:
-                        dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train, feature_names=cols_sel)
                         #### SYNTAX BELOW WORKS WELL. BUT YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
-                        bst = xgb.dask.train(client, params, dtrain, num_boost_round=num_rounds)
+                        #dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train)
+                        #bst = xgb.dask.train(client, params, dtrain, num_boost_round=num_rounds)
+                        bst = dask_xgboost_training(X_train, y_train, params)
                     except Exception as error_msg:
                         if settings.modeltype == 'Regression':
                             params = {'tree_method': cpu_tree_method}
                         else:
                             params = {'tree_method': cpu_tree_method,'num_class': num_class}
-                        bst = xgb.dask.train(client, params, dtrain, num_boost_round=num_rounds)
+                        bst = xgb.dask.train(client=client, params=params, dtrain=dtrain, num_boost_round=num_rounds)
                         print(error_msg)
             ################################################################################
             if not dask_xgboost_flag:
@@ -1740,22 +1788,25 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             else:
                 draw_feature_importances_single_label(bst_models, dask_xgboost_flag)
         important_features = list(OrderedDict.fromkeys(important_features))
-    except:
+    except Exception as e:
         if dask_xgboost_flag:
-            print('Dask XGBoost is crashing. Returning with currently selected features...')
+            print('Dask XGBoost is crashing due to %s. Returning with currently selected features...' %e)
         else:
-            print('Regular XGBoost is crashing. Returning with currently selected features...')
+            print('Regular XGBoost is crashing due to %s. Returning with currently selected features...' %e)
         important_features = copy.deepcopy(preds)
     ######    E    N     D      O  F      X  G  B  O  O  S  T    S E L E C T I O N ####################
     print('            Total time taken for XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
     print('No ID variables %s are selected since they are not considered important for modeling' %idcols)
+    print("#######################################################################################")
+    print("#####          F E A T U R E   S E L E C T I O N   C O M P L E T E D            #######")
+    print("#######################################################################################")
     if len(important_features) <= 30:
         print('Selected %d important features:\n%s' %(len(important_features), important_features))
     else:
         print('Selected %d important features. Too many to print...' %len(important_features))
     numvars = [x for x in numvars if x in important_features]
     important_cats = [x for x in important_cats if x in important_features]
-    print('    Time taken = %0.0f seconds' %(time.time()-start_time))
+    print('\n    Time taken = %0.0f seconds' %(time.time()-start_time))
     #### Now change the feature names back to original feature names ################
     item_replacer = col_name_mapper.get  # For faster gets.
     if isinstance(test_data, str) or test_data is None:
@@ -3672,57 +3723,37 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
     def transform(self, X):
         return X[self.features]
 ###################################################################################################
-import copy
-def remove_special_chars_in_names(df, target=None, verbose=0):
-    """
-    This function removes special chars in names of columns
-    Send in a dataframe and a target (could be string or list)
-    It will return back the same dataframe with special chars removed from column names.
-    """
-    df = copy.deepcopy(df)
-    col_mapper = dict()
-    target = copy.deepcopy(target)
-    if target is None:
-        sel_preds = list(df)
-        df = df[sel_preds]
-    elif isinstance(target, str):
-        sel_preds = [x for x in list(df) if x not in [target]]
-        df = df[sel_preds+[target]]
-    else:
-        sel_preds = [x for x in list(df) if x not in target]
-        df = df[sel_preds+target]
-    orig_preds = copy.deepcopy(sel_preds)
-    orig_cols = df.columns.tolist()
-    #####   column names must not have any special characters #####
-    sel_preds = ["_".join(x.split(" ")) for x in sel_preds]
-    special_chars = "()/\\?<>'=~!@#$%^&*+"
-    for each in list(special_chars):
-        sel_preds = ["_".join(x.split(each)) for x in sel_preds ]
-    #### Now you convert the target too ############
-    if left_subtract(orig_preds, sel_preds) and verbose:
-        print('\nWarning: Removed special characters in names of columns. You must use these new column names for XGBoost.')
-    else:
-        print('No special characters in dataset predictors. Now checking target variable...')
-    #### Now we check the target for special characters #######
-    if target is None:
-        df.columns = sel_preds
-        new_cols = sel_preds
-        col_mapper = dict(zip(new_cols, orig_cols))
-        return df, col_mapper
-    elif isinstance(target, str):
-        target = "_".join(target.split(" "))
-        for each in list(special_chars):
-            target = "_".join(target.split(each))
-        df.columns = sel_preds+[target]
-        new_cols = sel_preds+[target]
-        col_mapper = dict(zip(new_cols, orig_cols))
-        return df, col_mapper
-    else:
-        target = ["_".join(x.split(" ")) for x in target ]
-        for each in list(special_chars):
-            target = ["_".join(x.split(each)) for x in target ]
-        df.columns = sel_preds+target
-        new_cols = sel_preds+target
-        col_mapper = dict(zip(new_cols, orig_cols))
-        return df, col_mapper
+import random
+import collections
+def make_column_names_unique(data_input):
+    special_char_flag = False
+    cols = data_input.columns.tolist()
+    copy_cols = copy.deepcopy(cols)
+    ser = pd.Series(cols)
+    ### This function removes all special chars from a list ###
+    remove_special_chars =  lambda x:re.sub('[^A-Za-z0-9_]+', '', x)
+    newls = ser.map(remove_special_chars).values.tolist()
+    ### there may be duplicates in this list - we need to make them unique by randomly adding strings to name ##
+    seen = [item for item, count in collections.Counter(newls).items() if count > 1]
+    new_cols = [x+str(random.randint(1,1000)) if x in seen else x for x in newls]
+    copy_new_cols = copy.deepcopy(new_cols)
+    copy_cols.sort()
+    copy_new_cols.sort()
+    if copy_cols != copy_new_cols:
+        print('    Some column names had special characters which were removed...')
+        special_char_flag = True
+    return new_cols, special_char_flag
 ##########################################################################################
+def dask_xgboost_training(X_trainx, y_trainx, params):
+    
+    cluster = dask.distributed.LocalCluster()
+    dask_client = dask.distributed.Client(cluster)
+    X_trainx = dd.from_pandas(X_train, npartitions=1)
+    y_trainx = dd.from_pandas(y_train, npartitions=1)
+    print("DASK XGBoost training...")
+    dtrain = xgb.dask.DaskDMatrix(dask_client, X_trainx, y_trainx)
+    bst = xgb.dask.train(dask_client, params, dtrain, num_boost_round=10)
+    dask_client.close()
+    print("    training completed...")
+    return bst
+####################################################################################
