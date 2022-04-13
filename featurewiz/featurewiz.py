@@ -103,10 +103,10 @@ def classify_features(dfte, depVar, verbose=0):
     if len(IDcols+cols_delete+discrete_string_vars) == 0:
         print('        No variables were removed since no ID or low-information variables found in data set')
     else:
-        print('        %d variable(s) will be removed or ignored since they are ID or low-information variables'
+        print('        %d variable(s) to be removed since ID or low-information variables'
                                 %len(IDcols+cols_delete+discrete_string_vars))
         if len(IDcols+cols_delete+discrete_string_vars) <= 30:
-            print('    \tvariables ignored = %s' %(IDcols+cols_delete+discrete_string_vars))
+            print('    \tvariables removed = %s' %(IDcols+cols_delete+discrete_string_vars))
         else:
             print('    \tmore than %s variables to be removed; too many to print...' %len(IDcols+cols_delete+discrete_string_vars))
     #############  Check if there are too many columns to visualize  ################
@@ -617,8 +617,10 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
     ########  YOU MUST INCLUDE THE ABOVE MESSAGE IF YOU COPY THIS CODE IN YOUR LIBRARY ##########
     """
     df = copy.deepcopy(df)
+    df_target = df[target]
+    df = df[numvars]
     ### for some reason, doing a mass fillna of vars doesn't work! Hence doing it individually!
-    null_vars = np.array(numvars)[df[numvars].isnull().sum()>0]
+    null_vars = np.array(numvars)[df.isnull().sum()>0]
     for each_num in null_vars:
         df[each_num] = df[each_num].fillna(0)
     target = copy.deepcopy(target)
@@ -626,47 +628,29 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
     print('#######################################################################################')
     print('#####  Searching for Uncorrelated List Of Variables (SULOV) in %s features ############' %len(numvars))
     print('#######################################################################################')
-    
-    correlation_dataframe = df[numvars].corr().abs().astype(np.float16)
-    ######### This is how you create a dictionary of which var is highly correlated to a list of vars ####
-    corr_values = correlation_dataframe.values
-    col_index = correlation_dataframe.columns.tolist()
-    index_triupper = list(zip(np.triu_indices_from(corr_values,k=1)[0],np.triu_indices_from(
-                                corr_values,k=1)[1]))
-    high_corr_index_list = [x for x in np.argwhere(abs(corr_values[np.triu_indices(len(corr_values), k = 1)])>=corr_limit)]
-    low_corr_index_list =  [x for x in np.argwhere(abs(corr_values[np.triu_indices(len(corr_values), k = 1)])<corr_limit)]
-    tuple_list = [y for y in [index_triupper[x[0]] for x in high_corr_index_list]]
-    correlated_pair = [(col_index[tuple[0]],col_index[tuple[1]]) for tuple in tuple_list]
+    ### This is a shorter version of getting unduplicated and highly correlated vars ##
+    correlation_dataframe = df.corr().abs().unstack().sort_values().drop_duplicates()
+    corrdf = pd.DataFrame(correlation_dataframe[:].reset_index())
+    corrdf.columns = ['var1','var2','coeff']
+    corrdf1 = corrdf[corrdf['coeff']>=corr_limit]
+    correlated_pair = list(zip(corrdf1['var1'].values.tolist(),corrdf1['var2'].values.tolist()))
     corr_pair_dict = dict(return_dictionary_list(correlated_pair))
+    corr_list = find_remove_duplicates(corrdf1['var1'].values.tolist()+corrdf1['var2'].values.tolist())
     keys_in_dict = list(corr_pair_dict.keys())
     reverse_correlated_pair = [(y,x) for (x,y) in correlated_pair]
     reverse_corr_pair_dict = dict(return_dictionary_list(reverse_correlated_pair))
+    #### corr_pair_dict is used later to make the network diagram to see which vars are correlated to which
     for key, val in reverse_corr_pair_dict.items():
         if key in keys_in_dict:
             if len(key) > 1:
                 corr_pair_dict[key] += val
         else:
             corr_pair_dict[key] = val
-    #### corr_pair_dict is used later to make the network diagram to see which vars are correlated to which
-    # Selecting upper triangle of correlation matrix ## this is a fast way to find highly correlated vars
-    upper_tri = correlation_dataframe.where(np.triu(np.ones(correlation_dataframe.shape),
-                                  k=1).astype(np.bool))
-    empty_df = upper_tri[abs(upper_tri)>corr_limit]
-    ### if none of the variables are highly correlated, you can skip this whole drawing
-    if empty_df.isnull().all().all():
-        print('    No highly correlated variables in data set to remove. All selected...')
-        return numvars
-    #### It's important to find the highly correlated features first #############
-    lower_tri = correlation_dataframe.where(np.tril(np.ones(correlation_dataframe.shape),
-                                  k=-1).astype(np.bool))
-    lower_df = lower_tri[abs(lower_tri)>corr_limit]
-    corr_list =  empty_df.columns[[not(empty_df[x].isnull().all()) for x in list(empty_df)]].tolist(
-                    )+lower_df.columns[[not(lower_df[x].isnull().all()) for x in list(lower_df)]].tolist()
-    corr_list = find_remove_duplicates(corr_list)
+
     ###### This is for ordering the variables in the highest to lowest importance to target ###
     if len(corr_list) == 0:
         final_list = list(correlation_dataframe)
-        print('Selecting all (%d) variables since none of them are highly correlated...' %len(numvars))
+        print('Selecting all (%d) variables since none of numeric vars are highly correlated...' %len(numvars))
         return numvars
     else:
         if isinstance(target, list):
@@ -687,19 +671,20 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
         else:
             print('There are no null values in dataset.')
         ##### Reduce memory usage and find mutual information score ####       
-        try:
-            df_fit = reduce_mem_usage(df_fit)
-        except:
-            print('Reduce memeory erroring. Continuing...')
+        #try:
+        #    df_fit = reduce_mem_usage(df_fit)
+        #except:
+        #    print('Reduce memory erroring. Continuing...')
         ##### Ready to perform fit and find mutual information score ####
         
         try:
-            fs.fit(df_fit, df[target])
+            fs.fit(df_fit, df_target)
         except:
-            print('SelectKBest() function is erroring. Returning with all variables...')
-            return corr_list
+            print('    SelectKBest() function is erroring. Returning with all %s variables...' %len(numvars))
+            return numvars
         ##########################################################################
         try:
+            
             mutual_info = dict(zip(corr_list,fs.scores_))
             #### The first variable in list has the highest correlation to the target variable ###
             sorted_by_mutual_info =[key for (key,val) in sorted(mutual_info.items(), key=lambda kv: kv[1],reverse=True)]
@@ -718,13 +703,13 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
                     if each_remove in copy_sorted:
                         copy_sorted.remove(each_remove)
             ##### Now we combine the uncorrelated list to the selected correlated list above
-            rem_col_list = left_subtract(list(correlation_dataframe),corr_list)
+            rem_col_list = left_subtract(numvars,corr_list)
             final_list = rem_col_list + selected_corr_list
             removed_cols = left_subtract(numvars, final_list)
         except:
             print('    SULOV Method crashing due to memory error, trying alternative simpler method...')
             #### Dropping highly correlated Features fast using simple linear correlation ###
-            removed_cols = remove_highly_correlated_vars_fast(train[numvars],corr_limit)
+            removed_cols = remove_highly_correlated_vars_fast(df,corr_limit)
             final_list = left_subtract(numvars, removed_cols)
         if len(removed_cols) > 0:
             print('    Removing (%d) highly correlated variables:' %(len(removed_cols)))
@@ -1573,10 +1558,13 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if len(important_cats) > 0:
         dataname, test_data, error_columns = FE_convert_all_object_columns_to_numeric(dataname,  test_data, preds)
         important_cats = left_subtract(important_cats, error_columns)
-        print('    removing %s object columns that could not be converted to numeric' %len(error_columns))
+        if len(error_columns) > 0:
+            print('    removing %s object columns that could not be converted to numeric' %len(error_columns))
+        else:
+            print('    there were no mixed data types or object columns that errored. Data is all numeric...')
         dataname.drop(error_columns, axis=1, inplace=True)
         print('Shape of train data after pruning = %s' %(dataname.shape,) )
-        if not isinstance(test_data, str):
+        if not test_data is None:
             test_data.drop(error_columns, axis=1, inplace=True)
             print('    Shape of test data after pruning = %s' %(test_data.shape,) )
     print('#######################################################################################')
@@ -1604,7 +1592,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         ### we reload the dataframes into dask since columns may have been dropped ##
         print('    using DASK XGBoost')  
         train = load_dask_data(dataname, sep)
-        if not isinstance(test_data, str):
+        if not test_data is None:
             test = load_dask_data(test_data, sep)
     else:
         ### we reload the dataframes into dask since columns may have been dropped ##
