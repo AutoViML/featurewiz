@@ -19,7 +19,8 @@ from sklearn.metrics import mean_squared_error,auc
 from sklearn.svm import LinearSVC, LinearSVR
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.ensemble import AdaBoostClassifier, AdaBoostRegressor
-
+from sklearn.multioutput import MultiOutputRegressor, MultiOutputClassifier
+import time
 
 from sklearn.model_selection import train_test_split
 import pathlib
@@ -31,6 +32,7 @@ from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler
 import xgboost as xgb
+import lightgbm as lgb
 #########################################################################################
 def rmse(y_true,y_pred):
     return np.sqrt(mean_squared_error(y_true,y_pred))
@@ -39,32 +41,33 @@ def rmse(y_true,y_pred):
 ###################################################
 class Stacking_Classifier(BaseEstimator, RegressorMixin, TransformerMixin):
     """
-    ############          Credit for Stacking Classifier        ############
-    ####  Greatly indebted to Gilbert Tanner who explained Stacked Models
+    ############          Credit for Stacking Classifier        #####################
+    #### Greatly indebted to Gilbert Tanner who explained Stacked Models here
     ####   https://gilberttanner.com/blog/introduction-to-ensemble-learning
-    ####  I have modifed his code to create a Stacking Classifier #########
-    #######################################################################
+    #### Modifed to create a Stacking Classifier that can handle multi-label targets
+    #################################################################################
     """
     def __init__(self):
-        n_folds = 3
-        logit = LogisticRegression(C=1.0, random_state = 1, max_iter=5000)
-        DT = DecisionTreeClassifier(max_depth=10, random_state = 3)
-        GBoost = xgb.XGBClassifier(n_estimators=200, random_state=99, n_jobs=-1)
-        model_rf = RandomForestClassifier(max_depth=10,n_estimators=100,
-                            random_state=99)
-        xgbc = AdaBoostClassifier(random_state=0)
-        gpc = MLPClassifier(hidden_layer_sizes=50, random_state=0)
-        base_models =  (logit, model_rf, DT, GBoost, xgbc, gpc)
-        meta_model = GBoost
-        self.base_models = base_models
-        self.meta_model = meta_model
+        n_folds = 5       
+        self.base_models = []
+        self.meta_model = None
         self.n_folds = n_folds
 
     # We again fit the data on clones of the original models
     def fit(self, X, y):
+        models_dict = stacking_models_list(X_train=X, y_train=y, modeltype='Classification', verbose=1)
+        self.base_models = list(models_dict.values())
         self.base_models_ = [list() for x in self.base_models]
+        if y.ndim >= 2:
+            stump = lgb.LGBMClassifier(n_estimators=100, random_state=99)
+            self.meta_model = MultiOutputClassifier(stump)
+        else:
+            self.meta_model = xgb.XGBClassifier(n_estimators=100, random_state=99)
         self.meta_model_ = clone(self.meta_model)
+
         kfold = KFold(n_splits=self.n_folds, shuffle=True, random_state=156)
+        start_time = time.time()
+        print('Stacking model %s training started. This will take time...' %self.meta_model)
 
         # Train cloned base models then create out-of-fold predictions
         # that are needed to train the cloned meta-model
@@ -79,6 +82,7 @@ class Stacking_Classifier(BaseEstimator, RegressorMixin, TransformerMixin):
 
         # Now train the cloned  meta-model using the out-of-fold predictions as new feature
         self.meta_model_.fit(out_of_fold_predictions, y)
+        print('    Time taken = %0.0f seconds' %(time.time()-start_time))
         return self
 
     #Do the predictions of all base models on the test data and use the averaged predictions as
@@ -91,55 +95,82 @@ class Stacking_Classifier(BaseEstimator, RegressorMixin, TransformerMixin):
 ###################################################################
 class Stacking_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
     """
-    ############          Credit for Stacking Regressor        ############
-    ####  Greatly indebted to Gilbert Tanner who explained Stacked Models
+    ############          Credit for Stacking Regressor        #####################
+    #### Greatly indebted to Gilbert Tanner who explained Stacked Models here
     ####   https://gilberttanner.com/blog/introduction-to-ensemble-learning
-    ####  I have modifed his code to create a Stacking Regressor #########
-    #######################################################################
+    #### Modifed to create a Stacking Regressor that can handle multi-label targets
+    ################################################################################
     """
     def __init__(self, use_features=True):
-        n_folds = 3
-        lasso = Lasso(alpha=0.01)
-        DT = DecisionTreeRegressor(max_depth=10, random_state = 3)
-        GBoost = xgb.XGBRegressor(n_estimators=200, random_state=99, n_jobs=-1)
-        model_rf = RandomForestRegressor(max_depth=10,n_estimators=100,
-                            random_state=99)
-        xgbc = AdaBoostRegressor(random_state=0)
-        gpc = MLPRegressor(hidden_layer_sizes=50, random_state=0)
-        base_models =  (lasso, model_rf, DT, xgbc, gpc)
-        meta_model = GBoost
-        self.base_models = base_models
-        self.meta_model = meta_model
+        n_folds = 5
+        self.base_models = []
+        self.meta_model = None
         self.n_folds = n_folds
         self.use_features = use_features
+        self.target_len = 1
         
     def fit(self, X, y):
         """Fit all the models on the given dataset"""
+        models_dict = stacking_models_list(X_train=X, y_train=y, modeltype='Regression', verbose=1)
+        self.base_models = list(models_dict.values())
         self.base_models_ = [list() for x in self.base_models]
+        if y.ndim >= 2:
+            stump = lgb.LGBMRegressor(n_estimators=100, random_state=99)
+            self.meta_model = MultiOutputRegressor(stump)
+        else:
+            self.meta_model = lgb.LGBMRegressor(n_estimators=100, random_state=99)
         self.meta_model_ = clone(self.meta_model)
+
         kfold = KFold(n_splits=self.n_folds, shuffle=True, random_state=42)
+        start_time = time.time()
+        print('Stacking model %s training started. This will take time...' %self.meta_model)
         
         # Train cloned base models and create out-of-fold predictions
-        out_of_fold_predictions = np.zeros((X.shape[0], len(self.base_models)))
+        if y.ndim <= 1:
+            self.target_len = 1
+        else:
+            self.target_len = y.ndim + 1
+        out_of_fold_predictions = np.zeros((X.shape[0], self.target_len*len(self.base_models)))
         for i, model in enumerate(self.base_models):
             for train_index, holdout_index in kfold.split(X, y):
                 instance = clone(model)
                 self.base_models_[i].append(instance)
                 instance.fit(X.iloc[train_index], y.iloc[train_index])
                 y_pred = instance.predict(X.iloc[holdout_index])
-                out_of_fold_predictions[holdout_index, i] = y_pred
+                if y.ndim < 2:
+                    out_of_fold_predictions[holdout_index, i] = y_pred
+                else:
+                    next_i = int(i+self.target_len)
+                    out_of_fold_predictions[holdout_index,i:next_i] = y_pred
         
         if self.use_features:
             self.meta_model_.fit(np.hstack((X, out_of_fold_predictions)), y)
         else:
             self.meta_model_.fit(out_of_fold_predictions, y)
             
+        print('    Time taken = %0.0f seconds' %(time.time()-start_time))
         return self
     
     def predict(self, X):
-        meta_features = np.column_stack([
-            np.column_stack([model.predict(X) for model in base_models]).mean(axis=1)
-            for base_models in self.base_models_ ])
+        if self.target_len == 1:
+            meta_features = np.column_stack([
+                np.column_stack([model.predict(X) for model in base_models]).mean(axis=1)
+                for base_models in self.base_models_ ])
+        else:
+            max_len = self.target_len
+            base_models = self.base_models_[0]
+            for each_m, model in enumerate(base_models):
+                if each_m == 0:
+                    stump_pred = model.predict(X)
+                    pred = stump_pred[:]
+                else:
+                    addl_pred = model.predict(X)
+                    stump_pred = np.column_stack([stump_pred, addl_pred])
+                    for each_i in range(max_len):
+                        next_i = int(each_i+self.target_len)                        
+                        pred[:,each_i] = np.column_stack([stump_pred[:,each_i],stump_pred[:,next_i]]).mean(axis=1)
+            meta_features = pred[:]
+
         if self.use_features:
             return self.meta_model_.predict(np.hstack((X, meta_features)))
         else:
@@ -147,28 +178,34 @@ class Stacking_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
 ###############################################################################
 class Blending_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
     """
-    ############          Credit for Blending Regressor        ############
-    ####  Greatly indebted to Gilbert Tanner who explained Blending Regressor
+    ############          Credit for Blending Regressor        ######################
+    #### Greatly indebted to Gilbert Tanner who explained Stacked Models here
     ####   https://gilberttanner.com/blog/introduction-to-ensemble-learning
-    ####  I have modifed his code to create a Blending_Regressor #########
-    #######################################################################
+    #### Modifed to create a Blending Regressor that can handle multi-label targets
+    #################################################################################
     """
     def __init__(self, holdout_pct=0.2, use_features=True):
         # create models
-        lasso_model = make_pipeline(RobustScaler(), Lasso(alpha=0.0005, random_state=1))
-        rf = RandomForestRegressor()
-        gbr = GradientBoostingRegressor()
-        xgb_model = xgb.XGBRegressor(n_estimators=200, random_state=99, n_jobs=-1)
-        base_models = [gbr, rf, xgb_model, lasso_model]
-        meta_model = lasso_model
-        self.base_models = base_models
-        self.meta_model = meta_model
+        n_folds = 5
+        self.base_models = []
+        self.meta_model = None
+        self.n_folds = n_folds
         self.holdout_pct = holdout_pct
         self.use_features = use_features
 
     def fit(self, X, y):
+        models_dict = stacking_models_list(X_train=X, y_train=y, modeltype='Regression', verbose=1)
+        self.base_models = list(models_dict.values())
         self.base_models_ = [clone(x) for x in self.base_models]
+        if y.ndim >= 2:
+            stump = lgb.LGBMRegressor(n_estimators=100, random_state=99)
+            self.meta_model = MultiOutputRegressor(stump)
+        else:
+            self.meta_model = lgb.LGBMRegressor(n_estimators=100, random_state=99)
         self.meta_model_ = clone(self.meta_model)
+
+        start_time = time.time()
+        print('Stacking model %s training started. This will take time...' %self.meta_model)
 
         X_train, X_holdout, y_train, y_holdout = train_test_split(X, y, test_size=self.holdout_pct)
 
@@ -176,12 +213,16 @@ class Blending_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
         for i, model in enumerate(self.base_models_):
             model.fit(X_train, y_train)
             y_pred = model.predict(X_holdout)
-            holdout_predictions[:, i] = y_pred
+            if y_train.ndim < 2:
+                holdout_predictions[:, i] = y_pred
+            else:
+                holdout_predictions = y_pred[:]
         if self.use_features:
             self.meta_model_.fit(np.hstack((X_holdout, holdout_predictions)), y_holdout)
         else:
             self.meta_model_.fit(holdout_predictions, y_holdout)
 
+        print('    Time taken = %0.0f seconds' %(time.time()-start_time))
         return self
 
     def predict(self, X):
@@ -193,3 +234,129 @@ class Blending_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
         else:
             return self.meta_model_.predict(meta_features)
 ######################################################################################
+import pandas as pd
+import numpy as np
+import warnings
+warnings.filterwarnings("ignore")
+from sklearn.model_selection import cross_val_score, StratifiedShuffleSplit, TimeSeriesSplit
+from sklearn.model_selection import ShuffleSplit,StratifiedKFold,KFold
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.ensemble import BaggingRegressor, RandomForestClassifier
+from sklearn.ensemble import ExtraTreesClassifier,ExtraTreesRegressor
+from sklearn.linear_model import LogisticRegressionCV, LinearRegression, Ridge
+from sklearn.svm import LinearSVC, SVR, LinearSVR
+from sklearn.ensemble import AdaBoostClassifier, AdaBoostRegressor
+from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
+from sklearn.linear_model import Lasso, LassoCV, Ridge, RidgeCV, LassoLarsCV
+from sklearn.model_selection import cross_val_predict
+from sklearn.ensemble import ExtraTreesRegressor, ExtraTreesClassifier
+from sklearn.linear_model import LogisticRegression, LogisticRegressionCV, LinearRegression
+from sklearn.model_selection import GridSearchCV,StratifiedShuffleSplit,ShuffleSplit
+from sklearn.naive_bayes import GaussianNB, MultinomialNB
+from sklearn.tree import DecisionTreeClassifier
+import time
+import pdb
+import time
+import copy
+from collections import Counter
+from collections import defaultdict
+from collections import OrderedDict
+#############################################################################
+def find_rare_class(classes, verbose=0):
+    ######### Print the % count of each class in a Target variable  #####
+    """
+    Works on Multi Class too. Prints class percentages count of target variable.
+    It returns the name of the Rare class (the one with the minimum class member count).
+    This can also be helpful in using it as pos_label in Binary and Multi Class problems.
+    """
+    counts = OrderedDict(Counter(classes))
+    total = sum(counts.values())
+    if verbose >= 1:
+        print(' Class  -> Counts -> Percent')
+        for cls in counts.keys():
+            print("%6s: % 7d  ->  % 5.1f%%" % (cls, counts[cls], counts[cls]/total*100))
+    if type(pd.Series(counts).idxmin())==str:
+        return pd.Series(counts).idxmin()
+    else:
+        return int(pd.Series(counts).idxmin())
+################################################################################
+def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
+    """
+    Quickly build Stacks of multiple model results
+    Input must be a clean data set (only numeric variables, no categorical or string variables).
+    """
+    X_train = copy.deepcopy(X_train)
+    y_train = copy.deepcopy(y_train)
+    start_time = time.time()
+    seed = 99
+    if len(X_train) <= 100000 or X_train.shape[1] < 50:
+        NUMS = 100
+        FOLDS = 5
+    else:
+        NUMS = 200
+        FOLDS = 10
+    ## create Stacking models
+    estimators = []
+    #### This is where you don't fit the model but just do cross_val_predict ####
+    if modeltype == 'Regression':
+        if y_train.ndim >= 2:
+            stump = RandomForestRegressor(random_state=seed, n_estimators=100)
+            model1 = MultiOutputRegressor(stump)
+            estimators.append(('Multi Output Regressor',model1))
+        else:
+            ######    Bagging models if Bagging is chosen ####
+            model3 = BaggingRegressor(DecisionTreeRegressor(random_state=seed),
+                                        n_estimators=NUMS,random_state=seed)
+            estimators.append(('Random Forest',model3))
+            model4 = LinearSVR()
+            estimators.append(('Linear_SVR',model4))
+            ####   Tree models if Linear chosen #####
+            model5 = DecisionTreeRegressor(random_state=seed,min_samples_leaf=2)
+            estimators.append(('Decision Trees',model5))
+            ####   Linear Models if Boosting is chosen #####
+            model6 = LassoCV(alphas=np.logspace(-5,-1,20), cv=5,random_state=seed)
+            estimators.append(('LassoCV Regularization',model6))
+    else:
+        if y_train.ndim >= 2:
+            stump = RandomForestClassifier(random_state=seed, n_estimators=100)
+            model1 = MultiOutputClassifier(stump)
+            estimators.append(('Multi Output Classifier',model1))
+        else:
+            n_classes = len(Counter(y_train))
+            if n_classes > 2:
+                model3 = LogisticRegression(max_iter=5000, multi_class='ovr')
+            else:
+                model3 = lgb.LGBMClassifier(n_estimators=100, random_state=0)
+            estimators.append(('Logistic Regression',model3))
+                
+            ####   Linear Models if Boosting is chosen #####
+            if n_classes > 2:
+                model4 = RandomForestClassifier(n_estimators=100, random_state=99)
+                estimators.append(('RandomForestClassifier',model4))
+            else:
+                model4 = LinearDiscriminantAnalysis()
+                estimators.append(('Linear Discriminant',model4))
+            
+            ####   Tree models if Linear chosen #####
+            model6 = AdaBoostClassifier(base_estimator=DecisionTreeClassifier(max_depth=3), n_estimators=50)
+            estimators.append(('Adaboost Classifier',model6))
+            
+            ######    Naive Bayes models if Bagging is chosen ####
+            if n_classes <= 2:
+                try:
+                    model7 = GaussianNB()
+                except:
+                    model7 = DecisionTreeClassifier(min_samples_leaf=2)
+            else:
+                try:
+                    model7 = MultinomialNB()
+                except:
+                    model7 = DecisionTreeClassifier(min_samples_leaf=2)
+            estimators.append(('Naive Bayes',model7))
+        
+    #stacks = np.c_[results1,results2,results3]
+    estimators_list = [(tuples[0],tuples[1]) for tuples in estimators]
+    estimator_names = [tuples[0] for tuples in estimators]
+    print('List of models chosen for stacking: %s' %estimators_list)
+    return dict(estimators_list)
+#########################################################

@@ -17,11 +17,11 @@
 ##### Google and Google specifically disclaims all warranties as to its quality,#
 ##### merchantability, or fitness for a particular purpose.  ####################
 #################################################################################
-import pandas as pd
 import numpy as np
 import random
 np.random.seed(99)
 random.seed(42)
+import pandas as pd
 from sklearn.model_selection import KFold
 from sklearn.model_selection import GridSearchCV
 from sklearn.multioutput import MultiOutputClassifier, MultiOutputRegressor
@@ -669,7 +669,7 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
         if df_fit.isnull().sum().sum() > 0:
             df_fit = df_fit.dropna()
         else:
-            print('There are no null values in dataset.')
+            print('    there are no null values in dataset...')
         ##### Reduce memory usage and find mutual information score ####       
         #try:
         #    df_fit = reduce_mem_usage(df_fit)
@@ -998,7 +998,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     feature_gen = ''
     if feature_engg:
         if isinstance(feature_engg, str):
-            feature_gen = [feature_engg]
+            if feature_engg in feature_generators:
+                feature_gen = [feature_engg]
+            else:
+                print('feature engg types must be one of three strings: %s' %feature_generators)
+                return
         elif isinstance(feature_engg, list):
             feature_gen = copy.deepcopy(feature_engg)
     else:
@@ -1011,7 +1015,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             feature_type = category_encoders[:2] ### Only two will be allowed at a time
     else:
         print('Skipping category encoding since no category encoders specified in input...')
-    
+
     ######################################################################################
     ##################    L O A D     T R A I N   D A T A   ##############################
     ##########   dataname will be the name of the pandas version of train data      ######
@@ -1061,6 +1065,12 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             else:
                 dataname = copy.deepcopy(train)
     print('    Loaded train data. Shape = %s' %(dataname.shape,))
+    if dataname.shape[0] >= 1e6:
+        ### we are going to set a hard limit of 900K for nows since some datasets are huge and break
+        nrows = 900000
+        dataname = dataname.sample(n=nrows, replace=False)
+        print(' setting a hard limit of 900K samples for train since some it is huge and breaks pandas...')
+
     ##################    L O A D    T E S T   D A T A      ######################
     dataname = remove_duplicate_cols_in_dataset(dataname)
 
@@ -2200,8 +2210,10 @@ class My_Groupby_Encoder(TransformerMixin):
             self.ignore_variables = [ignore_variables]
         else:
             self.ignore_variables = ignore_variables
+        ### there are certain functions that give only error:
+        ### We need to test and make sure all these functions work.
         self.func_set = {'count','sum','mean','mad','median','min','max','mode',
-                        'abs','prod','std','var','sem','skew','kurt',
+                        'std','var','sem', 'skew','kurt','abs', 'prod',
                         'quantile','cumsum','cumprod','cummax','cummin'}
         self.train_cols = []  ## this keeps track of which cols were created ###
         self.MLB_dict = {}
@@ -2227,6 +2239,7 @@ class My_Groupby_Encoder(TransformerMixin):
 
     def transform(self, dft ):
         ##### First make a copy of dataframe ###
+        dft_index = dft.index
         dft = copy.deepcopy(dft)
         if isinstance(dft, pd.Series):
             print('data to transform must be a dataframe')
@@ -2260,14 +2273,14 @@ class My_Groupby_Encoder(TransformerMixin):
             cols =  [x+'_by_'+str_col+'_'+y for (x,y) in dft_full.columns]
             dft_full.columns = cols
             dft_full = dft_full.reset_index()
-
+            
             # make sure there are no zero-variance cols. If so, drop them #
             if len(self.train_cols) == 0:
                 #### drop zero variance cols the first time
                 copy_cols = copy.deepcopy(cols)
                 for each_col in cols:
                     if len(dft_full[each_col].value_counts()) == 1:
-                        dft_full.drop = dft_full.drop(each_col, axis=1)
+                        dft_full = dft_full.drop(each_col, axis=1)
                 num_cols_created = dft_full.shape[1] - len(self.groupby_column)
                 print('%d new columns created for numeric data grouped by %s for aggregates %s' %(num_cols_created,
                                     self.groupby_column, self.agg_types))
@@ -2279,14 +2292,18 @@ class My_Groupby_Encoder(TransformerMixin):
                     dft_full = dft_full[self.train_cols]
                 else:
                     print('\nWarning: train and test have different number of columns. Continuing...')
-
+            
             dft = dft.merge(dft_full, on=self.groupby_column, how='left')
-
+            
             #### Now change the label encoded columns back to original status ##
             copy_cols = copy.deepcopy(self.groupby_column)
             for each_col in copy_cols:
                 MLB = self.MLB_dict[each_col]
                 dft[each_col] = MLB.inverse_transform(dft[each_col])
+
+            ### provide the index the same as before ####
+            dft.index = dft_index
+
         except Exception as inst:
             print(type(inst))    # the exception instance
             print(inst.args)     # arguments stored in .args
@@ -2332,20 +2349,21 @@ def FE_add_groupby_features_aggregated_to_dataframe(train,
         groupby_columns = [groupby_columns]
 
     for groupby_column in groupby_columns:
-        train_copy_index = train_copy.index
         MGB = My_Groupby_Encoder(groupby_column, agg_types, ignore_variables)
         train1 = MGB.fit_transform(train)
         addl_cols = left_subtract(train1.columns,train.columns)
-        train1.index = train_copy_index
+        for each_addl in addl_cols:
+            train1[each_addl] = train1[each_addl].fillna(0)
         train_copy = pd.concat([train_copy,train1[addl_cols]], axis=1)
         if isinstance(test, str) or test is None:
             pass
         else:
-            test_copy_index = test_copy.index
             test1 = MGB.transform(test)
             addl_cols = left_subtract(test1.columns,test.columns)
-            test1.index = test_copy_index
+            for each_addl in addl_cols:
+                test1[each_addl] = test1[each_addl].fillna(0)
             test_copy = pd.concat([test_copy,test1[addl_cols]],axis=1)
+
     ### return the dataframes ###########
     return train_copy, test_copy
 #####################################################################################################

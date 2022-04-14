@@ -249,7 +249,7 @@ class DataBunch(object):
         return (cat_features)
 
 
-    def gen_cat_encodet_features(self, data, cat_encoder_name):
+    def gen_cat_encodet_features(self, data, cat_encoder_name, fited=False):
         """
         Description of _encode_features:
             Encode car features
@@ -269,7 +269,9 @@ class DataBunch(object):
                                                             drop_invariant=True)
                 else:
                     encoder = self.cat_encoders_names[cat_encoder_name][0](cols=self.cat_features, drop_invariant=True)
-                data_encodet = encoder.fit_transform(data)
+                if not fitted:
+                    data_encodet = encoder.fit(data)
+                data_encodet = encoder.transform(data)
                 data_encodet = data_encodet.add_prefix(cat_encoder_name + '_')
             else:
                 print(f"{cat_encoder_name} is not supported!")
@@ -282,7 +284,7 @@ class DataBunch(object):
         return (data_encodet, encoder)
 
 
-    def gen_target_encodet_features(self, x_data, y_data=None, cat_encoder_name=''):
+    def gen_target_encodet_features(self, x_data, y_data=None, cat_encoder_name='', fitted=False):
         """
         Description of _encode_features:
             Encode car features
@@ -306,7 +308,9 @@ class DataBunch(object):
                         encoder = PolynomialWrapper(encoder)
                 ### All other encoders TargetEncoder CatBoostEncoder GLMMEncoder don't need
                 ### Polynomial Wrappers since they handle multi-class (label encoded) very well!
-                data_encodet = encoder.fit_transform(x_data, y_data)
+                if not fitted:
+                    encoder.fit(x_data, y_data)
+                data_encodet = encoder.transform(x_data, y_data)
                 data_encodet = data_encodet.add_prefix(cat_encoder_name + '_')
             else:
                 print(f"{cat_encoder_name} is not supported!")
@@ -354,7 +358,7 @@ class DataBunch(object):
 
 
     def gen_groupby_cat_encode_features(self, data, cat_columns, num_column,
-                                cat_encoder_name='JamesSteinEncoder'):
+                                cat_encoder_name='JamesSteinEncoder', fitted=False):
         """
         Description of group_encoder
 
@@ -371,13 +375,13 @@ class DataBunch(object):
         if isinstance(cat_encoder_name, str):
             if cat_encoder_name in self.cat_encoder_names_list:
                 encoder = JamesSteinEncoder(cols=self.cat_features, model='beta', return_df = True, drop_invariant=True)
-                encoder.fit(X=data[cat_columns], y=data[num_column].values)
+                if not fitted:
+                    encoder.fit(X=data[cat_columns], y=data[num_column].values)
             else:
                 print(f"{cat_encoder_name} is not supported!")
                 return ('', '')
         else:
             encoder = copy.deepcopy(cat_encoder_name)
-
         data_encodet = encoder.transform(X=data[cat_columns], y=data[num_column].values)
         data_encodet = data_encodet.add_prefix('GroupEncoded_' + num_column + '_')
 
@@ -471,12 +475,12 @@ class DataBunch(object):
                         if verbose > 0:
                             print(' + To know more, click: %s' %self.cat_encoders_names[encoder_name][1])
                         data_encodet, train_encoder = self.gen_cat_encodet_features(data[encodet_features_names],
-                                                                    encoder_name)
+                                                                    encoder_name, fitted=False)
                         if not isinstance(data_encodet, str):
                             data = pd.concat([data, data_encodet], axis=1)
                         if test_data is not None:
                             test_encodet, _ = self.gen_cat_encodet_features(test_data[encodet_features_names],
-                                                                    train_encoder)
+                                                                    train_encoder, fitted=True)
                             if not isinstance(test_encodet, str):
                                 test_data = pd.concat([test_data, test_encodet], axis=1)
 
@@ -502,13 +506,13 @@ class DataBunch(object):
                     if verbose > 0:
                         print(' + To know more, click: %s' %self.target_encoders_names[encoder_name][1])
                     data_encodet, train_encoder = self.gen_target_encodet_features(data[encodet_features_names],
-                                                                self.y_train_source, encoder_name)
+                                                                self.y_train_source, encoder_name, fitted=False)
                     if not isinstance(data_encodet, str):
                         data = pd.concat([data, data_encodet], axis=1)
 
                     if test_data is not None:
                         test_encodet, _ = self.gen_target_encodet_features(test_data[encodet_features_names],'',
-                                                                train_encoder)
+                                                                train_encoder, fitted=True)
                         if not isinstance(test_encodet, str):
                             test_data = pd.concat([test_data, test_encodet], axis=1)
 
@@ -574,14 +578,14 @@ class DataBunch(object):
                     data_encodet, train_group_encoder = self.gen_groupby_cat_encode_features(
                                                             data,
                                                             encodet_features_names,
-                                                            num_col,)
+                                                            num_col,fitted=False)
                     if not isinstance(data_encodet, str):
                         data = pd.concat([data, data_encodet],axis=1)
                     if test_data is not None:
                         test_encodet, _ = self.gen_groupby_cat_encode_features(
-                                                            data,
+                                                            test_data,
                                                             encodet_features_names,
-                                                            num_col,train_group_encoder)
+                                                            num_col,train_group_encoder, fitted=True)
                         if not isinstance(test_encodet, str):
                             test_data = pd.concat([test_data, test_encodet], axis=1)
 
