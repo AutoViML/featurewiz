@@ -21,19 +21,25 @@ from sklearn.svm import LinearSVC, LinearSVR
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.ensemble import AdaBoostClassifier, AdaBoostRegressor
 from sklearn.multioutput import MultiOutputRegressor, MultiOutputClassifier
-import time
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.linear_model import Lasso, LassoCV, Ridge, RidgeCV, LassoLarsCV
+from sklearn.ensemble import ExtraTreesClassifier,ExtraTreesRegressor
 
 from sklearn.model_selection import train_test_split
 import pathlib
 from scipy import stats
 from scipy.stats import norm, skew
+import time
+import copy
+from collections import Counter
+from collections import defaultdict
+from collections import OrderedDict
 
 from sklearn.linear_model import Lasso
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler
-import xgboost as xgb
-import lightgbm as lgb
 #########################################################################################
 def rmse(y_true,y_pred):
     return np.sqrt(mean_squared_error(y_true,y_pred))
@@ -61,6 +67,7 @@ class Stacking_Classifier(BaseEstimator, ClassifierMixin, TransformerMixin):
 
     # We again fit the data on clones of the original models
     def fit(self, X, y):
+        import lightgbm as lgb
         models_dict = stacking_models_list(X_train=X, y_train=y, modeltype='Classification', verbose=1)
         self.base_models = list(models_dict.values())
         self.base_models_ = [list() for x in self.base_models]
@@ -68,7 +75,7 @@ class Stacking_Classifier(BaseEstimator, ClassifierMixin, TransformerMixin):
             stump = lgb.LGBMClassifier(n_estimators=50, random_state=99)
             self.meta_model = MultiOutputClassifier(stump)
         else:
-            self.meta_model = xgb.XGBClassifier(n_estimators=100, random_state=99)
+            self.meta_model = lgb.LGBMClassifier(n_estimators=100, random_state=99, n_jobs=-1)
         self.meta_model_ = clone(self.meta_model)
 
         kfold = KFold(n_splits=self.n_folds, shuffle=True, random_state=156)
@@ -82,7 +89,7 @@ class Stacking_Classifier(BaseEstimator, ClassifierMixin, TransformerMixin):
         if y.ndim <= 1:
             self.target_len = 1
         else:
-            self.target_len = y.ndim
+            self.target_len = y.shape[1]
         out_of_fold_predictions = np.zeros((X.shape[0], self.target_len*len(self.base_models)))
         for i, model in enumerate(self.base_models):
             for train_index, holdout_index in kfold.split(X, y):
@@ -152,6 +159,7 @@ class Stacking_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
         
     def fit(self, X, y):
         """Fit all the models on the given dataset"""
+        import lightgbm as lgb
         models_dict = stacking_models_list(X_train=X, y_train=y, modeltype='Regression', verbose=1)
         self.base_models = list(models_dict.values())
         self.base_models_ = [list() for x in self.base_models]
@@ -171,7 +179,7 @@ class Stacking_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
         if y.ndim <= 1:
             self.target_len = 1
         else:
-            self.target_len = y.ndim + 1
+            self.target_len = y.shape[1]
         out_of_fold_predictions = np.zeros((X.shape[0], self.target_len*len(self.base_models)))
         for i, model in enumerate(self.base_models):
             for train_index, holdout_index in kfold.split(X, y):
@@ -238,6 +246,7 @@ class Blending_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
         self.use_features = use_features
 
     def fit(self, X, y):
+        import lightgbm as lgb
         models_dict = stacking_models_list(X_train=X, y_train=y, modeltype='Regression', verbose=1)
         self.base_models = list(models_dict.values())
         self.base_models_ = [clone(x) for x in self.base_models]
@@ -279,34 +288,6 @@ class Blending_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
         else:
             return self.meta_model_.predict(meta_features)
 ######################################################################################
-import pandas as pd
-import numpy as np
-import warnings
-warnings.filterwarnings("ignore")
-from sklearn.model_selection import cross_val_score, StratifiedShuffleSplit, TimeSeriesSplit
-from sklearn.model_selection import ShuffleSplit,StratifiedKFold,KFold
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.ensemble import BaggingRegressor, RandomForestClassifier
-from sklearn.ensemble import ExtraTreesClassifier,ExtraTreesRegressor
-from sklearn.linear_model import LogisticRegressionCV, LinearRegression, Ridge
-from sklearn.svm import LinearSVC, SVR, LinearSVR
-from sklearn.ensemble import AdaBoostClassifier, AdaBoostRegressor
-from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
-from sklearn.linear_model import Lasso, LassoCV, Ridge, RidgeCV, LassoLarsCV
-from sklearn.model_selection import cross_val_predict
-from sklearn.ensemble import ExtraTreesRegressor, ExtraTreesClassifier
-from sklearn.linear_model import LogisticRegression, LogisticRegressionCV, LinearRegression
-from sklearn.model_selection import GridSearchCV,StratifiedShuffleSplit,ShuffleSplit
-from sklearn.naive_bayes import GaussianNB, MultinomialNB
-from sklearn.tree import DecisionTreeClassifier
-import time
-import pdb
-import time
-import copy
-from collections import Counter
-from collections import defaultdict
-from collections import OrderedDict
-#############################################################################
 def find_rare_class(classes, verbose=0):
     ######### Print the % count of each class in a Target variable  #####
     """
@@ -330,6 +311,8 @@ def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
     Quickly build Stacks of multiple model results
     Input must be a clean data set (only numeric variables, no categorical or string variables).
     """
+    import lightgbm as lgb
+    
     X_train = copy.deepcopy(X_train)
     y_train = copy.deepcopy(y_train)
     start_time = time.time()
@@ -350,9 +333,8 @@ def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
             estimators.append(('Multi Output Regressor',model1))
         else:
             ######    Bagging models if Bagging is chosen ####
-            model3 = BaggingRegressor(DecisionTreeRegressor(random_state=seed),
-                                        n_estimators=NUMS,random_state=seed)
-            estimators.append(('Random Forest',model3))
+            model3 = KNeighborsRegressor(n_jobs=-1)
+            estimators.append(('KNN',model3))
             model4 = LinearSVR()
             estimators.append(('Linear_SVR',model4))
             ####   Tree models if Linear chosen #####
@@ -361,6 +343,8 @@ def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
             ####   Linear Models if Boosting is chosen #####
             model6 = LassoCV(alphas=np.logspace(-5,-1,20), cv=5,random_state=seed)
             estimators.append(('LassoCV Regularization',model6))
+            model7 = RandomForestRegressor(n_estimators=50,random_state=seed)
+            estimators.append(('Random Forest',model7))
     else:
         if y_train.ndim >= 2:
             stump = RandomForestClassifier(random_state=seed, n_estimators=100)
@@ -372,8 +356,8 @@ def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
                 model3 = LogisticRegression(max_iter=5000, multi_class='ovr')
                 estimators.append(('Logistic Regression',model3))
             else:
-                model3 = lgb.LGBMClassifier(n_estimators=50, random_state=0)
-                estimators.append(('LightGBM',model3))
+                model3 = KNeighborsClassifier(n_jobs=-1)
+                estimators.append(('KNN',model3))
                 
             ####   Linear Models if Boosting is chosen #####
             if n_classes > 2:
