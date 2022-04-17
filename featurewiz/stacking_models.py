@@ -5,7 +5,6 @@ import seaborn as sns
 import warnings
 warnings.filterwarnings('ignore')
 
-from sklearn.linear_model import ElasticNet, Lasso,  BayesianRidge, LassoLarsIC
 from sklearn.ensemble import RandomForestRegressor,  GradientBoostingRegressor
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
@@ -25,6 +24,8 @@ from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.linear_model import Lasso, LassoCV, Ridge, RidgeCV, LassoLarsCV
 from sklearn.ensemble import ExtraTreesClassifier,ExtraTreesRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoostingClassifier
+from sklearn.multioutput import ClassifierChain, RegressorChain
 
 from sklearn.model_selection import train_test_split
 import pathlib
@@ -32,11 +33,11 @@ from scipy import stats
 from scipy.stats import norm, skew
 import time
 import copy
+import pdb
 from collections import Counter
 from collections import defaultdict
 from collections import OrderedDict
 
-from sklearn.linear_model import Lasso
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler
@@ -72,8 +73,11 @@ class Stacking_Classifier(BaseEstimator, ClassifierMixin, TransformerMixin):
         self.base_models = list(models_dict.values())
         self.base_models_ = [list() for x in self.base_models]
         if y.ndim >= 2:
-            stump = lgb.LGBMClassifier(n_estimators=50, random_state=99)
-            self.meta_model = MultiOutputClassifier(stump)
+            if y.shape[1] == 1:
+                self.meta_model = lgb.LGBMClassifier(n_estimators=100, random_state=99, n_jobs=-1)
+            else:
+                stump = lgb.LGBMClassifier(n_estimators=50, random_state=99)
+                self.meta_model = MultiOutputClassifier(stump, n_jobs=-1)
         else:
             self.meta_model = lgb.LGBMClassifier(n_estimators=100, random_state=99, n_jobs=-1)
         self.meta_model_ = clone(self.meta_model)
@@ -92,23 +96,32 @@ class Stacking_Classifier(BaseEstimator, ClassifierMixin, TransformerMixin):
             self.target_len = y.shape[1]
         out_of_fold_predictions = np.zeros((X.shape[0], self.target_len*len(self.base_models)))
         for i, model in enumerate(self.base_models):
+            start_time = time.time()
+            print('  %s model training and prediction...' %str(model).split("(")[0])
+            
             for train_index, holdout_index in kfold.split(X, y):
                 instance = clone(model)
                 self.base_models_[i].append(instance)
                 instance.fit(X.iloc[train_index], y.iloc[train_index])
                 y_pred = instance.predict(X.iloc[holdout_index])
-                if y.ndim < 2:
+                if y.ndim == 1:
                     out_of_fold_predictions[holdout_index, i] = y_pred
+                elif y.ndim <= 2:
+                    if y.shape[1] == 1:
+                        out_of_fold_predictions[holdout_index, i] = y_pred
+                    else:
+                        next_i = int(i+self.target_len)
+                        out_of_fold_predictions[holdout_index,i:next_i] = y_pred
                 else:
                     next_i = int(i+self.target_len)
                     out_of_fold_predictions[holdout_index,i:next_i] = y_pred
+            print('    Time taken = %0.0f seconds' %(time.time()-start_time))
         
         if self.use_features:
             self.meta_model_.fit(np.hstack((X, out_of_fold_predictions)), y)
         else:
             self.meta_model_.fit(out_of_fold_predictions, y)
             
-        print('    Time taken = %0.0f seconds' %(time.time()-start_time))
         return self
 
     #Do the predictions of all base models on the test data and use the averaged predictions as
@@ -164,8 +177,11 @@ class Stacking_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
         self.base_models = list(models_dict.values())
         self.base_models_ = [list() for x in self.base_models]
         if y.ndim >= 2:
-            stump = lgb.LGBMRegressor(n_estimators=50, random_state=99)
-            self.meta_model = MultiOutputRegressor(stump)
+            if y.shape[1] == 1:
+                self.meta_model = lgb.LGBMRegressor(n_estimators=50, random_state=99)
+            else:
+                stump = lgb.LGBMRegressor(n_estimators=50, random_state=99)
+                self.meta_model = MultiOutputRegressor(stump, n_jobs=-1)
         else:
             self.meta_model = lgb.LGBMRegressor(n_estimators=50, random_state=99)
         self.meta_model_ = clone(self.meta_model)
@@ -182,23 +198,32 @@ class Stacking_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
             self.target_len = y.shape[1]
         out_of_fold_predictions = np.zeros((X.shape[0], self.target_len*len(self.base_models)))
         for i, model in enumerate(self.base_models):
+            print('  %s model training and prediction...' %str(model).split("(")[0])
+            start_time = time.time()
             for train_index, holdout_index in kfold.split(X, y):
                 instance = clone(model)
                 self.base_models_[i].append(instance)
                 instance.fit(X.iloc[train_index], y.iloc[train_index])
                 y_pred = instance.predict(X.iloc[holdout_index])
-                if y.ndim < 2:
+                
+                if y.ndim == 1:
                     out_of_fold_predictions[holdout_index, i] = y_pred
+                elif y.ndim <= 2:
+                    if y.shape[1] == 1:
+                        out_of_fold_predictions[holdout_index, i] = y_pred
+                    else:
+                        next_i = int(i+self.target_len)
+                        out_of_fold_predictions[holdout_index,i:next_i] = y_pred
                 else:
                     next_i = int(i+self.target_len)
                     out_of_fold_predictions[holdout_index,i:next_i] = y_pred
+            print('    Time taken = %0.0f seconds' %(time.time()-start_time))
         
         if self.use_features:
             self.meta_model_.fit(np.hstack((X, out_of_fold_predictions)), y)
         else:
             self.meta_model_.fit(out_of_fold_predictions, y)
             
-        print('    Time taken = %0.0f seconds' %(time.time()-start_time))
         return self
     
     def predict(self, X):
@@ -244,47 +269,81 @@ class Blending_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
         self.n_folds = n_folds
         self.holdout_pct = holdout_pct
         self.use_features = use_features
+        self.target_len = 1
 
     def fit(self, X, y):
         import lightgbm as lgb
         models_dict = stacking_models_list(X_train=X, y_train=y, modeltype='Regression', verbose=1)
         self.base_models = list(models_dict.values())
         self.base_models_ = [clone(x) for x in self.base_models]
+        
         if y.ndim >= 2:
-            stump = lgb.LGBMRegressor(n_estimators=50, random_state=99)
-            self.meta_model = MultiOutputRegressor(stump)
+            if y.shape[1] == 1:
+                self.meta_model = lgb.LGBMRegressor(n_estimators=50, random_state=99, n_jobs=-1)
+            else:
+                stump = lgb.LGBMRegressor(n_estimators=50, random_state=99)
+                self.meta_model = MultiOutputRegressor(stump, n_jobs=-1)
         else:
-            self.meta_model = lgb.LGBMRegressor(n_estimators=50, random_state=99)
+            self.meta_model = lgb.LGBMRegressor(n_estimators=50, random_state=99, n_jobs=-1)
         self.meta_model_ = clone(self.meta_model)
 
         start_time = time.time()
         model_name = str(self.meta_model).split("(")[0]
-        print('Stacking model %s training started. This will take time...' %model_name)
+        print('Blending model %s training started. This will take time...' %model_name)
 
         X_train, X_holdout, y_train, y_holdout = train_test_split(X, y, test_size=self.holdout_pct)
+        if y.ndim <= 1:
+            self.target_len = 1
+        else:
+            self.target_len = y.shape[1]
 
-        holdout_predictions = np.zeros((X_holdout.shape[0], len(self.base_models)))
+        holdout_predictions = np.zeros((X_holdout.shape[0], self.target_len*len(self.base_models)))
         for i, model in enumerate(self.base_models_):
+            print('  %s model training and prediction...' %str(model).split("(")[0])
+            start_time = time.time()
             model.fit(X_train, y_train)
             y_pred = model.predict(X_holdout)
+            print('    Time taken = %0.0f seconds' %(time.time()-start_time))
+            
             if y_train.ndim < 2:
                 holdout_predictions[:, i] = y_pred
             else:
                 holdout_predictions = y_pred[:]
         if self.use_features:
-            self.meta_model_.fit(np.hstack((X_holdout, holdout_predictions)), y_holdout)
+            if holdout_predictions.ndim < 2:
+                self.meta_model_.fit(np.hstack((X_holdout, holdout_predictions.reshape(-1,1))), y_holdout)
+            else:
+                self.meta_model_.fit(np.hstack((X_holdout, holdout_predictions)), y_holdout)
         else:
             self.meta_model_.fit(holdout_predictions, y_holdout)
 
-        print('    Time taken = %0.0f seconds' %(time.time()-start_time))
         return self
 
     def predict(self, X):
-        meta_features = np.column_stack([
-            model.predict(X) for model in self.base_models_
-        ])
+        #### This can handle multi_label predictions now ###
+        if self.target_len == 1:
+            meta_features = np.column_stack([
+                model.predict(X) for model in self.base_models_])
+        else:
+            max_len = self.target_len
+            for each_m, model in enumerate(self.base_models_):
+                if each_m == 0:
+                    stump_pred = model.predict(X)
+                    pred = stump_pred[:]
+                else:
+                    addl_pred = model.predict(X)
+                    stump_pred = np.column_stack([stump_pred, addl_pred])
+                    for each_i in range(max_len):
+                        next_i = int(each_i+self.target_len)                        
+                        pred[:,each_i] = np.column_stack([stump_pred[:,each_i],stump_pred[:,next_i]]).mean(axis=1)
+            meta_features = pred[:]
+        
         if self.use_features:
-            return self.meta_model_.predict(np.hstack((X, meta_features)))
+            if meta_features.ndim < 2:
+                pdb.set_trace()
+                return self.meta_model_.predict(np.hstack((X, meta_features.reshape(-1,1))))
+            else:
+                return self.meta_model_.predict(np.hstack((X, meta_features)))
         else:
             return self.meta_model_.predict(meta_features)
 ######################################################################################
@@ -328,63 +387,84 @@ def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
     #### This is where you don't fit the model but just do cross_val_predict ####
     if modeltype == 'Regression':
         if y_train.ndim >= 2:
-            stump = RandomForestRegressor(random_state=seed, n_estimators=100)
-            model1 = MultiOutputRegressor(stump)
-            estimators.append(('Multi Output Regressor',model1))
-        else:
-            ######    Bagging models if Bagging is chosen ####
+            if y_train.shape[1] > 1:
+                stump = lgb.LGBMRegressor(n_estimators=50, random_state=99)
+                model1 = MultiOutputRegressor(stump, n_jobs=-1)
+                estimators.append(('Multi Output Regressor',model1))
+                estimators_list = [(tuples[0],tuples[1]) for tuples in estimators]
+                estimator_names = [tuples[0] for tuples in estimators]
+                print('List of models chosen for stacking: %s' %estimators_list)
+                return dict(estimators_list)
+        ######    Bagging models if Bagging is chosen ####
+        if y_train.shape[0] <= 10000:
             model3 = KNeighborsRegressor(n_jobs=-1)
             estimators.append(('KNN',model3))
-            model4 = LinearSVR()
-            estimators.append(('Linear_SVR',model4))
-            ####   Tree models if Linear chosen #####
-            model5 = DecisionTreeRegressor(random_state=seed,min_samples_leaf=2)
-            estimators.append(('Decision Trees',model5))
-            ####   Linear Models if Boosting is chosen #####
-            model6 = LassoCV(alphas=np.logspace(-5,-1,20), cv=5,random_state=seed)
-            estimators.append(('LassoCV Regularization',model6))
-            model7 = RandomForestRegressor(n_estimators=50,random_state=seed)
-            estimators.append(('Random Forest',model7))
+        else:
+            model3 = LinearSVR()
+            estimators.append(('Linear_SVR',model3))
+        ####   Tree models if Linear chosen #####
+        model5 = DecisionTreeRegressor(random_state=seed,min_samples_leaf=2)
+        estimators.append(('Decision Trees',model5))
+        ####   Linear Models if Boosting is chosen #####
+        if y_train.shape[0] <= 10000:
+            model6 = Lasso(alpha=0.01, random_state=seed)
+            estimators.append(('Lasso',model6))
+        else:
+            #model6 = ExtraTreesRegressor(n_estimators=50, random_state=seed)
+            #estimators.append(('Extra Trees Regressor',model6))
+            model6 = HistGradientBoostingRegressor(random_state=seed)
+            estimators.append(('Histogram Gradient Regressor',model6))
+
+        model7 = RandomForestRegressor(n_estimators=50,random_state=seed, n_jobs=-1)
+        estimators.append(('Random Forest',model7))
     else:
         if y_train.ndim >= 2:
-            stump = RandomForestClassifier(random_state=seed, n_estimators=100)
-            model1 = MultiOutputClassifier(stump)
-            estimators.append(('Multi Output Classifier',model1))
+            if y_train.shape[1] > 1:
+                stump = lgb.LGBMClassifier(n_estimators=50, random_state=99)
+                model1 = MultiOutputClassifier(stump, n_jobs=-1)
+                estimators.append(('Multi Output Classifier',model1))
+                estimators_list = [(tuples[0],tuples[1]) for tuples in estimators]
+                estimator_names = [tuples[0] for tuples in estimators]
+                print('List of models chosen for stacking: %s' %estimators_list)
+                return dict(estimators_list)
+        n_classes = len(Counter(y_train))
+        if n_classes > 2:
+            model3 = LogisticRegression(max_iter=5000, multi_class='ovr')
+            estimators.append(('Logistic Regression',model3))
         else:
-            n_classes = len(Counter(y_train))
-            if n_classes > 2:
-                model3 = LogisticRegression(max_iter=5000, multi_class='ovr')
-                estimators.append(('Logistic Regression',model3))
-            else:
+            if y_train.shape[0] <= 10000:
                 model3 = KNeighborsClassifier(n_jobs=-1)
                 estimators.append(('KNN',model3))
-                
-            ####   Linear Models if Boosting is chosen #####
-            if n_classes > 2:
-                model4 = RandomForestClassifier(n_estimators=100, random_state=99)
-                estimators.append(('RandomForestClassifier',model4))
             else:
-                model4 = LinearDiscriminantAnalysis()
-                estimators.append(('Linear Discriminant',model4))
-            
-            ####   Tree models if Linear chosen #####
-            model6 = AdaBoostClassifier(base_estimator=DecisionTreeClassifier(max_depth=3), n_estimators=50)
-            estimators.append(('Adaboost Classifier',model6))
-            
-            ######    Naive Bayes models if Bagging is chosen ####
-            if n_classes <= 2:
-                try:
-                    model7 = GaussianNB()
-                except:
-                    model7 = DecisionTreeClassifier(min_samples_leaf=2)
-            else:
-                try:
-                    model7 = MultinomialNB()
-                except:
-                    model7 = DecisionTreeClassifier(min_samples_leaf=2)
-            estimators.append(('Naive Bayes',model7))
+                #model3 = ExtraTreesClassifier(n_estimators=50, random_state=99)
+                #estimators.append(('Extra Trees Classifier',model3))
+                model3 = HistGradientBoostingClassifier(random_state=99)
+                estimators.append(('Histogram Gradient Regressor', model3))
+        ####   Linear Models if Boosting is chosen #####
+        if n_classes > 2:
+            model4 = RandomForestClassifier(n_estimators=100, random_state=99, n_jobs=-1)
+            estimators.append(('Random Forest Classifier',model4))
+        else:
+            model4 = LinearDiscriminantAnalysis()
+            estimators.append(('Linear Discriminant',model4))
         
-    #stacks = np.c_[results1,results2,results3]
+        ####   Tree models if Linear chosen #####
+        model6 = AdaBoostClassifier(base_estimator=DecisionTreeClassifier(max_depth=3), n_estimators=50)
+        estimators.append(('Adaboost Classifier',model6))
+        
+        ######    Naive Bayes models if Bagging is chosen ####
+        if n_classes <= 2:
+            try:
+                model7 = GaussianNB()
+            except:
+                model7 = DecisionTreeClassifier(min_samples_leaf=2)
+        else:
+            try:
+                model7 = MultinomialNB()
+            except:
+                model7 = DecisionTreeClassifier(min_samples_leaf=2)
+        estimators.append(('Naive Bayes',model7))
+        
     estimators_list = [(tuples[0],tuples[1]) for tuples in estimators]
     estimator_names = [tuples[0] for tuples in estimators]
     print('List of models chosen for stacking: %s' %estimators_list)
