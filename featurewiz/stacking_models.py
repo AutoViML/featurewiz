@@ -8,7 +8,7 @@ warnings.filterwarnings('ignore')
 from sklearn.ensemble import RandomForestRegressor,  GradientBoostingRegressor
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler,StandardScaler,OneHotEncoder
@@ -340,7 +340,6 @@ class Blending_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
         
         if self.use_features:
             if meta_features.ndim < 2:
-                pdb.set_trace()
                 return self.meta_model_.predict(np.hstack((X, meta_features.reshape(-1,1))))
             else:
                 return self.meta_model_.predict(np.hstack((X, meta_features)))
@@ -400,8 +399,8 @@ def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
             model3 = KNeighborsRegressor(n_jobs=-1)
             estimators.append(('KNN',model3))
         else:
-            model3 = LinearSVR()
-            estimators.append(('Linear_SVR',model3))
+            model3 = LinearRegression(n_jobs=-1)
+            estimators.append(('Linear Model',model3))
         ####   Tree models if Linear chosen #####
         model5 = DecisionTreeRegressor(random_state=seed,min_samples_leaf=2)
         estimators.append(('Decision Trees',model5))
@@ -415,8 +414,9 @@ def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
             model6 = HistGradientBoostingRegressor(random_state=seed)
             estimators.append(('Histogram Gradient Regressor',model6))
 
-        model7 = RandomForestRegressor(n_estimators=50,random_state=seed, n_jobs=-1)
-        estimators.append(('Random Forest',model7))
+        #model7 = RandomForestRegressor(n_estimators=50,random_state=seed, n_jobs=-1)
+        model7 = Ridge(alpha=0.5)
+        estimators.append(('Ridge',model7))
     else:
         if y_train.ndim >= 2:
             if y_train.shape[1] > 1:
@@ -442,7 +442,7 @@ def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
                 estimators.append(('Histogram Gradient Regressor', model3))
         ####   Linear Models if Boosting is chosen #####
         if n_classes > 2:
-            model4 = RandomForestClassifier(n_estimators=100, random_state=99, n_jobs=-1)
+            model4 = RandomForestClassifier(n_estimators=50, random_state=99, n_jobs=-1)
             estimators.append(('Random Forest Classifier',model4))
         else:
             model4 = LinearDiscriminantAnalysis()
