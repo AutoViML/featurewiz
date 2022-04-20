@@ -105,10 +105,10 @@ class Stacking_Classifier(BaseEstimator, ClassifierMixin, TransformerMixin):
                 instance.fit(X.iloc[train_index], y.iloc[train_index])
                 y_pred = instance.predict(X.iloc[holdout_index])
                 if y.ndim == 1:
-                    out_of_fold_predictions[holdout_index, i] = y_pred
+                    out_of_fold_predictions[holdout_index, i] = y_pred.ravel()
                 elif y.ndim <= 2:
                     if y.shape[1] == 1:
-                        out_of_fold_predictions[holdout_index, i] = y_pred
+                        out_of_fold_predictions[holdout_index, i] = y_pred.ravel()
                     else:
                         next_i = int(i+self.target_len)
                         out_of_fold_predictions[holdout_index,i:next_i] = y_pred
@@ -207,10 +207,10 @@ class Stacking_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
                 y_pred = instance.predict(X.iloc[holdout_index])
                 
                 if y.ndim == 1:
-                    out_of_fold_predictions[holdout_index, i] = y_pred
+                    out_of_fold_predictions[holdout_index, i] = y_pred.ravel()
                 elif y.ndim <= 2:
                     if y.shape[1] == 1:
-                        out_of_fold_predictions[holdout_index, i] = y_pred
+                        out_of_fold_predictions[holdout_index, i] = y_pred.ravel()
                     else:
                         next_i = int(i+self.target_len)
                         out_of_fold_predictions[holdout_index,i:next_i] = y_pred
@@ -297,18 +297,19 @@ class Blending_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
         else:
             self.target_len = y.shape[1]
 
-        holdout_predictions = np.zeros((X_holdout.shape[0], self.target_len*len(self.base_models)))
+        #holdout_predictions = np.zeros((X_holdout.shape[0], self.target_len*len(self.base_models)))
+        
         for i, model in enumerate(self.base_models_):
             print('  %s model training and prediction...' %str(model).split("(")[0])
             start_time = time.time()
             model.fit(X_train, y_train)
             y_pred = model.predict(X_holdout)
             print('    Time taken = %0.0f seconds' %(time.time()-start_time))
-            
-            if y_train.ndim < 2:
-                holdout_predictions[:, i] = y_pred
+            if i == 0:
+                holdout_predictions = y_pred
             else:
-                holdout_predictions = y_pred[:]
+                holdout_predictions = np.column_stack([holdout_predictions, y_pred])
+        
         if self.use_features:
             if holdout_predictions.ndim < 2:
                 self.meta_model_.fit(np.hstack((X_holdout, holdout_predictions.reshape(-1,1))), y_holdout)
@@ -321,6 +322,7 @@ class Blending_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
 
     def predict(self, X):
         #### This can handle multi_label predictions now ###
+        
         if self.target_len == 1:
             meta_features = np.column_stack([
                 model.predict(X) for model in self.base_models_])

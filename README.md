@@ -31,6 +31,9 @@ features.features  ### provides the list of selected features ###
 2. `simple_XGBoost_model()` - simple regression and classification with one target label<br>
 3. `complex_LightGBM_model()` - more complex multi-label and multi-class models<br>
 4. `complex_XGBoost_model()` - more complex multi-label and multi-class models<br>
+5. `Stacking_Classifier()`: Stacking model that can handle multi-label, multi-class problems<br>
+6. `Stacking_Regressor()`: Stacking model that can handle multi-label, regression problems<br>
+7. `Blending_Regressor()`: Blending model that can handle multi-label, regression problems<br>
 </ol>
 
 ### One word of CAUTION while installing featurewiz in Kaggle and other environments:
