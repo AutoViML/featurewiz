@@ -40,7 +40,8 @@ from sklearn.preprocessing import LabelEncoder
 from category_encoders.wrapper import PolynomialWrapper
 from .encoders import FrequencyEncoder
 from .ml_models import analyze_problem_type, get_sample_weight_array, check_if_GPU_exists
-from .my_encoders import My_LabelEncoder
+from .my_encoders import My_LabelEncoder, Groupby_Aggregator, My_LabelEncoder_Pipe
+from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe
 from . import settings
 settings.init()
 ################################################################################
@@ -2159,211 +2160,52 @@ def FE_split_one_field_into_many(df_in, field, splitter, filler, new_names_list=
     df[field] = df_field
     return df, new_names_list
 ###########################################################################
-import copy
-from sklearn.base import TransformerMixin
-from collections import defaultdict
-class My_Groupby_Encoder(TransformerMixin):
-    """
-    #################################################################################################
-    ######  This Groupby_Encoder Class works just like any Transformer in sklearn  ##################
-    #####  You can add any groupby features based on categorical columns in a data frame  ###########
-    #####  The beauty of this function is that it can take care of NaN's and unknown values in Test.#
-    #####  It uses the same fit() and fit_transform() methods of sklearn's LabelEncoder class.  #####
-    #################################################################################################
-    ###   This function is a very fast function that will iteratively compute aggregates for all numeric columns
-    ###   It returns original dataframe with added features using numeric variables grouped and aggregated
-    ###   What do you mean aggregate? aggregates can be "count, "mean", "median", "mode", "min", "max", etc.
-    ###   What do you aggregrate? all numeric columns in your data
-    ###   What do you groupby? a groupby column
-    ###      except those numeric variables you designate in the ignore_variables list. Can be empty.
-    #################################################################################################
-    ### Inputs:
-    ###   dft: Just sent in the data frame df that you want features added to
-    ###   agg_types: list of computational types: 'mean','median','count', 'max', 'min', 'sum', etc.
-    ###         One caveat: these agg_types must be found in the following agg_func of numpy or pandas groupby statement.
-    ###         List of aggregates available: {'count','sum','mean','mad','median','min','max','mode','abs',
-    ###               'prod','std','var','sem','skew','kurt',
-    ###                'quantile','cumsum','cumprod','cummax','cummin'}
-    ###   groupby_column: this is to groupby all the numeric features and compute aggregates by.
-    ###   ignore_variables: list of variables to ignore among numeric variables in data since they may be ID variables.
-    ### Outputs:
-    ###     dft: original dataframe with tons of additional features created by this function.
-    #################################################################################################
-    ###     Make sure you reduce correlated variables by using FE_remove_variables_using_SULOV_method()
-    Usage:
-        MGB = My_Groupby_Encoder(groupby_column, agg_types, ignore_variables=[])
-        MGB.fit(train)
-        train = MGB.transform(train)
-        test = MGB.transform(test)
-    """
-    def __init__(self, groupby_column, agg_types, ignore_variables=[]):
-        if isinstance(groupby_column, str):
-            self.groupby_column = [groupby_column]
-        else:
-            self.groupby_column = groupby_column
-        if isinstance(agg_types, str):
-            self.agg_types = [agg_types]
-        else:
-            self.agg_types = agg_types
-
-        if isinstance(ignore_variables, str):
-            self.ignore_variables = [ignore_variables]
-        else:
-            self.ignore_variables = ignore_variables
-        ### there are certain functions that give only error:
-        ### We need to test and make sure all these functions work.
-        self.func_set = {'count','sum','mean','mad','median','min','max','mode',
-                        'std','var','sem', 'skew','kurt','abs', 'prod',
-                        'quantile','cumsum','cumprod','cummax','cummin'}
-        self.train_cols = []  ## this keeps track of which cols were created ###
-        self.MLB_dict = {}
-
-    def fit(self, dft):
-        dft = copy.deepcopy(dft)
-        if isinstance(dft, pd.Series):
-            print('data to transform must be a dataframe')
-            return self
-        elif isinstance(dft, np.ndarray):
-            print('data to transform must be a dataframe')
-            return self
-        ### Make sure the list of functions they send in are acceptable functions. If not, the aggregate will blow up!
-        ### Only select those that match the func set ############
-        self.agg_types = list(set(self.agg_types).intersection(self.func_set))
-        copy_cols = copy.deepcopy(self.groupby_column)
-        for each_col in copy_cols:
-            MLB = My_LabelEncoder()
-            dft[each_col] = MLB.fit(dft[each_col])
-            self.MLB_dict[each_col] = MLB
-
-        return self
-
-    def transform(self, dft ):
-        ##### First make a copy of dataframe ###
-        dft_index = dft.index
-        dft = copy.deepcopy(dft)
-        if isinstance(dft, pd.Series):
-            print('data to transform must be a dataframe')
-            return self
-        elif isinstance(dft, np.ndarray):
-            print('data to transform must be a dataframe')
-            return self
-        try:
-            ###
-            ### first if groupby cols had NaN's you need to fill them before aggregating
-            ### If you don't do that, then your groupby aggregating will miss those NaNs
-            copy_cols = copy.deepcopy(self.groupby_column)
-            for each_col in copy_cols:
-                MLB = self.MLB_dict[each_col]
-                dft[each_col] = MLB.transform(dft[each_col])
-
-            ## Since you want to ignore some variables, you can drop them here
-            ls = dft.select_dtypes('number').columns.tolist()
-            ignore_in_list = [x for x in self.ignore_variables if x in ls]
-            if len(ignore_in_list) == len(self.ignore_variables) and left_subtract(ignore_in_list,self.ignore_variables)==[]:
-                dft_cont = copy.deepcopy(dft.select_dtypes('number').drop(self.ignore_variables,axis=1))
-            else:
-                dft_cont = copy.deepcopy(dft.select_dtypes('number'))
-
-            #### This is the main part where we create aggregated columns ######
-            dft_full = dft_cont.groupby(self.groupby_column).agg(self.agg_types)
-            if len(self.groupby_column) == 1:
-                str_col = self.groupby_column[0]
-            else:
-                str_col = "_".join(self.groupby_column)
-            cols =  [x+'_by_'+str_col+'_'+y for (x,y) in dft_full.columns]
-            dft_full.columns = cols
-            dft_full = dft_full.reset_index()
-            
-            # make sure there are no zero-variance cols. If so, drop them #
-            if len(self.train_cols) == 0:
-                #### drop zero variance cols the first time
-                copy_cols = copy.deepcopy(cols)
-                for each_col in cols:
-                    if len(dft_full[each_col].value_counts()) == 1:
-                        dft_full = dft_full.drop(each_col, axis=1)
-                num_cols_created = dft_full.shape[1] - len(self.groupby_column)
-                print('%d new columns created for numeric data grouped by %s for aggregates %s' %(num_cols_created,
-                                    self.groupby_column, self.agg_types))
-                self.train_cols = dft_full.columns.tolist()
-            else:
-                #### if it is the second time, just use column names created during train
-                if len(left_subtract(self.train_cols, list(dft_full))) == 0:
-                    #### make sure that they are the exact same columns, if not, leave dft_full as is
-                    dft_full = dft_full[self.train_cols]
-                else:
-                    print('\nWarning: train and test have different number of columns. Continuing...')
-            
-            dft = dft.merge(dft_full, on=self.groupby_column, how='left')
-            
-            #### Now change the label encoded columns back to original status ##
-            copy_cols = copy.deepcopy(self.groupby_column)
-            for each_col in copy_cols:
-                MLB = self.MLB_dict[each_col]
-                dft[each_col] = MLB.inverse_transform(dft[each_col])
-
-            ### provide the index the same as before ####
-            dft.index = dft_index
-
-        except Exception as inst:
-            print(type(inst))    # the exception instance
-            print(inst.args)     # arguments stored in .args
-            print(inst)          # __str__ allows args to be printed directly,
-            ### if for some reason, the groupby blows up, then just return the dataframe as is - no changes!
-            print('Error in groupby function: returning dataframe as is')
-            return dft
-        return dft
-###################################################################################
 def FE_add_groupby_features_aggregated_to_dataframe(train,
-                    agg_types,groupby_columns,ignore_variables, test=""):
+                    agg_types,  groupby_columns, ignore_variables, test=""):
     """
-    FE stands for Feature Engineering. That means this function performs feature engineering on data.
+    FE stands for Feature Engineering. This function performs feature engineering on data.
     ######################################################################################
-    ###   This function is a very fast function that will iteratively compute aggregates for all numeric columns
-    ###   It returns original dataframe with added features using numeric variables grouped and aggregated
-    ###   What do you mean aggregate? aggregates can be "count, "mean", "median", "mode", "min", "max", etc.
+    ###   This function is a very fast function that will compute aggregates for numerics
+    ###   It returns original dataframe with added features from numeric variables aggregated
+    ###   What do you mean aggregate? aggregates can be "count, "mean", "median", etc.
     ###   What do you aggregrate? all numeric columns in your data
     ###   What do you groupby? one groupby column at a time or multiple columns one by one
     ###     -- if you give it a list of columns, it will execute the grouping one by one
     ###   What is the ignore_variables for? it will ignore these variables from grouping.
+    ###   Make sure to reduce correlated features using FE_remove_variables_using_SULOV_method()
     ######################################################################################
     ### Inputs:
-    ###   train: Just sent in the data frame df that you want features added to
-    ###   agg_types: list of computational types: 'mean','median','count', 'max', 'min', 'sum', etc.
-    ###         One caveat: these agg_types must be found in the following agg_func of numpy or pandas groupby statement.
-    ###         List of aggregates available: {'count','sum','mean','mad','median','min','max','mode','abs',
-    ###               'prod','std','var','sem','skew','kurt',
+    ###   train: Just sent in the data frame where you want aggregated features for.
+    ###   agg_types: list of computational types: 'mean','median','count', 
+    ###                     'max', 'min', 'sum', etc.
+    ###         One caveat: these agg_types must be found in the following agg_func of 
+    ###                   numpy or pandas groupby statement.
+    ###         List of aggregates available: {'count','sum','mean','mad','median','min','max',
+    ###               'mode','abs', 'prod','std','var','sem','skew','kurt',
     ###                'quantile','cumsum','cumprod','cummax','cummin'}
-    ###   groupby_columns: can be a string representing a single column or a list of multiple columns
-    ###               - it will groupby all the numeric features using one groupby column at a time in a loop.
-    ###   ignore_variables: list of variables to ignore among numeric variables in data since they may be ID variables.
-    ###   test: (optional) a data frame  that you want features added to based on train
+    ###   groupby_columns: can be a string representing a single column or a list of 
+    ###                     multiple columns
+    ###               - it will groupby all the numeric features using one groupby column 
+    ###                    at a time in a loop.
+    ###   ignore_variables: list of variables to ignore among numeric variables in
+    ###                data since they may be ID variables.
     ### Outputs:
-    ###     trainm: original dataframe with tons of additional features created by this function.
-    ###     testm: (optional) dataframe with tons of additional features based on train
+    ###     Returns the original dataframe with additional features created by this function.
     ######################################################################################
-    ###     Make sure you reduce correlated variables by using FE_remove_variables_using_SULOV_method()
     """
-    train_copy = copy.deepcopy(train)
-    test_copy = copy.deepcopy(test)
+    trainx = copy.deepcopy(train)
+    testx = copy.deepcopy(test)
     if isinstance(groupby_columns, str):
         groupby_columns = [groupby_columns]
-
-    for groupby_column in groupby_columns:
-        MGB = My_Groupby_Encoder(groupby_column, agg_types, ignore_variables)
-        train1 = MGB.fit_transform(train)
-        addl_cols = left_subtract(train1.columns,train.columns)
-        for each_addl in addl_cols:
-            train1[each_addl] = train1[each_addl].fillna(0)
-        train_copy = pd.concat([train_copy,train1[addl_cols]], axis=1)
-        if isinstance(test, str) or test is None:
-            pass
-        else:
-            test1 = MGB.transform(test)
-            addl_cols = left_subtract(test1.columns,test.columns)
-            for each_addl in addl_cols:
-                test1[each_addl] = test1[each_addl].fillna(0)
-            test_copy = pd.concat([test_copy,test1[addl_cols]],axis=1)
-
+    numerics = trainx.select_dtypes(include='number').columns.tolist()
+    numerics = [x for x in numerics if x not in ignore_variables]
+    MGB = Groupby_Aggregator(categoricals=groupby_columns,
+            aggregates=agg_types, numerics=numerics)
+    train_copy = MGB.fit_transform(trainx)
+    if isinstance(testx, str) or testx is None:
+        test_copy = testx
+    else:
+        test_copy = MGB.transform(testx)
     ### return the dataframes ###########
     return train_copy, test_copy
 #####################################################################################################
