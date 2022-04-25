@@ -10,7 +10,7 @@ from .__version__ import __version__
 from .featurewiz import featurewiz, FE_convert_all_object_columns_to_numeric
 from .featurewiz import FE_split_one_field_into_many, FE_add_groupby_features_aggregated_to_dataframe
 from .featurewiz import FE_create_time_series_features, FE_start_end_date_time_features
-from .featurewiz import FE_remove_variables_using_SULOV_method, classify_features
+from .featurewiz import classify_features
 from .featurewiz import classify_columns,FE_combine_rare_categories
 from .featurewiz import FE_count_rows_for_all_columns_by_group
 from .featurewiz import FE_add_age_by_date_col, FE_split_add_column, FE_get_latest_values_based_on_date_column
@@ -23,6 +23,7 @@ from .featurewiz import FE_discretize_numeric_variables
 from .ml_models import simple_XGBoost_model, simple_LightGBM_model, complex_XGBoost_model, complex_LightGBM_model,data_transform
 from .my_encoders import My_LabelEncoder, Groupby_Aggregator, My_LabelEncoder_Pipe
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe
+from .sulov_method import FE_remove_variables_using_SULOV_method
 from .featurewiz import FE_transform_numeric_columns, FE_create_interaction_vars
 from .stacking_models import Stacking_Classifier, Blending_Regressor, Stacking_Regressor, stacking_models_list
 from .featurewiz import EDA_binning_numeric_column_displaying_bins, FE_add_lagged_targets_by_date_category
@@ -35,10 +36,11 @@ if __name__ == "__main__":
 else:
     module_type = 'Imported'
 version_number = __version__
-print("""%s featurewiz. Version = %s. Now with dask, XGBoost-GPU and feather-format.
-outputs = featurewiz(dataname, target, corr_limit=0.70, verbose=2, sep=',', 
-		header=0, test_data='',feature_engg='', category_encoders='',
-		dask_xgboost_flag=False, nrows=None)
-Create new features via 'feature_engg' flag : ['interactions','groupby','target']
+print("""%s version = %s.
+from featurewiz import FeatureWiz
+wiz = FeatureWiz(verbose=1)
+X_train_selected = wiz.fit_transform(X_train, y_train)
+X_test_selected = wiz.transform(X_test)
+wiz.features  ### provides a list of selected features ###
                                 """ %(module_type, version_number))
 ################################################################################

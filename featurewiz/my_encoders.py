@@ -544,7 +544,13 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
                 dft_full = self.transformers[each_catvar]
                 ### simply fill in the missing values with the word "missing" ##
                 dft_full.fillna(0,inplace=True)
-                X = pd.merge(X, dft_full, on=each_catvar, how='left')
+                try:
+                    X = pd.merge(X, dft_full, on=each_catvar, how='left')
+                except:
+                    for each_col in dft_full.columns.tolist():
+                        X[each_col] = 0.0
+                    print('    Erroring on creating aggregate vars for %s. Continuing...' %each_catvar)
+                    continue
         ### once all columns have been transferred return the dataframe ##
         return X
 

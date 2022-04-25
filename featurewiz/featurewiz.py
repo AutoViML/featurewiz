@@ -39,6 +39,8 @@ from category_encoders.glmm import GLMMEncoder
 from sklearn.preprocessing import LabelEncoder
 from category_encoders.wrapper import PolynomialWrapper
 from .encoders import FrequencyEncoder
+from .sulov_method import FE_remove_variables_using_SULOV_method
+from .classify_method import classify_columns, EDA_find_remove_columns_with_infinity
 from .ml_models import analyze_problem_type, get_sample_weight_array, check_if_GPU_exists
 from .my_encoders import My_LabelEncoder, Groupby_Aggregator, My_LabelEncoder_Pipe
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe
@@ -112,8 +114,9 @@ def classify_features(dfte, depVar, verbose=0):
             print('    \tmore than %s variables to be removed; too many to print...' %len(IDcols+cols_delete+discrete_string_vars))
     #############  Check if there are too many columns to visualize  ################
     ppt = pprint.PrettyPrinter(indent=4)
-    if verbose==1 and len(cols_list) <= max_cols_analyzed:
+    if verbose >= 2 and len(cols_list) <= max_cols_analyzed:
         marthas_columns(dft,verbose)
+    if verbose==1 and len(cols_list) <= max_cols_analyzed:
         print("   Columns to delete:")
         ppt.pprint('   %s' % cols_delete)
         print("   Boolean variables %s ")
@@ -149,9 +152,9 @@ def marthas_columns(data,verbose=0):
         print('Too many columns to print')
     else:
         if verbose==1:
-            print('Data Set columns info:')
+            print('    Additional details on columns:')
             for col in data.columns:
-                print('* %s: %d nulls, %d unique vals, most common: %s' % (
+                print('\t* %s:\t%d missing, %d uniques, most common: %s' % (
                         col,
                         data[col].isnull().sum(),
                         data[col].nunique(),
@@ -161,239 +164,6 @@ def marthas_columns(data,verbose=0):
 ################################################################################
 ######### NEW And FAST WAY to CLASSIFY COLUMNS IN A DATA SET #######
 ################################################################################
-def classify_columns(df_preds, verbose=0):
-    """
-    This actually does Exploratory data analysis - it means this function performs EDA
-    ######################################################################################
-    Takes a dataframe containing only predictors to be classified into various types.
-    DO NOT SEND IN A TARGET COLUMN since it will try to include that into various columns.
-    Returns a data frame containing columns and the class it belongs to such as numeric,
-    categorical, date or id column, boolean, nlp, discrete_string and cols to delete...
-    ####### Returns a dictionary with 10 kinds of vars like the following: # continuous_vars,int_vars
-    # cat_vars,factor_vars, bool_vars,discrete_string_vars,nlp_vars,date_vars,id_vars,cols_delete
-    """
-    train = copy.deepcopy(df_preds)
-    #### If there are 30 chars are more in a discrete_string_var, it is then considered an NLP variable
-    max_nlp_char_size = 30
-    max_cols_to_print = 30
-    print('#######################################################################################')
-    print('######################## C L A S S I F Y I N G  V A R I A B L E S  ####################')
-    print('#######################################################################################')
-    print('Classifying variables in data set...')
-    #### Cat_Limit defines the max number of categories a column can have to be called a categorical colum
-    cat_limit = 35
-    float_limit = 15 #### Make this limit low so that float variables below this limit become cat vars ###
-    def add(a,b):
-        return a+b
-    sum_all_cols = dict()
-    orig_cols_total = train.shape[1]
-    #Types of columns
-    cols_delete = []
-    cols_delete = [col for col in list(train) if (len(train[col].value_counts()) == 1
-                                       ) | (train[col].isnull().sum()/len(train) >= 0.90)]
-    inf_cols = EDA_find_remove_columns_with_infinity(train)
-    mixed_cols = [x for x in list(train) if len(train[x].dropna().apply(type).value_counts()) > 1]
-    if len(mixed_cols) > 0:
-        print('    Removing %s column(s) due to mixed data type detected...' %mixed_cols)
-    cols_delete += mixed_cols
-    cols_delete += inf_cols
-    train = train[left_subtract(list(train),cols_delete)]
-    var_df = pd.Series(dict(train.dtypes)).reset_index(drop=False).rename(
-                        columns={0:'type_of_column'})
-    sum_all_cols['cols_delete'] = cols_delete
-
-    var_df['bool'] = var_df.apply(lambda x: 1 if x['type_of_column'] in ['bool','object']
-                        and len(train[x['index']].value_counts()) == 2 else 0, axis=1)
-    string_bool_vars = list(var_df[(var_df['bool'] ==1)]['index'])
-    sum_all_cols['string_bool_vars'] = string_bool_vars
-    var_df['num_bool'] = var_df.apply(lambda x: 1 if x['type_of_column'] in [np.uint8,
-                            np.uint16, np.uint32, np.uint64,
-                            'int8','int16','int32','int64',
-                            'float16','float32','float64'] and len(
-                        train[x['index']].value_counts()) == 2 else 0, axis=1)
-    num_bool_vars = list(var_df[(var_df['num_bool'] ==1)]['index'])
-    sum_all_cols['num_bool_vars'] = num_bool_vars
-    ######   This is where we take all Object vars and split them into diff kinds ###
-    discrete_or_nlp = var_df.apply(lambda x: 1 if x['type_of_column'] in ['object']  and x[
-        'index'] not in string_bool_vars+cols_delete else 0,axis=1)
-    ######### This is where we figure out whether a string var is nlp or discrete_string var ###
-    var_df['nlp_strings'] = 0
-    var_df['discrete_strings'] = 0
-    var_df['cat'] = 0
-    var_df['id_col'] = 0
-    discrete_or_nlp_vars = var_df.loc[discrete_or_nlp==1]['index'].values.tolist()
-    copy_discrete_or_nlp_vars = copy.deepcopy(discrete_or_nlp_vars)
-    if len(discrete_or_nlp_vars) > 0:
-        for col in copy_discrete_or_nlp_vars:
-            #### first fill empty or missing vals since it will blowup ###
-            train[col] = train[col].fillna('  ')
-            if train[col].map(lambda x: len(x) if type(x)==str else 0).mean(
-                ) >= 50 and len(train[col].value_counts()
-                        ) >= int(0.9*len(train)) and col not in string_bool_vars:
-                var_df.loc[var_df['index']==col,'nlp_strings'] = 1
-            elif train[col].map(lambda x: len(x) if type(x)==str else 0).mean(
-                ) >= max_nlp_char_size and train[col].map(lambda x: len(x) if type(x)==str else 0).mean(
-                ) < 50 and len(train[col].value_counts()
-                        ) <= int(0.9*len(train)) and col not in string_bool_vars:
-                var_df.loc[var_df['index']==col,'discrete_strings'] = 1
-            elif len(train[col].value_counts()) > cat_limit and len(train[col].value_counts()
-                        ) <= int(0.9*len(train)) and col not in string_bool_vars:
-                var_df.loc[var_df['index']==col,'discrete_strings'] = 1
-            elif len(train[col].value_counts()) > cat_limit and len(train[col].value_counts()
-                        ) == len(train) and col not in string_bool_vars:
-                var_df.loc[var_df['index']==col,'id_col'] = 1
-            else:
-                var_df.loc[var_df['index']==col,'cat'] = 1
-    nlp_vars = list(var_df[(var_df['nlp_strings'] ==1)]['index'])
-    sum_all_cols['nlp_vars'] = nlp_vars
-    discrete_string_vars = list(var_df[(var_df['discrete_strings'] ==1) ]['index'])
-    sum_all_cols['discrete_string_vars'] = discrete_string_vars
-    ###### This happens only if a string column happens to be an ID column #######
-    #### DO NOT Add this to ID_VARS yet. It will be done later.. Dont change it easily...
-    #### Category DTYPE vars are very special = they can be left as is and not disturbed in Python. ###
-    var_df['dcat'] = var_df.apply(lambda x: 1 if str(x['type_of_column'])=='category' else 0,
-                            axis=1)
-    factor_vars = list(var_df[(var_df['dcat'] ==1)]['index'])
-    sum_all_cols['factor_vars'] = factor_vars
-    ########################################################################
-    date_or_id = var_df.apply(lambda x: 1 if x['type_of_column'] in [np.uint8,
-                         np.uint16, np.uint32, np.uint64,
-                         'int8','int16',
-                        'int32','int64']  and x[
-        'index'] not in string_bool_vars+num_bool_vars+discrete_string_vars+nlp_vars else 0,
-                                        axis=1)
-    ######### This is where we figure out whether a numeric col is date or id variable ###
-    var_df['int'] = 0
-    var_df['date_time'] = 0
-    ### if a particular column is date-time type, now set it as a date time variable ##
-    var_df['date_time'] = var_df.apply(lambda x: 1 if x['type_of_column'] in ['<M8[ns]','datetime64[ns]']  and x[
-        'index'] not in string_bool_vars+num_bool_vars+discrete_string_vars+nlp_vars else 0,
-                                        axis=1)
-    ### this is where we save them as date time variables ###
-    if len(var_df.loc[date_or_id==1]) != 0:
-        for col in var_df.loc[date_or_id==1]['index'].values.tolist():
-            if len(train[col].value_counts()) == len(train):
-                if train[col].min() < 1900 or train[col].max() > 2050:
-                    var_df.loc[var_df['index']==col,'id_col'] = 1
-                else:
-                    try:
-                        pd.to_datetime(train[col],infer_datetime_format=True)
-                        var_df.loc[var_df['index']==col,'date_time'] = 1
-                    except:
-                        var_df.loc[var_df['index']==col,'id_col'] = 1
-            else:
-                if train[col].min() < 1900 or train[col].max() > 2050:
-                    if col not in num_bool_vars:
-                        var_df.loc[var_df['index']==col,'int'] = 1
-                else:
-                    try:
-                        pd.to_datetime(train[col],infer_datetime_format=True)
-                        var_df.loc[var_df['index']==col,'date_time'] = 1
-                    except:
-                        if col not in num_bool_vars:
-                            var_df.loc[var_df['index']==col,'int'] = 1
-    else:
-        pass
-    int_vars = list(var_df[(var_df['int'] ==1)]['index'])
-    date_vars = list(var_df[(var_df['date_time'] == 1)]['index'])
-    id_vars = list(var_df[(var_df['id_col'] == 1)]['index'])
-    sum_all_cols['int_vars'] = int_vars
-    copy_date_vars = copy.deepcopy(date_vars)
-    for date_var in copy_date_vars:
-        #### This test is to make sure sure date vars are actually date vars
-        try:
-            pd.to_datetime(train[date_var],infer_datetime_format=True)
-        except:
-            ##### if not a date var, then just add it to delete it from processing
-            cols_delete.append(date_var)
-            date_vars.remove(date_var)
-    sum_all_cols['date_vars'] = date_vars
-    sum_all_cols['id_vars'] = id_vars
-    sum_all_cols['cols_delete'] = cols_delete
-    ## This is an EXTREMELY complicated logic for cat vars. Don't change it unless you test it many times!
-    var_df['numeric'] = 0
-    float_or_cat = var_df.apply(lambda x: 1 if x['type_of_column'] in ['float16',
-                            'float32','float64'] else 0,
-                                        axis=1)
-    if len(var_df.loc[float_or_cat == 1]) > 0:
-        for col in var_df.loc[float_or_cat == 1]['index'].values.tolist():
-            if len(train[col].value_counts()) > 2 and len(train[col].value_counts()
-                ) <= float_limit and len(train[col].value_counts()) <= len(train):
-                var_df.loc[var_df['index']==col,'cat'] = 1
-            else:
-                if col not in num_bool_vars:
-                    var_df.loc[var_df['index']==col,'numeric'] = 1
-    cat_vars = list(var_df[(var_df['cat'] ==1)]['index'])
-    continuous_vars = list(var_df[(var_df['numeric'] ==1)]['index'])
-    ########  V E R Y    I M P O R T A N T   ###################################################
-    ##### There are a couple of extra tests you need to do to remove abberations in cat_vars ###
-    cat_vars_copy = copy.deepcopy(cat_vars)
-    for cat in cat_vars_copy:
-        if df_preds[cat].dtype==float:
-            continuous_vars.append(cat)
-            cat_vars.remove(cat)
-            var_df.loc[var_df['index']==cat,'cat'] = 0
-            var_df.loc[var_df['index']==cat,'numeric'] = 1
-        elif len(df_preds[cat].value_counts()) == df_preds.shape[0]:
-            id_vars.append(cat)
-            cat_vars.remove(cat)
-            var_df.loc[var_df['index']==cat,'cat'] = 0
-            var_df.loc[var_df['index']==cat,'id_col'] = 1
-    sum_all_cols['cat_vars'] = cat_vars
-    sum_all_cols['continuous_vars'] = continuous_vars
-    sum_all_cols['id_vars'] = id_vars
-    ###### This is where you consoldate the numbers ###########
-    var_dict_sum = dict(zip(var_df.values[:,0], var_df.values[:,2:].sum(1)))
-    for col, sumval in var_dict_sum.items():
-        if sumval == 0:
-            print('%s of type=%s is not classified' %(col,train[col].dtype))
-        elif sumval > 1:
-            print('%s of type=%s is classified into more then one type' %(col,train[col].dtype))
-        else:
-            pass
-    ###############  This is where you print all the types of variables ##############
-    ####### Returns 8 vars in the following order: continuous_vars,int_vars,cat_vars,
-    ###  string_bool_vars,discrete_string_vars,nlp_vars,date_or_id_vars,cols_delete
-    if verbose == 1:
-        print("    Number of Numeric Columns = ", len(continuous_vars))
-        print("    Number of Integer-Categorical Columns = ", len(int_vars))
-        print("    Number of String-Categorical Columns = ", len(cat_vars))
-        print("    Number of Factor-Categorical Columns = ", len(factor_vars))
-        print("    Number of String-Boolean Columns = ", len(string_bool_vars))
-        print("    Number of Numeric-Boolean Columns = ", len(num_bool_vars))
-        print("    Number of Discrete String Columns = ", len(discrete_string_vars))
-        print("    Number of NLP String Columns = ", len(nlp_vars))
-        print("    Number of Date Time Columns = ", len(date_vars))
-        print("    Number of ID Columns = ", len(id_vars))
-        print("    Number of Columns to Delete = ", len(cols_delete))
-    if verbose == 2:
-        marthas_columns(df_preds,verbose=1)
-        print("    Numeric Columns: %s" %continuous_vars[:max_cols_to_print])
-        print("    Integer-Categorical Columns: %s" %int_vars[:max_cols_to_print])
-        print("    String-Categorical Columns: %s" %cat_vars[:max_cols_to_print])
-        print("    Factor-Categorical Columns: %s" %factor_vars[:max_cols_to_print])
-        print("    String-Boolean Columns: %s" %string_bool_vars[:max_cols_to_print])
-        print("    Numeric-Boolean Columns: %s" %num_bool_vars[:max_cols_to_print])
-        print("    Discrete String Columns: %s" %discrete_string_vars[:max_cols_to_print])
-        print("    NLP text Columns: %s" %nlp_vars[:max_cols_to_print])
-        print("    Date Time Columns: %s" %date_vars[:max_cols_to_print])
-        print("    ID Columns: %s" %id_vars[:max_cols_to_print])
-        print("    Columns that will not be considered in modeling: %s" %cols_delete[:max_cols_to_print])
-    ##### now collect all the column types and column names into a single dictionary to return!
-    len_sum_all_cols = reduce(add,[len(v) for v in sum_all_cols.values()])
-    if len_sum_all_cols == orig_cols_total:
-        print('    %d Predictors classified...' %orig_cols_total)
-        #print('        This does not include the Target column(s)')
-    else:
-        print('No of columns classified %d does not match %d total cols. Continuing...' %(
-                   len_sum_all_cols, orig_cols_total))
-        ls = sum_all_cols.values()
-        flat_list = [item for sublist in ls for item in sublist]
-        if len(left_subtract(list(train),flat_list)) == 0:
-            print(' Missing columns = None')
-        else:
-            print(' Missing columns = %s' %left_subtract(list(train),flat_list))
-    return sum_all_cols
 #################################################################################
 def lenopenreadlines(filename):
     with open(filename) as f:
@@ -518,42 +288,6 @@ def find_remove_duplicates(values):
             seen.add(value)
     return output
 #################################################################################
-from collections import defaultdict
-from collections import OrderedDict
-import time
-def return_dictionary_list(lst_of_tuples):
-    """ Returns a dictionary of lists if you send in a list of Tuples"""
-    orDict = defaultdict(list)
-    # iterating over list of tuples
-    for key, val in lst_of_tuples:
-        orDict[key].append(val)
-    return orDict
-##################################################################################
-import copy
-def EDA_find_remove_columns_with_infinity(df, remove=False):
-    """
-    This function finds all columns in a dataframe that have inifinite values (np.inf or -np.inf)
-    It returns a list of column names. If the list is empty, it means no columns were found.
-    If remove flag is set, then it returns a smaller dataframe with inf columns removed.
-    """
-    nums = df.select_dtypes(include='number').columns.tolist()
-    dfx = df[nums]
-    sum_rows = np.isinf(dfx).values.sum()
-    add_cols =  list(dfx.columns.to_series()[np.isinf(dfx).any()])
-    if sum_rows > 0:
-        print('    there are %d rows and %d columns with infinity in them...' %(sum_rows,len(add_cols)))
-        if remove:
-            ### here you need to use df since the whole dataset is involved ###
-            nocols = [x for x in df.columns if x not in add_cols]
-            print("    Shape of dataset before %s and after %s removing columns with infinity" %(df.shape,(df[nocols].shape,)))
-            return df[nocols]
-        else:
-            ## this will be a list of columns with infinity ####
-            return add_cols
-    else:
-        ## this will be an empty list if there are no columns with infinity
-        return add_cols
-####################################################################################
 import copy
 def FE_drop_rows_with_infinity(df, cols_list, fill_value=None):
     """
@@ -599,197 +333,6 @@ def FE_drop_rows_with_infinity(df, cols_list, fill_value=None):
         print('    There are no more columns with infinite values')
     return df
 ##################################################################################
-def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
-                                corr_limit = 0.70,verbose=0, dask_xgboost_flag=True):
-    """
-    FE stands for Feature Engineering - it means this function performs feature engineering
-    ###########################################################################################
-    #####              SULOV stands for Searching Uncorrelated List Of Variables  #############
-    This highly efficient method removes variables that are highly correlated using a series of
-    pair-wise correlation knockout rounds. It is extremely fast and hence can work on thousands
-    of variables in less than a minute, even on a laptop. You need to send in a list of numeric
-    variables and that's all! The method defines high Correlation as anything over 0.70 (absolute)
-    but this can be changed. If two variables have absolute correlation higher than this, they
-    will be marked, and using a process of elimination, one of them will get knocked out:
-    To decide order of variables to keep, we use mutuail information score to select. MIS returns
-    a ranked list of these correlated variables: when we select one, we knock out others
-    that it is correlated to. Then we select next var. This way we knock out correlated variables.
-    Finally we are left with uncorrelated variables that are also highly important in mutual score.
-    ########  YOU MUST INCLUDE THE ABOVE MESSAGE IF YOU COPY THIS CODE IN YOUR LIBRARY ##########
-    """
-    df = copy.deepcopy(df)
-    df_target = df[target]
-    df = df[numvars]
-    ### for some reason, doing a mass fillna of vars doesn't work! Hence doing it individually!
-    null_vars = np.array(numvars)[df.isnull().sum()>0]
-    for each_num in null_vars:
-        df[each_num] = df[each_num].fillna(0)
-    target = copy.deepcopy(target)
-
-    print('#######################################################################################')
-    print('#####  Searching for Uncorrelated List Of Variables (SULOV) in %s features ############' %len(numvars))
-    print('#######################################################################################')
-    ### This is a shorter version of getting unduplicated and highly correlated vars ##
-    correlation_dataframe = df.corr().abs().unstack().sort_values().drop_duplicates()
-    corrdf = pd.DataFrame(correlation_dataframe[:].reset_index())
-    corrdf.columns = ['var1','var2','coeff']
-    corrdf1 = corrdf[corrdf['coeff']>=corr_limit]
-    correlated_pair = list(zip(corrdf1['var1'].values.tolist(),corrdf1['var2'].values.tolist()))
-    corr_pair_dict = dict(return_dictionary_list(correlated_pair))
-    corr_list = find_remove_duplicates(corrdf1['var1'].values.tolist()+corrdf1['var2'].values.tolist())
-    keys_in_dict = list(corr_pair_dict.keys())
-    reverse_correlated_pair = [(y,x) for (x,y) in correlated_pair]
-    reverse_corr_pair_dict = dict(return_dictionary_list(reverse_correlated_pair))
-    #### corr_pair_dict is used later to make the network diagram to see which vars are correlated to which
-    for key, val in reverse_corr_pair_dict.items():
-        if key in keys_in_dict:
-            if len(key) > 1:
-                corr_pair_dict[key] += val
-        else:
-            corr_pair_dict[key] = val
-
-    ###### This is for ordering the variables in the highest to lowest importance to target ###
-    if len(corr_list) == 0:
-        final_list = list(correlation_dataframe)
-        print('Selecting all (%d) variables since none of numeric vars are highly correlated...' %len(numvars))
-        return numvars
-    else:
-        if isinstance(target, list):
-            target = target[0]
-        max_feats = len(corr_list)
-        if modeltype == 'Regression':
-            sel_function = mutual_info_regression
-            fs = SelectKBest(score_func=sel_function, k=max_feats)
-        else:
-            sel_function = mutual_info_classif
-            fs = SelectKBest(score_func=sel_function, k=max_feats)
-        ##### you must ensure there are no infinite nor null values in corr_list df ##
-        df_fit = df[corr_list]
-        ### Now check if there are any NaN values in the dataset #####
-        
-        if df_fit.isnull().sum().sum() > 0:
-            df_fit = df_fit.dropna()
-        else:
-            print('    there are no null values in dataset...')
-        ##### Reduce memory usage and find mutual information score ####       
-        #try:
-        #    df_fit = reduce_mem_usage(df_fit)
-        #except:
-        #    print('Reduce memory erroring. Continuing...')
-        ##### Ready to perform fit and find mutual information score ####
-        
-        try:
-            fs.fit(df_fit, df_target)
-        except:
-            print('    SelectKBest() function is erroring. Returning with all %s variables...' %len(numvars))
-            return numvars
-        ##########################################################################
-        try:
-            
-            mutual_info = dict(zip(corr_list,fs.scores_))
-            #### The first variable in list has the highest correlation to the target variable ###
-            sorted_by_mutual_info =[key for (key,val) in sorted(mutual_info.items(), key=lambda kv: kv[1],reverse=True)]
-            #####   Now we select the final list of correlated variables ###########
-            selected_corr_list = []
-            #### You have to make multiple copies of this sorted list since it is iterated many times ####
-            orig_sorted = copy.deepcopy(sorted_by_mutual_info)
-            copy_sorted = copy.deepcopy(sorted_by_mutual_info)
-            copy_pair = copy.deepcopy(corr_pair_dict)
-            #### select each variable by the highest mutual info and see what vars are correlated to it
-            for each_corr_name in copy_sorted:
-                ### add the selected var to the selected_corr_list
-                selected_corr_list.append(each_corr_name)
-                for each_remove in copy_pair[each_corr_name]:
-                    #### Now remove each variable that is highly correlated to the selected variable
-                    if each_remove in copy_sorted:
-                        copy_sorted.remove(each_remove)
-            ##### Now we combine the uncorrelated list to the selected correlated list above
-            rem_col_list = left_subtract(numvars,corr_list)
-            final_list = rem_col_list + selected_corr_list
-            removed_cols = left_subtract(numvars, final_list)
-        except:
-            print('    SULOV Method crashing due to memory error, trying alternative simpler method...')
-            #### Dropping highly correlated Features fast using simple linear correlation ###
-            removed_cols = remove_highly_correlated_vars_fast(df,corr_limit)
-            final_list = left_subtract(numvars, removed_cols)
-        if len(removed_cols) > 0:
-            print('    Removing (%d) highly correlated variables:' %(len(removed_cols)))
-            if len(removed_cols) <= 30:
-                print('    %s' %removed_cols)
-            if len(final_list) <= 30:
-                print('    Following (%d) vars selected: %s' %(len(final_list),final_list))
-        ##############    D R A W   C O R R E L A T I O N   N E T W O R K ##################
-        selected = copy.deepcopy(final_list)
-        try:
-            import networkx as nx
-        except:
-            print('    Python networkx library not installed. Install it for feature selection visualization.')
-            return
-        #### Now start building the graph ###################
-        gf = nx.Graph()
-        ### the mutual info score gives the size of the bubble ###
-        multiplier = 2100
-        for each in orig_sorted:
-            gf.add_node(each, size=int(max(1,mutual_info[each]*multiplier)))
-        ######### This is where you calculate the size of each node to draw
-        sizes = [mutual_info[x]*multiplier for x in list(gf.nodes())]
-        ####  The sizes of the bubbles for each node is determined by its mutual information score value
-        corr = df_fit.corr()
-        high_corr = corr[abs(corr)>corr_limit]
-        ## high_corr is the dataframe of a few variables that are highly correlated to each other
-        combos = combinations(corr_list,2)
-        ### this gives the strength of correlation between 2 nodes ##
-        multiplier = 20
-        for (var1, var2) in combos:
-            if np.isnan(high_corr.loc[var1,var2]):
-                pass
-            else:
-                gf.add_edge(var1, var2,weight=multiplier*high_corr.loc[var1,var2])
-        ######## Now start building the networkx graph ##########################
-        widths = nx.get_edge_attributes(gf, 'weight')
-        nodelist = gf.nodes()
-        cols = 5
-        height_size = 5
-        width_size = 15
-        rows = int(len(corr_list)/cols)
-        if rows < 1:
-            rows = 1
-        plt.figure(figsize=(width_size,min(20,height_size*rows)))
-        pos = nx.shell_layout(gf)
-        nx.draw_networkx_nodes(gf,pos,
-                               nodelist=nodelist,
-                               node_size=sizes,
-                               node_color='blue',
-                               alpha=0.5)
-        nx.draw_networkx_edges(gf,pos,
-                               edgelist = widths.keys(),
-                               width=list(widths.values()),
-                               edge_color='lightblue',
-                               alpha=0.6)
-        pos_higher = {}
-        x_off = 0.04  # offset on the x axis
-        y_off = 0.04  # offset on the y axis
-        for k, v in pos.items():
-            pos_higher[k] = (v[0]+x_off, v[1]+y_off)
-        if len(selected) == 0:
-            nx.draw_networkx_labels(gf, pos=pos_higher,
-                                labels=dict(zip(nodelist,nodelist)),
-                                font_color='black')
-        else:
-            nx.draw_networkx_labels(gf, pos=pos_higher,
-                                labels = dict(zip(nodelist,[x+' (selected)' if x in selected else x+' (removed)' for x in nodelist])),
-                                font_color='black')
-        plt.box(True)
-        plt.title("""In SULOV, we repeatedly remove features with lower mutual info scores among highly correlated pairs (see figure),
-                    SULOV selects the feature with higher mutual info score related to target when choosing between a pair. """, fontsize=10)
-        plt.suptitle('How SULOV Method Works by Removing Highly Correlated Features', fontsize=20,y=1.03)
-        red_patch = mpatches.Patch(color='blue', label='Bigger circle denotes higher mutual info score with target')
-        blue_patch = mpatches.Patch(color='lightblue', label='Thicker line denotes higher correlation between two variables')
-        plt.legend(handles=[red_patch, blue_patch],loc='best')
-        plt.show();
-        #####    N E T W O R K     D I A G R A M    C O M P L E T E   #################
-        return final_list
-###############################################################################################
 def count_freq_in_list(lst):
     """
     This counts the frequency of items in a list but MAINTAINS the order of appearance of items.
@@ -1666,7 +1209,13 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 num_rounds = 100
             if i == 0:
                 print('Number of booster rounds = %s' %num_rounds)
-            print('        using %d variables...' %(train_p.shape[1]-i))
+
+            if train_p.shape[1]-i < 2:
+                ### If there is just one variable left, then just skip it #####
+                continue
+            else:
+                print('        using %d variables...' %(train_p.shape[1]-i))
+            
             #########   This is where we check target type ##########
             if not y_train.dtypes[0] in [np.float16, np.float32, np.float64, np.int8,np.int16,np.int32,np.int64]:
                 y_train = y_train.astype(int) 
@@ -1795,7 +1344,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         important_features = copy.deepcopy(preds)
     ######    E    N     D      O  F      X  G  B  O  O  S  T    S E L E C T I O N ####################
     print('            Total time taken for XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
-    print('No ID variables %s are selected since they are not considered important for modeling' %idcols)
+    if len(idcols) > 0:
+        print('    Alert: No ID variables %s are included in selected features' %idcols)
     print("#######################################################################################")
     print("#####          F E A T U R E   S E L E C T I O N   C O M P L E T E D            #######")
     print("#######################################################################################")
@@ -1805,7 +1355,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         print('Selected %d important features. Too many to print...' %len(important_features))
     numvars = [x for x in numvars if x in important_features]
     important_cats = [x for x in important_cats if x in important_features]
-    print('\n    Time taken = %0.0f seconds' %(time.time()-start_time))
+    print('\n    Time taken for feature selection = %0.0f seconds' %(time.time()-start_time))
     #### Now change the feature names back to original feature names ################
     item_replacer = col_name_mapper.get  # For faster gets.
     if isinstance(test_data, str) or test_data is None:
@@ -1816,7 +1366,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         except:
             important_features2 = copy.deepcopy(important_features)
             print('    Could not revert column names to original. Try replacing them manually.')
-        print(f'Returning list of {len(important_features)} important features and a dataframe.')
+        #print(f'Returning list of {len(important_features)} important features and a dataframe.')
         if len(date_cols) > 0:
             date_replacer = date_col_mappers.get  # For faster gets.
             important_features1 = [date_replacer(n, n) for n in important_features2]
@@ -1915,18 +1465,6 @@ def draw_feature_importances_single_label(bst_models, dask_xgboost_flag=False):
             counter += 1
     plt.show();
 ######################################################################################
-def find_remove_duplicates(list_of_values):
-    """
-    # Removes duplicates from a list to return unique values - USED ONLY ONCE
-    """
-    output = []
-    seen = set()
-    for value in list_of_values:
-        if value not in seen:
-            output.append(value)
-            seen.add(value)
-    return output
-################################################################################
 def reduce_mem_usage(df):
     """
     #####################################################################
@@ -3604,4 +3142,19 @@ def dask_xgboost_training(X_trainx, y_trainx, params):
     dask_client.close()
     print("    training completed...")
     return bst
+####################################################################################
+def FE_remove_commas_in_numerics(train, nums=[]):
+    """ 
+    This function removes commas in numeric columns and returns the columns transformed.
+    You can send in a dataframe with one column name as a string or a list of columns.
+    Returns a single array if only one column is sent.
+    Returns the entire dataframe if a list of columns is sent. This includes all columns.
+    """
+    train = copy.deepcopy(train)
+    if isinstance(nums, str):
+        return train[each_num].map(lambda x: float("".join( x.split(",")))).values
+    else:
+        for each_num in nums:
+            train[each_num] = train[each_num].map(lambda x: float("".join( x.split(",")))).values
+    return train
 ####################################################################################
