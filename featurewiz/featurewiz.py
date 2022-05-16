@@ -400,7 +400,8 @@ def FE_convert_all_object_columns_to_numeric(train, test="", features=[]):
                 new_missing_col = each_col + '_Missing_Flag'
                 train[new_missing_col] = 0
                 train.loc[train[each_col].isnull(),new_missing_col]=1
-                train[each_col] = train[each_col].fillna(-9999)
+                ### Remember that fillna only works at dataframe level! ###
+                train[[each_col]] = train[[each_col]].fillna(-9999)
                 if not train[each_col].dtype in [np.float64,np.float32,np.float16]:
                     train[each_col] = train[each_col].astype(int)
                 if not isinstance(test, str):
@@ -1653,7 +1654,8 @@ def FE_split_one_field_into_many(df_in, field, splitter, filler, new_names_list=
     df_field = df_in[field].values
     df = copy.deepcopy(df_in)
     ### First copy  whatever is in that field so we can save it for later ###
-    df[field] = df[field].fillna(filler)
+    ### Remember that fillna only works at dataframe level! ###
+    df[[field]] = df[[field]].fillna(filler)
     if add_count_field:
         ### there will be one extra field created when we count the number of contents in each field ###
         max_things = df[field].map(lambda x: len(x.split(splitter))).max() + 1
@@ -1801,31 +1803,36 @@ def _create_ts_features(df, tscol):
         name_col = tscol+"_is_festive"
         df[name_col] = 0
         df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in festives else 0).values
-        df[name_col] = df[name_col].fillna(0)
+        ### Remember that fillna only works at dataframe level! ###
+        df[[name_col]] = df[[name_col]].fillna(0)
         dt_adds.append(name_col)
         summer = ['Jun','Jul','Aug']
         name_col = tscol+"_is_summer"
         df[name_col] = 0
         df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in summer else 0).values
-        df[name_col] = df[name_col].fillna(0)
+        ### Remember that fillna only works at dataframe level! ###
+        df[[name_col]] = df[name_col].fillna(0)
         dt_adds.append(name_col)
         winter = ['Dec','Jan','Feb']
         name_col = tscol+"_is_winter"
         df[name_col] = 0
         df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in winter else 0).values
-        df[name_col] = df[name_col].fillna(0)
+        ### Remember that fillna only works at dataframe level! ###
+        df[[name_col]] = df[[name_col]].fillna(0)
         dt_adds.append(name_col)
         cold = ['Oct','Nov','Dec','Jan','Feb','Mar']
         name_col = tscol+"_is_cold"
         df[name_col] = 0
         df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in cold else 0).values
-        df[name_col] = df[name_col].fillna(0)
+        ### Remember that fillna only works at dataframe level! ###
+        df[[name_col]] = df[[name_col]].fillna(0)
         dt_adds.append(name_col)
         warm = ['Apr','May','Jun','Jul','Aug','Sep']
         name_col = tscol+"_is_warm"
         df[name_col] = 0
         df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in warm else 0).values
-        df[name_col] = df[name_col].fillna(0)
+        ### Remember that fillna only works at dataframe level! ###
+        df[[name_col]] = df[[name_col]].fillna(0)
         dt_adds.append(name_col)
         #########################################################################
         if tscol+'_dayofweek' in dt_adds:
@@ -1900,10 +1907,12 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
             new_missing_col = ts_column + '_Missing_Flag'
             dtf[new_missing_col] = 0
             dtf.loc[dtf[ts_column].isnull(),new_missing_col]=1
-            dtf[ts_column] = dtf[ts_column].fillna(method='ffill')
+            ### Remember that fillna only works at dataframe level! ###
+            dtf[[ts_column]] = dtf[[ts_column]].fillna(method='ffill')
             print('        adding %s column due to missing values in data' %new_missing_col)
             if dtf[dtf[ts_column].isnull()].shape[0] > 0:
-                dtf[ts_column] = dtf[ts_column].fillna(method='bfill')
+                ### Remember that fillna only works at dataframe level! ###
+                dtf[[ts_column]] = dtf[[ts_column]].fillna(method='bfill')
 
         if dtf[ts_column].dtype == float:
             dtf[ts_column] = dtf[ts_column].astype(int)
@@ -2208,7 +2217,7 @@ def EDA_classify_and_return_cols_by_type(df1):
     nlpcols = []
     for each_cat in cats:
         try:
-            if df1[each_cat].fillna('missing').map(len).mean() >= 40:
+            if df1[[each_cat]].fillna('missing').map(len).mean() >= 40:
                 nlpcols.append(each_cat)
                 catcols.remove(each_cat)
         except:
@@ -3021,7 +3030,8 @@ def FE_split_list_into_columns(df, col, cols_in=[]):
         df = df.drop(col,axis=1)
     else:
         if len(df[col].map(type).value_counts())==1 and df[col].map(type).value_counts().index[0]==list:
-            max_col_length = df[col].fillna('missing').map(len).max()
+            ### Remember that fillna only works at dataframe level! ###
+            max_col_length = df[[col]].fillna('missing').map(len).max()
             cols = [col+'_'+str(i) for i in range(max_col_length)]
             df[cols] = df[col].apply(pd.Series)
             df = df.drop(col,axis=1)

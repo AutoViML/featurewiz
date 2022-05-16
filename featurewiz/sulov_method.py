@@ -28,6 +28,14 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 from collections import OrderedDict
 import time
+#################################################################################
+def left_subtract(l1,l2):
+    lst = []
+    for i in l1:
+        if i not in l2:
+            lst.append(i)
+    return lst
+#################################################################################
 def return_dictionary_list(lst_of_tuples):
     """ Returns a dictionary of lists if you send in a list of Tuples"""
     orDict = defaultdict(list)

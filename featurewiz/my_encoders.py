@@ -21,7 +21,14 @@ from category_encoders.glmm import GLMMEncoder
 from sklearn.preprocessing import LabelEncoder
 from category_encoders.wrapper import PolynomialWrapper
 from sklearn.preprocessing import FunctionTransformer
-
+#################################################################################
+def left_subtract(l1,l2):
+    lst = []
+    for i in l1:
+        if i not in l2:
+            lst.append(i)
+    return lst
+#################################################################################
 class My_LabelEncoder(BaseEstimator, TransformerMixin):
     """
     ################################################################################################
@@ -104,7 +111,7 @@ class My_LabelEncoder(BaseEstimator, TransformerMixin):
         outs = testx.map(self.transformer).values.astype(int)
         ### To handle category dtype you must do the next step #####
         testk = testx.map(self.transformer) ## this must be still a pd.Series
-        if testx.dtype not in [np.int16, np.int32, np.int64, float, bool, object]:
+        if testx.dtype not in [np.int16, np.int32, np.int64,np.int8, float, bool, object]:
             if testx.isnull().sum().sum() > 0:
                 fillval = self.transformer[np.nan]
                 testk = testk.cat.add_categories([fillval])
@@ -178,7 +185,7 @@ class Rare_Class_Combiner_Pipe(BaseEstimator, TransformerMixin ):
         else:
             X = X.map(self.transformers[each_catvar])
             ### simply fill in the missing values with the word "missing" ##
-            X = X.fillna('missing',inplace=False)
+            X = X.fillna('missing')
         return X
 
     def fit_transform(self, X, y=None, **fit_params):
@@ -190,7 +197,7 @@ class Rare_Class_Combiner_Pipe(BaseEstimator, TransformerMixin ):
         else:
             X = X.map(self.transformers[each_catvar])
             ### simply fill in the missing values with the word "missing" ##
-            X = X.fillna('missing',inplace=False)
+            X = X.fillna('missing')
         return X
 
     def inverse_transform(self, X, **fit_params):
@@ -270,7 +277,8 @@ class Rare_Class_Combiner(BaseEstimator, TransformerMixin):
             else:
                 X[each_catvar] = X[each_catvar].map(self.transformers[each_catvar]).values
                 ### simply fill in the missing values with the word "missing" ##
-                X[each_catvar].fillna('missing',inplace=True)
+                ### Remember that fillna only works at dataframe level! ##
+                X[[each_catvar]] = X[[each_catvar]].fillna('missing')
         return X, y
 
     def fit_transform(self, X, y=None, **fit_params):
@@ -282,7 +290,8 @@ class Rare_Class_Combiner(BaseEstimator, TransformerMixin):
             else:
                 X[each_catvar] = X[each_catvar].map(self.transformers[each_catvar]).values
                 ### simply fill in the missing values with the word "missing" ##
-                X[each_catvar].fillna('missing',inplace=True)
+                ### Remember that fillna only works at dataframe level! ##
+                X[[each_catvar]] = X[[each_catvar]].fillna('missing')
         return X, y
 
     def inverse_transform(self, X, **fit_params):
@@ -543,7 +552,8 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
                 ### now combine the aggregated variables with given dataset ###
                 dft_full = self.transformers[each_catvar]
                 ### simply fill in the missing values with the word "missing" ##
-                dft_full.fillna(0,inplace=True)
+                ### Remember that fillna only works at the dataframe level!
+                dft_full = dft_full.fillna(0)
                 try:
                     X = pd.merge(X, dft_full, on=each_catvar, how='left')
                 except:
@@ -565,7 +575,8 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
                 ### now combine the aggregated variables with given dataset ###
                 dft_full = self.transformers[each_catvar]
                 ### simply fill in the missing values with the word "missing" ##
-                dft_full.fillna(0,inplace=True)
+                ### Remember that fillna only works at the dataframe level!
+                dft_full = dft_full.fillna(0)
                 X = pd.merge(X, dft_full, on=each_catvar, how='left')
         ### once all columns have been transferred return the dataframe ##
         return X
