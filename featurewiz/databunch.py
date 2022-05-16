@@ -249,7 +249,7 @@ class DataBunch(object):
         return (cat_features)
 
 
-    def gen_cat_encodet_features(self, data, cat_encoder_name, fited=False):
+    def gen_cat_encodet_features(self, data, cat_encoder_name, fitted=False):
         """
         Description of _encode_features:
             Encode car features
