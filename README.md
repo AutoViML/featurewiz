@@ -26,14 +26,14 @@ features.features  ### provides the list of selected features ###
 
 <li><b>Featurewiz is now upgraded with XGBOOST 1.5.1 for DASK for blazing fast performance</b> even for very large data sets! Set `dask_xgboost_flag = True` to run dask + xgboost.
 <li><b>Featurewiz now runs with a default setting of `nrows=None`.</b> This means it will run using all rows. But if you want it to run faster, then you can change `nrows` to 1000 or whatever, so it will sample that many rows and run.
-<li><b>Featurewiz has four (4) new fast model builder functions:</b> that you can use to build highly performant models with the features selected by featurewiz. They are:<br>
-1. `simple_LightGBM_model()` - simple regression and classification with one target label<br>
-2. `simple_XGBoost_model()` - simple regression and classification with one target label<br>
-3. `complex_LightGBM_model()` - more complex multi-label and multi-class models<br>
-4. `complex_XGBoost_model()` - more complex multi-label and multi-class models<br>
-5. `Stacking_Classifier()`: Stacking model that can handle multi-label, multi-class problems<br>
-6. `Stacking_Regressor()`: Stacking model that can handle multi-label, regression problems<br>
-7. `Blending_Regressor()`: Blending model that can handle multi-label, regression problems<br>
+<li><b>Featurewiz has lots of new fast model builder functions:</b> that you can use to build highly performant models with the features selected by featurewiz. They are:<br>
+1. <b>simple_LightGBM_model()</b> - simple regression and classification with one target label<br>
+2. <b>simple_XGBoost_model()</b> - simple regression and classification with one target label<br>
+3. <b>complex_LightGBM_model()</b> - more complex multi-label and multi-class models<br>
+4. <b>complex_XGBoost_model()</b> - more complex multi-label and multi-class models<br>
+5. <b>Stacking_Classifier()</b>: Stacking model that can handle multi-label, multi-class problems<br>
+6. <b>Stacking_Regressor()</b>: Stacking model that can handle multi-label, regression problems<br>
+7. <b>Blending_Regressor()</b>: Blending model that can handle multi-label, regression problems<br>
 </ol>
 
 ### One word of CAUTION while installing featurewiz in Kaggle and other environments:

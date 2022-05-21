@@ -26,6 +26,9 @@ from sklearn.linear_model import Lasso, LassoCV, Ridge, RidgeCV, LassoLarsCV
 from sklearn.ensemble import ExtraTreesClassifier,ExtraTreesRegressor
 from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoostingClassifier
 from sklearn.multioutput import ClassifierChain, RegressorChain
+from xgboost import XGBClassifier, XGBRegressor
+from lightgbm import LGBMClassifier, LGBMRegressor
+from sklearn.naive_bayes import MultinomialNB, GaussianNB
 
 from sklearn.model_selection import train_test_split
 import pathlib
@@ -172,6 +175,7 @@ class Stacking_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
         
     def fit(self, X, y):
         """Fit all the models on the given dataset"""
+
         import lightgbm as lgb
         models_dict = stacking_models_list(X_train=X, y_train=y, modeltype='Regression', verbose=1)
         self.base_models = list(models_dict.values())
@@ -199,6 +203,7 @@ class Stacking_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
         out_of_fold_predictions = np.zeros((X.shape[0], self.target_len*len(self.base_models)))
         for i, model in enumerate(self.base_models):
             print('  %s model training and prediction...' %str(model).split("(")[0])
+            
             start_time = time.time()
             for train_index, holdout_index in kfold.split(X, y):
                 instance = clone(model)
@@ -397,29 +402,20 @@ def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
                 print('List of models chosen for stacking: %s' %estimators_list)
                 return dict(estimators_list)
         ######    Bagging models if Bagging is chosen ####
-        if y_train.shape[0] <= 10000:
-            model3 = KNeighborsRegressor(n_jobs=-1)
-            estimators.append(('KNN',model3))
-        else:
-            model3 = LinearRegression(n_jobs=-1)
-            estimators.append(('Linear Model',model3))
+        model3 = LinearRegression(n_jobs=-1)
+        estimators.append(('Linear Model',model3))
         ####   Tree models if Linear chosen #####
         model5 = DecisionTreeRegressor(random_state=seed,min_samples_leaf=2)
         estimators.append(('Decision Trees',model5))
         ####   Linear Models if Boosting is chosen #####
-        if y_train.shape[0] <= 10000:
-            model6 = Lasso(alpha=0.01, random_state=seed)
-            estimators.append(('Lasso',model6))
-        else:
-            #model6 = ExtraTreesRegressor(n_estimators=50, random_state=seed)
-            #estimators.append(('Extra Trees Regressor',model6))
-            model6 = HistGradientBoostingRegressor(random_state=seed)
-            estimators.append(('Histogram Gradient Regressor',model6))
+        model6 = HistGradientBoostingRegressor(random_state=seed)
+        estimators.append(('Histogram Gradient Regressor',model6))
 
         #model7 = RandomForestRegressor(n_estimators=50,random_state=seed, n_jobs=-1)
         model7 = Ridge(alpha=0.5)
         estimators.append(('Ridge',model7))
     else:
+        ### This is for classification problems ########
         if y_train.ndim >= 2:
             if y_train.shape[1] > 1:
                 stump = lgb.LGBMClassifier(n_estimators=50, random_state=99)
@@ -429,44 +425,26 @@ def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
                 estimator_names = [tuples[0] for tuples in estimators]
                 print('List of models chosen for stacking: %s' %estimators_list)
                 return dict(estimators_list)
+        ### Leave this as it is - don't change it #######
         n_classes = len(Counter(y_train))
         if n_classes > 2:
             model3 = LogisticRegression(max_iter=5000, multi_class='ovr')
-            estimators.append(('Logistic Regression',model3))
         else:
-            if y_train.shape[0] <= 10000:
-                model3 = KNeighborsClassifier(n_jobs=-1)
-                estimators.append(('KNN',model3))
-            else:
-                #model3 = ExtraTreesClassifier(n_estimators=50, random_state=99)
-                #estimators.append(('Extra Trees Classifier',model3))
-                model3 = HistGradientBoostingClassifier(random_state=99)
-                estimators.append(('Histogram Gradient Regressor', model3))
+            model3 = LogisticRegression(max_iter=5000)
+        estimators.append(('Logistic Regression', model3))
         ####   Linear Models if Boosting is chosen #####
-        if n_classes > 2:
-            model4 = RandomForestClassifier(n_estimators=50, random_state=99, n_jobs=-1)
-            estimators.append(('Random Forest Classifier',model4))
-        else:
-            model4 = LinearDiscriminantAnalysis()
-            estimators.append(('Linear Discriminant',model4))
-        
-        ####   Tree models if Linear chosen #####
-        model6 = AdaBoostClassifier(base_estimator=DecisionTreeClassifier(max_depth=3), n_estimators=50)
-        estimators.append(('Adaboost Classifier',model6))
-        
+        model4 = LinearDiscriminantAnalysis()
+        estimators.append(('Linear Discriminant',model4))
+
+        model5 = LGBMClassifier()
+        estimators.append(('LightGBM',model5))
+
         ######    Naive Bayes models if Bagging is chosen ####
-        if n_classes <= 2:
-            try:
-                model7 = GaussianNB()
-            except:
-                model7 = DecisionTreeClassifier(min_samples_leaf=2)
-        else:
-            try:
-                model7 = MultinomialNB()
-            except:
-                model7 = DecisionTreeClassifier(min_samples_leaf=2)
-        estimators.append(('Naive Bayes',model7))
-        
+        model7 = DecisionTreeClassifier(min_samples_leaf=2)
+        estimators.append(('Decision Tree',model7))
+    
+    #### Create a new list here ####################
+
     estimators_list = [(tuples[0],tuples[1]) for tuples in estimators]
     estimator_names = [tuples[0] for tuples in estimators]
     print('List of models chosen for stacking: %s' %estimators_list)

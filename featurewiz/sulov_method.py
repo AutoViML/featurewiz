@@ -91,6 +91,8 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
     corrdf = pd.DataFrame(correlation_dataframe[:].reset_index())
     corrdf.columns = ['var1','var2','coeff']
     corrdf1 = corrdf[corrdf['coeff']>=corr_limit]
+    ### Make sure that the same var is not correlated to itself! ###
+    corrdf1 = corrdf1[corrdf1['var1'] != corrdf1['var2']]
     correlated_pair = list(zip(corrdf1['var1'].values.tolist(),corrdf1['var2'].values.tolist()))
     corr_pair_dict = dict(return_dictionary_list(correlated_pair))
     corr_list = find_remove_duplicates(corrdf1['var1'].values.tolist()+corrdf1['var2'].values.tolist())
@@ -104,7 +106,7 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
                 corr_pair_dict[key] += val
         else:
             corr_pair_dict[key] = val
-
+    
     ###### This is for ordering the variables in the highest to lowest importance to target ###
     if len(corr_list) == 0:
         final_list = list(correlation_dataframe)

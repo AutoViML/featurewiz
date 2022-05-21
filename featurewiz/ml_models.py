@@ -179,8 +179,13 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
                          multi_label, log_y, model=""):
     start_time = time.time()
     if multi_label:
-        rand_params = {
-                }
+        ######   This is for Multi_Label problems ############
+        rand_params = {'estimator__learning_rate':[0.1, 0.5, 0.01, 0.05],
+          'estimator__n_estimators':[50, 100, 150, 200, 250],
+          'estimator__gamma':[0, 2, 4, 8, 16, 32],
+          'estimator__max_depth':[3, 5, 8, 12],
+          'estimator__class_weight':[None, 'balanced']
+          }
     else:
         rand_params = {
             'learning_rate': sp.stats.uniform(scale=1),
@@ -273,42 +278,76 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
             lgb = MultiOutputRegressor(lgb)
         else:
             lgb = MultiOutputClassifier(lgb)
-    ########   Now let's perform randomized search to find best hyper parameters ######
-    if random_search_flag:
-        if modeltype == 'Regression':
-            scoring = 'neg_mean_squared_error'
-        else:
-            scoring = 'precision'
-        model = RandomizedSearchCV(lgb,
-                   param_distributions = rand_params,
-                   n_iter = 10,
-                   return_train_score = True,
-                   random_state = 99,
-                   n_jobs=-1,
-                   cv = 3,
-                   refit=True,
-                   scoring = scoring,
-                   verbose = False)
-        ##### This is where we search for hyper params for model #######
-        if multi_label:
+        if random_search_flag:
+            if modeltype == 'Regression':
+                scoring = 'neg_mean_squared_error'
+            else:
+                scoring = 'precision'
+            model = RandomizedSearchCV(lgb,
+                       param_distributions = rand_params,
+                       n_iter = 15,
+                       return_train_score = True,
+                       random_state = 99,
+                       n_jobs=-1,
+                       cv = 3,
+                       refit=True,
+                       scoring = scoring,
+                       verbose = False)        
             model.fit(x_train, y_train)
+            print('Time taken for Hyper Param tuning of multi_label LightGBM (in minutes) = %0.1f' %(
+                                            (time.time()-start_time)/60))
+            cv_results = pd.DataFrame(model.cv_results_)
+            if modeltype == 'Regression':
+                print('Mean cross-validated train %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_train_score'].mean()))))
+                print('Mean cross-validated test %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_test_score'].mean()))))
+            else:
+                print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_train_score'].mean()))
+                print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
+            ### In this case, there is no boost rounds so just return the default num_boost_round
+            return model.best_estimator_
         else:
-            model.fit(x_train, y_train, **early_stopping_params)
-        print('Time taken for Hyper Param tuning of LGBM (in minutes) = %0.1f' %(
-                                        (time.time()-start_time)/60))
-        cv_results = pd.DataFrame(model.cv_results_)
-        if modeltype == 'Regression':
-            print('Mean cross-validated train %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_train_score'].mean()))))
-            print('Mean cross-validated test %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_test_score'].mean()))))
-        else:
-            print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_train_score'].mean()))
-            print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
+            try:
+                model.fit(x_train, y_train)
+            except:
+                print('Multi_label LightGBM model is crashing during training. Please check your inputs and try again...')
+            return model
     else:
-        try:
-            model.fit(x_train, y_train,  verbose=-1)
-        except:
-            print('lightgbm model is crashing. Please check your inputs and try again...')
-    return model
+        ########   Single Label problems ############
+        if random_search_flag:
+            if modeltype == 'Regression':
+                scoring = 'neg_mean_squared_error'
+            else:
+                scoring = 'precision'
+            model = RandomizedSearchCV(lgb,
+                       param_distributions = rand_params,
+                       n_iter = 10,
+                       return_train_score = True,
+                       random_state = 99,
+                       n_jobs=-1,
+                       cv = 3,
+                       refit=True,
+                       scoring = scoring,
+                       verbose = False)
+            ##### This is where we search for hyper params for model #######
+            if multi_label:
+                model.fit(x_train, y_train)
+            else:
+                model.fit(x_train, y_train, **early_stopping_params)
+            print('Time taken for Hyper Param tuning of LGBM (in minutes) = %0.1f' %(
+                                            (time.time()-start_time)/60))
+            cv_results = pd.DataFrame(model.cv_results_)
+            if modeltype == 'Regression':
+                print('Mean cross-validated train %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_train_score'].mean()))))
+                print('Mean cross-validated test %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_test_score'].mean()))))
+            else:
+                print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_train_score'].mean()))
+                print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
+        else:
+            try:
+                model.fit(x_train, y_train,  verbose=-1)
+            except:
+                print('lightgbm model is crashing. Please check your inputs and try again...')
+        return model
 ##############################################################################################
 import os
 def check_if_GPU_exists():
@@ -578,7 +617,7 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
           'estimator__n_estimators':[50, 100, 150, 200, 250],
           'estimator__gamma':[0, 2, 4, 8, 16, 32],
           'estimator__max_depth':[3, 5, 8, 12],
-          'class_weight':[None, 'balanced']
+          'estimator__class_weight':[None, 'balanced']
           }
         if random_search_flag:
             if modeltype == 'Regression':
@@ -1249,9 +1288,8 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
 
     random_search_flag =  True
     ######  Time to hyper-param tune model using randomizedsearchcv #########
-    gbm_model = lightgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
+    model = lightgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
                          multi_label, log_y, model="")
-    model = gbm_model.best_estimator_
 
     #### First convert test data into numeric using train data ###
     if not isinstance(X_XGB_test, str):
