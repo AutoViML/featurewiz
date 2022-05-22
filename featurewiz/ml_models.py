@@ -542,7 +542,11 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     else:
         if not isinstance(X_XGB_test, str):
             print('    final predictions (may need to be transformed to original labels)', pred_xgbs[:10])
-            print('    predicted probabilities', pred_probas[:1])
+            if isinstance(pred_probas, list):
+                print('    predicted probabilities shape = [(%s, %s)...]' 
+                    %(pred_probas[0].shape[0],pred_probas[0].shape[1]))
+            else:
+                print('    predicted probabilities', pred_probas[:4])
         return (pred_xgbs, pred_probas, model)
 ##############################################################################################
 import xgboost as xgb
@@ -1170,7 +1174,11 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     else:
         if not isinstance(X_XGB_test, str):
             print('    final predictions (may need to be transformed to original labels)', pred_xgbs[:10])
-            print('    predicted probabilities', pred_probas[:1])
+            if isinstance(pred_probas, list):
+                print('    predicted probabilities shape = [(%s, %s)...]' 
+                    %(pred_probas[0].shape[0],pred_probas[0].shape[1]))
+            else:
+                print('    predicted probabilities', pred_probas[:4])
         else:
             print('    no X_test given. Returning empty array.')
         print('    Model = %s' %model)
@@ -1288,9 +1296,9 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
 
     random_search_flag =  True
     ######  Time to hyper-param tune model using randomizedsearchcv #########
-    model = lightgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
+    gbm_model = lightgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
                          multi_label, log_y, model="")
-
+    model = gbm_model.best_estimator_
     #### First convert test data into numeric using train data ###
     if not isinstance(X_XGB_test, str):
         x_train, y_train, x_test, _ = data_transform(X_XGB, Y_XGB, X_XGB_test, "",
@@ -1351,7 +1359,11 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
     else:
         if not isinstance(X_XGB_test, str):
             print('    final predictions (may need to be transformed to original labels)', pred_xgbs[:10])
-            print('    predicted probabilities', pred_probas[:1])
+            if isinstance(pred_probas, list):
+                print('    predicted probabilities shape = [(%s, %s)...]' 
+                    %(pred_probas[0].shape[0],pred_probas[0].shape[1]))
+            else:
+                print('    predicted probabilities', pred_probas[:4])
         return (pred_xgbs, pred_probas, model)
 ##################################################################################
 def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
@@ -1514,7 +1526,7 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
         x_train, y_train, x_test, y_test = data_transform(x_train, y_train, x_test, y_test,
                                 modeltype, multi_label, scaler=scaler, enc_method=enc_method)
 
-        model = gbm_model.best_estimator_
+        
         model = lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modeltype,
                                 multi_label, log_y, model=model)
 
@@ -1590,7 +1602,11 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     else:
         if not isinstance(X_XGB_test, str):
             print('    final predictions (may need to be transformed to original labels)', pred_xgbs[:10])
-            print('    predicted probabilities', pred_probas[:1])
+            if isinstance(pred_probas, list):
+                print('    predicted probabilities shape = [(%s, %s)...]' 
+                    %(pred_probas[0].shape[0],pred_probas[0].shape[1]))
+            else:
+                print('    predicted probabilities', pred_probas[:4])
         else:
             print('    no X_test given. Returning empty array.')
         print('    Model = %s' %model)

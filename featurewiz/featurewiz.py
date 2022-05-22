@@ -1442,33 +1442,59 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         ## In one case, column names get changed in train but not in test since it test is not available.
         try:
             important_features2 = [item_replacer(n, n) for n in important_features]
+            old_target = copy.deepcopy(target)
+            if isinstance(target, str):
+                target = item_replacer(target, target)
+            else:
+                target = [item_replacer(n, n) for n in target]
             print('    Reverted column names to original names given in train dataset')
         except:
             important_features2 = copy.deepcopy(important_features)
             print('    Could not revert column names to original. Try replacing them manually.')
-        #print(f'Returning list of {len(important_features)} important features and a dataframe.')
+        if old_target == target:
+            ## Don't drop the old target since there is only one target here ###
+            pass
+        else:
+            dataname[target] = dataname[old_target]
+            dataname.drop(old_target, axis=1, inplace=True)
         if len(date_cols) > 0:
             date_replacer = date_col_mappers.get  # For faster gets.
             important_features1 = [date_replacer(n, n) for n in important_features2]
             important_features2 = find_remove_duplicates(important_features1)
-        if len(np.intersect1d(train_ids.columns.tolist(),dataname.columns.tolist())) > 0:
+        if len(np.intersect1d(train_ids.columns.tolist(), dataname.columns.tolist())) > 0:
             return important_features2, dataname[important_features+target]
         else:
             dataname = pd.concat([train_ids, dataname], axis=1)
             return important_features2, dataname[important_features+target]
     else:
         print('Returning 2 dataframes: dataname and test_data with %d important features.' %len(important_features))
-        
+        item_replacer = col_name_mapper.get  # For faster gets.
         if len(date_cols) > 0:
             date_replacer = date_col_mappers.get  # For faster gets.
             important_features1 = [date_replacer(n, n) for n in important_features]
-            important_features = find_remove_duplicates(important_features1)
+        else:
+            important_features1 = [item_replacer(n, n) for n in important_features]
+        important_features = find_remove_duplicates(important_features1)
+        old_target = copy.deepcopy(target)
+        if isinstance(target, str):
+            target = item_replacer(target, target)
+        else:
+            target = [item_replacer(n, n) for n in target]
         if feature_gen or feature_type:
             ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
             dataname = pd.concat([train_ids, dataname], axis=1)
             test_data = pd.concat([test_ids, test_data], axis=1)
-        if target in list(test_data): ### see if target exists in this test data
-            return dataname[important_features+target], test_data[important_features+target]
+        if old_target == target:
+            ## Don't drop the old target since there is only one target here ###
+            pass
+        else:
+            dataname[target] = dataname[old_target]
+            dataname.drop(old_target, axis=1, inplace=True)
+        if isinstance(target, str):
+            if target in list(test_data): ### see if target exists in this test data
+                return dataname[important_features+[target]], test_data[important_features+[target]]
+            else:
+                return dataname[important_features+[target]], test_data[important_features]
         else:
             return dataname[important_features+target], test_data[important_features]
 ################################################################################
