@@ -1365,37 +1365,47 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
             else:
                 print('    predicted probabilities', pred_probas[:4])
         return (pred_xgbs, pred_probas, model)
-##################################################################################
-def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
-                                scaler = '', enc_method='label', n_splits=5, verbose=-1):
+#############################################################################################
+import copy
+import time
+from sklearn.model_selection import RepeatedStratifiedKFold, RepeatedKFold
+from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.metrics import roc_auc_score
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy import stats
+from sklearn.model_selection import RandomizedSearchCV
+import scipy as sp
+from sklearn.preprocessing import MinMaxScaler
+import pdb
+def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, 
+        GPU_flag=False, scaler='', enc_method='label', n_splits=5, verbose=-1):
     """
-    Easy to use XGBoost model. Just send in X_train, y_train and what you want to predict, X_test
-    It will automatically split X_train into multiple folds (10) and train and predict each time on X_test.
-    It will then use average (or use mode) to combine the results and give you a y_test.
-    You just need to give the modeltype as "Regression" or 'Classification'
-
-    Inputs:
-    ------------
-    X_train: pandas dataframe only: do not send in numpy arrays. This is the X_train of your dataset.
-    y_train: pandas Series or DataFrame only: do not send in numpy arrays. This is the y_train of your dataset.
-    X_test: pandas dataframe only: do not send in numpy arrays. This is the X_test of your dataset.
-    modeltype: can only be 'Regression' or 'Classification'
-    log_y: default = False: If True, it means use the log of the target variable "y" to train and test.
-    GPU_flag: if your machine has a GPU set this flag and it will use XGBoost GPU to speed up processing.
-    scaler : default is StandardScaler(). But you can send in MinMaxScaler() as input to change it or any other scaler.
-    enc_method: default is 'label' encoding. But you can choose 'glmm' as an alternative. But those are the only two.
-    verbose: default = 0. Choosing 1 will give you lot more output.
-
-    Outputs:
-    ------------
-    y_preds: Predicted values for your X_XGB_test dataframe.
-        It has been averaged after repeatedly predicting on X_XGB_test. So likely to be better than one model.
+    This is a simple lightGBM model that works only on single label problems.
     """
+    from tqdm import tqdm
+    import lightgbm as lgb
+    X_index = X_train.index
+    if isinstance(y_train, np.ndarray):
+        y_train = pd.Series(y_train, index=X_index)
+    num_splits = 5
+    num_repeats = 5
+    if X_train.shape[0] <= 100000:
+        n_estimators = 1000  # LightGBM is fast but mak sure it is small
+        early_stopping_rounds = 100
+    else:
+        n_estimators = 500  # make sure it is small
+        early_stopping_rounds = 10
+    ###### Now you can set these defaults ##
+    verbose = False
+    SEED = 42
     X_XGB = copy.deepcopy(X_train)
     Y_XGB = copy.deepcopy(y_train)
     X_XGB_test = copy.deepcopy(X_test)
-    #######################################
+    ####################################
     start_time = time.time()
+    top_num = 10
+    num_boost_round = 400
     if isinstance(Y_XGB, pd.Series):
         targets = [Y_XGB.name]
     else:
@@ -1406,212 +1416,224 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
             Y_XGB = pd.Series(Y_XGB.values.ravel(),name=targets[0], index=Y_XGB.index)
     else:
         multi_label = True
-        print('Multi_label is not supported in simple_LightGBM_model. Try the complex_LightGBM_model...Returning')
-        return {}
-    ##### Start your analysis of the data ############
-    modeltype, _ = analyze_problem_type(Y_XGB, targets)
-    ### LightGBM #####
-    if modeltype == 'Binary_Classification':
-        print('# LightGBM is not a good choice since XGBoost is better for binary classification problems.')
-    elif modeltype == 'Multi_Classification':
-        print('# LightGBM is a good choice since it is better for multi-class than XGBoost.')
+    modeltype, multi_label = analyze_problem_type(Y_XGB, targets)
+    print('* LightGBM model training started... *')
+    if multi_label:
+        model_label = 'Multi_Label'
+        print('This is a %s problem. You must use complex_LightGBM_model for this dataset.' %model_label)
+        return
     else:
-        print('# LightGBM is a poor choice compared to XGBoost for Regression problems.')
-
+        model_label = 'Single_Label'
     columns =  X_XGB.columns
-    #### In some cases, there are special chars in column names. Remove them. ###
-    if np.array([':' in x for x in columns]).any():
-        sel_preds = columns[np.array([':' in x for x in columns])].tolist()
-        print('removing special char : in %s since LightGBM does not like it...' %sel_preds)
-        columns = ["_".join(x.split(":")) for x in columns]
-        X_XGB.columns = columns
-        if not isinstance(X_XGB_test, str):
-            X_XGB_test.columns = columns
-    ###################################################################################
-    #########     S C A L E R     P R O C E S S I N G      B E G I N S    ############
-    ###################################################################################
-    if isinstance(scaler, str):
-        if not scaler == '':
-            scaler = scaler.lower()
-            if scaler == 'standard':
-                scaler = StandardScaler()
-            elif scaler == 'minmax':
-                scaler = MinMaxScaler()
-            else:
-                scaler = StandardScaler()
+    ##############################################
+    rand_params = {
+    #'learning_rate': sp.stats.uniform(scale=1),
+    #'learning_rate': np.linspace(1e-8,1e-1),
+    #'num_leaves': sp.stats.randint(2, 30),
+   'n_estimators': sp.stats.randint(100,400),
+    #"max_depth": sp.stats.randint(2, 7),
+    #'subsample': sp.stats.uniform(scale=1),
+    #'colsample_bytree': sp.stats.uniform(scale=1),
+    #'class_weight':[None, 'balanced']
+        }
+
+    gpu_exists = check_if_GPU_exists()
+    if modeltype == 'Regression':
+        if gpu_exists:
+            lgbm = lgb.LGBMRegressor(device="gpu")
         else:
-            scaler = StandardScaler()
+            lgbm = lgb.LGBMRegressor()
+        objective = 'regression' 
+        metric = 'rmse'
+        is_unbalance = False
+        class_weight = None
+        score_name = 'Score'
     else:
-        pass
-    ############################################################################
-    #########     G P U     P R O C E S S I N G      B E G I N S    ############
-    ###### This is where we set the CPU and GPU parameters for XGBoost #########
-    if GPU_flag:
-        GPU_exists = check_if_GPU_exists()
-    else:
-        GPU_exists = False
-    #####   Set the Scoring Parameters here based on each model and preferences of user ###
-    cpu_params = {}
-    param = {}
-    cpu_params['tree_method'] = 'hist'
-    cpu_params['gpu_id'] = 0
-    cpu_params['updater'] = 'grow_colmaker'
-    cpu_params['predictor'] = 'cpu_predictor'
-    if GPU_exists:
-        param['tree_method'] = 'gpu_hist'
-        param['gpu_id'] = 0
-        param['updater'] = 'grow_gpu_hist' #'prune'
-        param['predictor'] = 'gpu_predictor'
-        print('    Hyper Param Tuning LightGBM with GPU parameters. This will take time. Please be patient...')
-    else:
-        param = copy.deepcopy(cpu_params)
-        print('    Hyper Param Tuning LightGBM with CPU parameters. This will take time. Please be patient...')
-    #################################################################################
-    if modeltype == 'Regression':
-        if log_y:
-            Y_XGB.loc[Y_XGB==0] = 1e-15  ### just set something that is zero to a very small number
+        if modeltype =='Binary_Classification':
+            if gpu_exists:
+                lgbm = lgb.LGBMClassifier(device="gpu")
+            else:
+                lgbm = lgb.LGBMClassifier()
+            objective = 'binary'
+            metric = 'auc'
+            is_unbalance = True
+            class_weight = None
+            score_name = 'ROC AUC'
+            num_class = 1
+        else:
+            if gpu_exists:
+                lgbm = lgb.LGBMClassifier(device="gpu")
+            else:
+                lgbm = lgb.LGBMClassifier()
+            objective = 'multiclass'
+            #objective = 'multiclassova'
+            metric = 'multi_logloss'
+            is_unbalance = True
+            class_weight = 'balanced'
+            score_name = 'Multiclass Logloss'
+            if multi_label:
+                if isinstance(y_train, np.ndarray):
+                    num_class = np.unique(y_train).max() + 1
+                else:
+                    num_class = y_train.nunique().max() 
+            else:
+                if isinstance(y_train, np.ndarray):
+                    num_class = np.unique(y_train).max() + 1
+                else:
+                    num_class = y_train.nunique()
 
-    #testing for GPU
-    hyper_frac = 0.2
-    #### now select a random sample from X_XGB and Y_XGB ################
     if modeltype == 'Regression':
-        X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac,
-                                        random_state=99)
+        ## there is no num_class in regression for LGBM model ##        
+        lgbm_params = {
+                       'objective': objective,
+                       'metric': metric,
+                       'boosting_type': 'gbdt',
+                       'save_binary': True,
+                       'seed': 1337, 'feature_fraction_seed': 1337,
+                       'bagging_seed': 1337, 'drop_seed': 1337, 
+                       'data_random_seed': 1337,
+                       'verbose': -1, 
+                        'n_estimators': n_estimators,
+                    }
     else:
-        X_train, X_valid, Y_train, Y_valid = train_test_split(X_XGB, Y_XGB, test_size=hyper_frac,
-                                        random_state=99, stratify=Y_XGB)
+        lgbm_params = {
+                       'objective': objective,
+                       'metric': metric,
+                       'boosting_type': 'gbdt',
+                       'save_binary': True,
+                       'seed': 1337, 'feature_fraction_seed': 1337,
+                       'bagging_seed': 1337, 'drop_seed': 1337, 
+                       'data_random_seed': 1337,
+                       'verbose': -1, 
+                       'num_class': num_class,
+                       'is_unbalance': is_unbalance,
+                       'class_weight': class_weight,
+                        'n_estimators': n_estimators,
+                }
 
-    scoreFunction = { "precision": "precision_weighted","recall": "recall_weighted"}
+    lgbm_copy = copy.deepcopy(lgbm)
+    lgb_importances = pd.DataFrame()
+    lgb_oof = np.zeros(X_train.shape[0])
+    lgb_pred = np.zeros(X_test.shape[0])
 
-    X_train, Y_train, X_valid, Y_valid = data_transform(X_train, Y_train, X_valid, Y_valid,
-                                modeltype, multi_label, scaler=scaler, enc_method=enc_method)
+    start = time.time()
     if modeltype == 'Regression':
-        if log_y:
-            Y_train, Y_valid = np.log(Y_train), np.log(Y_valid)
-    random_search_flag =  True
-    gbm_model = lightgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
-                         multi_label, log_y, model="")
-    model = gbm_model.best_estimator_
-    random_search_flag = False
-    #############################################################################
-    ls=[]
+        scoring = 'neg_mean_squared_error'
+        score_name = 'MSE'
+    else:
+        scoring = 'roc_auc'
+        score_name = 'ROC AUC'
+    print('Starting Hyper Param tuning of %s lightGBM model. This will take time...' %model_label)
+    lgbm.set_params(**lgbm_params)
+    model = RandomizedSearchCV(lgbm,
+               param_distributions = rand_params,
+               n_iter = 5,
+               return_train_score = True,
+               random_state = 99,
+               n_jobs=-1,
+               cv = 5,
+               refit=True,
+               scoring = scoring,
+               verbose = False)        
+    model.fit(X_train, y_train)
+    print('Time taken for Hyper Param tuning of LightGBM model (in minutes) = %0.1f' %(
+                                    (time.time()-start_time)/60))
+    cv_results = pd.DataFrame(model.cv_results_)
     if modeltype == 'Regression':
-        fold = KFold(n_splits=n_splits)
+        print('    Mean cross-validated train %s score = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_train_score'].mean()))))
+        print('    Mean cross-validated test %s score = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_test_score'].mean()))))
     else:
-        fold = StratifiedKFold(shuffle=True, n_splits=n_splits, random_state=99)
-    scores=[]
-    if not isinstance(X_XGB_test, str):
-        pred_xgbs = np.zeros(len(X_XGB_test))
-        pred_probas = np.zeros(len(X_XGB_test))
-    else:
-        pred_xgbs = []
-        pred_probas = []
-    #### First convert test data into numeric using train data ###
-    if not isinstance(X_XGB_test, str):
-        X_XGB_train_enc,_, X_XGB_test_enc,_ = data_transform(X_XGB, Y_XGB, X_XGB_test, "",
-                                modeltype, multi_label, scaler=scaler, enc_method=enc_method)
-    #### now run all the folds each one by one ##################################
+        print('    Mean cross-validated train score %s = %0.04f' %(score_name, cv_results['mean_train_score'].mean()))
+        print('    Mean cross-validated test score %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
+    ### In this case, there is no boost rounds so just return the default num_boost_round
+    best_params = model.best_params_
+    print('    Hyper tuned params are: %s' %best_params)
     start_time = time.time()
-    for folds, (train_index, test_index) in tqdm(enumerate(fold.split(X_XGB,Y_XGB))):
-        x_train, x_test = X_XGB.iloc[train_index], X_XGB.iloc[test_index]
-        ### you need to keep y_test as-is in the same original state as it was given ####
-        y_train = Y_XGB.iloc[train_index]
-        y_test = Y_XGB.iloc[test_index]
-        ### y_valid here will be transformed into log_y to ensure training and validation ####
-        if modeltype == 'Regression':
-            if log_y:
-                y_train, y_test = np.log(Y_XGB.iloc[train_index]), np.log(Y_XGB.iloc[test_index])
-
-        ##  scale the x_train and x_test values - use all columns -
-        x_train, y_train, x_test, y_test = data_transform(x_train, y_train, x_test, y_test,
-                                modeltype, multi_label, scaler=scaler, enc_method=enc_method)
-
-        
-        model = lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modeltype,
-                                multi_label, log_y, model=model)
-
-        #### now make predictions on validation data and compare it to y_test which is in original state ##
-        if modeltype == 'Regression':
-            if log_y:
-                preds = np.exp(model.predict(x_test))
-            else:
-                preds = model.predict(x_test)
-        else:
-            preds = model.predict(x_test)
-
-        feature_importances = pd.DataFrame(model.feature_importances_,
-                                           index = X_XGB.columns,
-                                            columns=['importance'])
-        sum_all=feature_importances.values
-        ls.append(sum_all)
-        ######  Time to consolidate the predictions on test data #########
-        if modeltype == 'Regression':
-            if not isinstance(X_XGB_test, str):
-                if log_y:
-                    pred_xgb=np.exp(model.predict(X_XGB_test_enc[columns]))
-                else:
-                    pred_xgb=model.predict(X_XGB_test_enc[columns])
-                pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
-                pred_xgbs = pred_xgbs.mean(axis=0)
-            #### preds here is for only one fold and we are comparing it to original y_test ####
-            score = np.sqrt(mean_squared_error(y_test, preds))
-            print('RMSE score in fold %d = %s' %(folds+1, score))
-        else:
-            if not isinstance(X_XGB_test, str):
-                pred_xgb=model.predict(X_XGB_test_enc[columns])
-                pred_proba = model.predict_proba(X_XGB_test_enc[columns])
-                if folds == 0:
-                    pred_xgbs = copy.deepcopy(pred_xgb)
-                    pred_probas = copy.deepcopy(pred_proba)
-                else:
-                    pred_xgbs = np.vstack([pred_xgbs, pred_xgb])
-                    pred_xgbs = stats.mode(pred_xgbs, axis=0)[0][0]
-                    pred_probas = np.mean( np.array([ pred_probas, pred_proba ]), axis=0 )
-            #### preds here is for only one fold and we are comparing it to original y_test ####
-            
-            score = balanced_accuracy_score(y_test, preds)
-            print('AUC score in fold %d = %0.1f%%' %(folds+1, score*100))
-        scores.append(score)
-    print("\nCross-validated average scores are: ", np.sum(scores)/len(scores))
-    #############  F I N A L   T R A I N I N G  ###################################
-    print('Training model on full train dataset...')
-    start_time1 = time.time()
-    model = gbm_model.best_estimator_
-    model.fit(X_XGB_train_enc, Y_XGB)
-    if not isinstance(X_XGB_test, str):
-        pred_xgbs = model.predict(X_XGB_test_enc)
-        if modeltype != 'Regression':
-            pred_probas = model.predict_proba(X_XGB_test_enc)
-        else:
-            pred_probas = np.array([])
-    else:
-        pred_xgbs = np.array([])
-        pred_probas = np.array([])
-    print('    Time taken for training LightGBM (in minutes) = %0.1f' %((time.time()-start_time1)/60))
-    if verbose:
-        plot_importances_XGB(train_set=X_XGB, labels=Y_XGB, ls=ls, y_preds=pred_xgbs,
-                            modeltype=modeltype, top_num='all')
-    print('Returning the following:')
+    i = 0
+    scores = []
     if modeltype == 'Regression':
-        if not isinstance(X_XGB_test, str):
-            print('    final predictions', pred_xgbs[:10])
-        else:
-            print('    no X_test given. Returning empty array.')
-        print('    Model = %s' %model)
-        return (pred_xgbs, model)
+        repeat_strats = RepeatedKFold(n_splits=num_splits, n_repeats=num_repeats, random_state=SEED)
     else:
-        if not isinstance(X_XGB_test, str):
-            print('    final predictions (may need to be transformed to original labels)', pred_xgbs[:10])
-            if isinstance(pred_probas, list):
-                print('    predicted probabilities shape = [(%s, %s)...]' 
-                    %(pred_probas[0].shape[0],pred_probas[0].shape[1]))
-            else:
-                print('    predicted probabilities', pred_probas[:4])
+        repeat_strats = RepeatedStratifiedKFold(n_splits=num_splits, n_repeats=num_repeats, random_state=SEED)
+    #### This is where we repeatedly make training and predictions ######################
+    for fold, (trn_idx, val_idx) in enumerate(repeat_strats.split(X=X_train, y=y_train)):
+        xx_train, yy_train = X_train.iloc[trn_idx], y_train.iloc[trn_idx]
+        xx_valid, yy_valid = X_train.iloc[val_idx], y_train.iloc[val_idx]
+        
+        es = lgb.early_stopping(
+            stopping_rounds=early_stopping_rounds,
+            first_metric_only=True,
+            verbose=verbose,
+        )
+
+        le = lgb.log_evaluation(
+            period=verbose,
+            show_stdv=verbose
+        )
+        ########## Now train the model ###########
+        lgbm_copy.set_params(**lgbm_params)
+        lgbm_copy.set_params(**best_params)
+        model = copy.deepcopy(lgbm_copy)
+        if i == 0:
+            print('    Training hyper-tuned', model)
+        i += 1
+        model.fit(
+            xx_train, 
+            yy_train,
+            eval_set=[(xx_valid, yy_valid)],
+            eval_names=['train', 'valid'],
+            eval_metric=metric,
+            callbacks=[es, le],
+        )
+
+        fi_tmp = pd.DataFrame()
+        fi_tmp['feature'] = model.feature_name_
+        fi_tmp['importance'] = model.feature_importances_
+        fi_tmp['fold'] = fold
+        fi_tmp['seed'] = SEED
+        lgb_importances = lgb_importances.append(fi_tmp)
+
+        lgb_oof[val_idx] = model.predict(xx_valid)
+        lgb_pred += model.predict(X_test) / num_splits / num_repeats
+
+        if modeltype == 'Regression':
+            auc = np.sqrt(mean_squared_error(yy_valid, lgb_oof[val_idx]))
+            scores.append(auc)
+            print(f"    iteration i: {i}, RMSE: {auc:.2f}")
         else:
-            print('    no X_test given. Returning empty array.')
-        print('    Model = %s' %model)
-        return (pred_xgbs, pred_probas, model)
-########################################################################################
+            auc = roc_auc_score(yy_valid, lgb_oof[val_idx])
+            scores.append(auc)
+            print(f"    iteration i: {i}, ROC AUC: {auc:.2f}")
+            
+    elapsed = time.time() - start
+    
+    if modeltype == 'Regression':
+        auc = np.sqrt(mean_squared_error(y_train, lgb_oof))
+        print(f"Average Train RMSE: {auc:6f}, elapsed time: {elapsed:.2f}sec")
+    else:
+        auc = roc_auc_score(y_train, lgb_oof)
+        print(f"Average Train AUC: {auc:6f}, elapsed time: {elapsed:.2f}sec")
+
+    #### Now change the probas to fit within 0 and 1 #######
+    MM = MinMaxScaler()
+
+    order = list(lgb_importances.groupby("feature").mean().sort_values("importance", ascending=False).index)
+    plt.figure(figsize=(12, 4), tight_layout=True)
+    sns.barplot(x="importance", y="feature", data=lgb_importances, order=order[:15])
+    plt.title("{} feature importances".format("lgb"))
+    plt.tight_layout()
+    if modeltype == 'Regression':
+        lgb_preds = lgb_pred.ravel()
+        lgb_probas = np.array([])
+    else:
+        lgb_probas = MM.fit_transform(lgb_pred.reshape(-1, 1))
+        lgb_preds = (lgb_probas>0.5).astype(int)
+    print('Returning the following:')
+    print('    final predictions sample', lgb_preds[:4])
+    print('    predicted probabilities sample', lgb_probas[:4])
+    print('    Model = %s' %model)
+    return lgb_preds, lgb_probas, model
+###############################################################################################################
 def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype, top_num='all'):
     add_items=0
     for item in ls:
