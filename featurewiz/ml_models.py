@@ -1370,7 +1370,7 @@ import copy
 import time
 from sklearn.model_selection import RepeatedStratifiedKFold, RepeatedKFold
 from sklearn.metrics import r2_score, mean_squared_error
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, f1_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
@@ -1599,11 +1599,17 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
         if modeltype == 'Regression':
             auc = np.sqrt(mean_squared_error(yy_valid, lgb_oof[val_idx]))
             scores.append(auc)
-            print(f"    iteration i: {i}, RMSE: {auc:.2f}")
+            print(f"    iteration {i}: RMSE: {auc:.2f}")
         else:
-            auc = roc_auc_score(yy_valid, lgb_oof[val_idx])
-            scores.append(auc)
-            print(f"    iteration i: {i}, ROC AUC: {auc:.2f}")
+            if modeltype =='Binary_Classification':
+                auc = roc_auc_score(yy_valid, lgb_oof[val_idx])
+                scores.append(auc)
+                print(f"    iteration {i}: ROC AUC: {auc:.2f}")
+            else:
+                auc = f1_score(yy_valid, lgb_oof[val_idx], average="macro")
+                #auc = roc_auc_score(yy_valid, lgb_oof[val_idx], multi_class='ovr',average="macro")
+                scores.append(auc)
+                print(f"    iteration {i}: Macro F1 score: {auc:.2f}")
             
     elapsed = time.time() - start
     
@@ -1611,8 +1617,12 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
         auc = np.sqrt(mean_squared_error(y_train, lgb_oof))
         print(f"Average Train RMSE: {auc:6f}, elapsed time: {elapsed:.2f}sec")
     else:
-        auc = roc_auc_score(y_train, lgb_oof)
-        print(f"Average Train AUC: {auc:6f}, elapsed time: {elapsed:.2f}sec")
+        if modeltype =='Binary_Classification':
+            auc = roc_auc_score(y_train, lgb_oof)
+            print(f"Average Train AUC: {auc:6f}, elapsed time: {elapsed:.2f}sec")
+        else:
+            auc = f1_score(y_train, lgb_oof, average="macro")
+            print(f"Average Train Macro F1 score: {auc:6f}, elapsed time: {elapsed:.2f}sec")
 
     #### Now change the probas to fit within 0 and 1 #######
     MM = MinMaxScaler()
@@ -1633,6 +1643,7 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
     print('    predicted probabilities sample', lgb_probas[:4])
     print('    Model = %s' %model)
     return lgb_preds, lgb_probas, model
+########################################################################################
 ###############################################################################################################
 def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype, top_num='all'):
     add_items=0
