@@ -1521,8 +1521,12 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
         scoring = 'neg_mean_squared_error'
         score_name = 'MSE'
     else:
-        scoring = 'roc_auc'
-        score_name = 'ROC AUC'
+        if modeltype =='Binary_Classification':
+            scoring = 'roc_auc'
+            score_name = 'ROC AUC'
+        else:
+            scoring = 'balanced_accuracy'
+            score_name = 'balanced_accuracy'            
     print('Starting Hyper Param tuning of %s lightGBM model. This will take time...' %model_label)
     lgbm.set_params(**lgbm_params)
     model = RandomizedSearchCV(lgbm,
@@ -1644,7 +1648,6 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
     print('    Model = %s' %model)
     return lgb_preds, lgb_probas, model
 ########################################################################################
-###############################################################################################################
 def plot_importances_XGB(train_set, labels, ls, y_preds, modeltype, top_num='all'):
     add_items=0
     for item in ls:
