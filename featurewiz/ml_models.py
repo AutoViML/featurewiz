@@ -757,7 +757,7 @@ def get_sample_weight_array(y_train):
     return wt_array
 ###############################################################################
 from collections import OrderedDict
-def get_scale_pos_weight(y_input):    
+def get_class_weights(y_input):    
     y_input = copy.deepcopy(y_input)
     if isinstance(y_input, np.ndarray):
         y_input = pd.Series(y_input)
@@ -788,6 +788,12 @@ def get_scale_pos_weight(y_input):
     class_rows = class_weights*[xp[x] for x in classes]
     class_rows = class_rows.astype(int)
     class_weighted_rows = dict(zip(classes,class_weights))
+    return class_weighted_rows
+##################################################################################
+from collections import OrderedDict
+def get_scale_pos_weight(y_input):
+    class_weighted_rows = get_class_weights(y_input)
+    rare_class = find_rare_class(y_input)
     rare_class_weight = class_weighted_rows[rare_class]
     print('    For class %s, weight = %s' %(rare_class, rare_class_weight))
     return rare_class_weight

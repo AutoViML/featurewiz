@@ -702,7 +702,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     
     ######   XGBoost cannot handle special chars in column names ###########
     old_col_names = dataname.columns.tolist()
-    new_col_names, special_char_flag = make_column_names_unique(dataname)
+    new_col_names, special_char_flag = EDA_make_column_names_unique(dataname)
     if special_char_flag:
         dataname.columns = new_col_names
         if dask_xgboost_flag:
@@ -768,7 +768,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         test_index = test_data.index
         print('    Loaded test data. Shape = %s' %(test_data.shape,))
         #######  Once again remove the same in test data as well ###
-        new_col_test, special_char_flag_test = make_column_names_unique(test_data)
+        new_col_test, special_char_flag_test = EDA_make_column_names_unique(test_data)
         if special_char_flag_test:
             test_data.columns = new_col_test
             if dask_xgboost_flag:
@@ -790,7 +790,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if dataname.shape[0] >= nrows_limit:
         print('Classifying features using a random sample of %s rows from dataset...' %nrows_limit)
         ##### you can use nrows_limit to select a small sample from data set ########################
-        train_small = select_rows_from_dataframe(dataname, targets, nrows_limit, DS_LEN=dataname.shape[0])
+        train_small = EDA_randomly_select_rows_from_dataframe(dataname, targets, nrows_limit, DS_LEN=dataname.shape[0])
         features_dict = classify_features(train_small, target)
     else:
         features_dict = classify_features(dataname, target)
@@ -2605,22 +2605,28 @@ def FE_kmeans_resampler(x_train, y_train, target, smote="", verbose=0):
     return (x_train_ext, y_train_ext)
 
 ###################################################################################################
+# Calculate class weight
+import copy
+from collections import Counter
 from sklearn.utils.class_weight import compute_class_weight
-def get_class_distribution(y_input):
+def get_class_distribution(y_input, verbose=0):
     y_input = copy.deepcopy(y_input)
     classes = np.unique(y_input)
     xp = Counter(y_input)
     class_weights = compute_class_weight('balanced', classes=np.unique(y_input), y=y_input)
     if len(class_weights[(class_weights> 10)]) > 0:
-        class_weights = (class_weights/10).astype(int)
+        class_weights = (class_weights/10)
     else:
-        class_weights = (class_weights).astype(int)
-    print('class_weights = %s' %class_weights)
+        class_weights = (class_weights)
+    #print('    class_weights = %s' %class_weights)
     class_weights[(class_weights<1)]=1
     class_rows = class_weights*[xp[x] for x in classes]
+    class_rows = class_rows.astype(int)
     class_weighted_rows = dict(zip(classes,class_rows))
-    print('class_weighted_rows = %s' %class_weighted_rows)
+    if verbose:
+        print('    class_weighted_rows = %s' %class_weighted_rows)
     return class_weighted_rows
+
 
 def oversample_SMOTE(X,y):
     #input DataFrame
@@ -2811,7 +2817,7 @@ def FE_discretize_numeric_variables(train, bin_dict, test='', strategy='kmeans',
     else:
         return df
 ##################################################################################
-def FE_transform_numeric_columns(df, bin_dict, verbose=0):
+def FE_transform_numeric_columns_to_bins(df, bin_dict, verbose=0):
     """
     This handy function discretizes numeric variables into binned variables using kmeans algorithm.
     You need to provide the names of the variables and the numbers of bins for each variable in a dictionary.
@@ -3140,7 +3146,7 @@ def FE_split_list_into_columns(df, col, cols_in=[]):
             print('Column %s does not contain lists or has mixed types other than lists. Fix it and rerun.' %col)
     return df
 #############################################################################################
-def select_rows_from_dataframe(train_dataframe, targets, nrows_limit, DS_LEN=''):
+def EDA_randomly_select_rows_from_dataframe(train_dataframe, targets, nrows_limit, DS_LEN=''):
     maxrows = 10000
     train_dataframe = copy.deepcopy(train_dataframe)
     copy_targets = copy.deepcopy(targets)
@@ -3220,9 +3226,25 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
     def transform(self, X):
         return X[self.features]
 ###################################################################################################
+def EDA_remove_special_chars(df):
+    """
+    This function removes special chars from column names and returns a df with new column names.
+    Inputs and outputs are both the same dataframe except column names are changed.
+    """
+    import copy
+    import re
+    cols = df.columns.tolist()
+    copy_cols = copy.deepcopy(cols)
+    ser = pd.Series(cols)
+    ### This function removes all special chars from a list ###
+    remove_special_chars =  lambda x:re.sub('[^A-Za-z0-9_]+', '', x)
+    newls = ser.map(remove_special_chars).values.tolist()
+    df.columns = newls
+    return df
+###################################################################################################
 import random
 import collections
-def make_column_names_unique(data_input):
+def EDA_make_column_names_unique(data_input):
     special_char_flag = False
     cols = data_input.columns.tolist()
     copy_cols = copy.deepcopy(cols)

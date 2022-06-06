@@ -3,6 +3,10 @@
 ![banner](featurewiz_logos.png)
 <p>
 
+## Update (June 2022)
+<ol>
+<li><b>featurewiz as of version 0.1.60 has a high performance classifier named "SuloClassifier"</b> that you can use for Imbalanced class problems. It is designed for highly imbalanced datasets both binary and multi-class problems. </li>
+
 ## Update (May 2022)
 <ol>
 <li><b>featurewiz as of version 0.1.50 or higher has multiple high performance models</b> that you can use to build highly performant models once you have completed feature selection. These models are based on LightGBM and XGBoost and have even Stacking and Blending ensembles. You can find them as functions starting with "simple_" and "complex_" under featurewiz. All the best!<br></li>
@@ -41,11 +45,13 @@ features.features  ### provides the list of selected features ###
 </ol>
 
 ### One word of CAUTION while installing featurewiz in Kaggle and other environments:
- You must install featurewiz without any dependencies and by ignoring previous installed versions (see below). You MUST execute these TWO steps if you want featurwiz installed and working smoothly.
-
- ```pip install xlrd```
-
- ```pip install featurewiz --ignore-installed --no-deps```
+ You must install featurewiz without any dependencies and by ignoring previous installed versions (see below). You MUST execute these TWO steps if you want featurwiz installed and working smoothly.<br>
+##Step 1: Install featurewiz first<br>
+ ```!pip install featurewiz --ignore-installed --no-deps```<br>
+```!pip install xlrd --ignore-installed --no-deps```
+<br>
+##Step 2: Install Pillow since Kaggle has an incompatible version<br>
+```!pip install Pillow==9.0.0```
 
 ## What is featurewiz?
 `featurewiz` a new python library for creating and selecting the best features in your data set fast!
