@@ -6,6 +6,9 @@
 ## Update (June 2022)
 <ol>
 <li><b>featurewiz as of version 0.1.70 has a high performance classifier named "SuloClassifier"</b> that you can use for Imbalanced class problems. It is designed for highly imbalanced datasets both binary and multi-class problems. It can also handle multi-label problems and is a scikit-learn compatible estimator with the same "fit and predict" syntax. </li>
+Take a look at the benchmarking results notebook for SuloClassifier: 
+
+![Notebook](https://github.com/AutoViML/featurewiz/blob/main/examples/SuloClassifier_Benchmarking_Results.ipynb)
 
 ![SuloClassifier](SuloClassifier.png)
 
