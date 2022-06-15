@@ -182,7 +182,7 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
         ######   This is for Multi_Label problems ############
         rand_params = {'estimator__learning_rate':[0.1, 0.5, 0.01, 0.05],
           'estimator__n_estimators':[50, 100, 150, 200, 250],
-          'estimator__gamma':[0, 2, 4, 8, 16, 32],
+          #'estimator__gamma':[0, 2, 4, 8, 16, 32], ## there is no gamma in LGBM models ##
           'estimator__max_depth':[3, 5, 8, 12],
           'estimator__class_weight':[None, 'balanced']
           }
@@ -257,20 +257,32 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
                         'n_estimators': 400,
                     }
     else:
-        lgbm_params = {
-                       'objective': objective,
-                       'metric': metric,
-                       'boosting_type': 'gbdt',
-                       'save_binary': True,
-                       'seed': 1337, 'feature_fraction_seed': 1337,
-                       'bagging_seed': 1337, 'drop_seed': 1337, 
-                       'data_random_seed': 1337,
-                       'verbose': -1, 
-                       'num_class': num_class,
-                       'is_unbalance': is_unbalance,
-                       'class_weight': class_weight,
-                        'n_estimators': 400,
-                }
+        if multi_label:
+            ### If it is multi_label, having fewer params help avoid errors ##
+            ### Also LGBM doesn't work well when there are binary and multiclass mixed in multi-labels ##
+            lgbm_params = {
+                           'boosting_type': 'gbdt',
+                           'seed': 1337, 'feature_fraction_seed': 1337,
+                           'bagging_seed': 1337, 'drop_seed': 1337, 
+                           'data_random_seed': 1337,
+                           'verbose': -1, 
+                            'n_estimators': 400,
+                    }
+        else:
+            lgbm_params = {
+                           'objective': objective,
+                           'metric': metric,
+                           'boosting_type': 'gbdt',
+                           'save_binary': True,
+                           'seed': 1337, 'feature_fraction_seed': 1337,
+                           'bagging_seed': 1337, 'drop_seed': 1337, 
+                           'data_random_seed': 1337,
+                           'verbose': -1, 
+                           'num_class': num_class,
+                           'is_unbalance': is_unbalance,
+                           'class_weight': class_weight,
+                            'n_estimators': 400,
+                    }
 
     lgb.set_params(**lgbm_params)
     if multi_label:
@@ -301,7 +313,7 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
                 print('Mean cross-validated train %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_train_score'].mean()))))
                 print('Mean cross-validated test %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_test_score'].mean()))))
             else:
-                print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_train_score'].mean()))
+                print('Mean cross-validated train %s = %0.04f' %(score_name, cv_results['mean_train_score'].mean()))
                 print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
             ### In this case, there is no boost rounds so just return the default num_boost_round
             return model.best_estimator_
@@ -340,7 +352,7 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
                 print('Mean cross-validated train %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_train_score'].mean()))))
                 print('Mean cross-validated test %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_test_score'].mean()))))
             else:
-                print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_train_score'].mean()))
+                print('Mean cross-validated train %s = %0.04f' %(score_name, cv_results['mean_train_score'].mean()))
                 print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
         else:
             try:
@@ -503,6 +515,7 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     if isinstance(X_XGB_test, str):
         print('No predictions since X_XGB_test is empty string. Returning...')
         return {}
+
     if modeltype == 'Regression':
         if not isinstance(X_XGB_test, str):
             if log_y:
@@ -654,7 +667,7 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
                 print('Mean cross-validated train %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_train_score'].mean()))))
                 print('Mean cross-validated test %s = %0.04f' %(score_name, np.sqrt(abs(cv_results['mean_test_score'].mean()))))
             else:
-                print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_train_score'].mean()))
+                print('Mean cross-validated train %s = %0.04f' %(score_name, cv_results['mean_train_score'].mean()))
                 print('Mean cross-validated test %s = %0.04f' %(score_name, cv_results['mean_test_score'].mean()))
             ### In this case, there is no boost rounds so just return the default num_boost_round
             return model.best_estimator_
@@ -1225,8 +1238,11 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
     top_num = 10
     if isinstance(Y_XGB, pd.Series):
         targets = [Y_XGB.name]
-    else:
+    if isinstance(Y_XGB, pd.DataFrame):
         targets = Y_XGB.columns.tolist()
+    else:
+        print('Dont use complex LightGBM models for single label problems. Try simple_LightGBM_model instead.')
+        return
     if len(targets) == 1:
         multi_label = False
         if isinstance(Y_XGB, pd.DataFrame):
@@ -1304,7 +1320,10 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
     ######  Time to hyper-param tune model using randomizedsearchcv #########
     gbm_model = lightgbm_model_fit(random_search_flag, X_train, Y_train, X_valid, Y_valid, modeltype,
                          multi_label, log_y, model="")
-    model = gbm_model.best_estimator_
+    if multi_label:
+        model = copy.deepcopy(gbm_model)
+    else:
+        model = gbm_model.best_estimator_
     #### First convert test data into numeric using train data ###
     if not isinstance(X_XGB_test, str):
         x_train, y_train, x_test, _ = data_transform(X_XGB, Y_XGB, X_XGB_test, "",
@@ -1324,6 +1343,7 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
         print('Top 10 features:\n', pd.DataFrame(model.feature_importances_,index=model.feature_name_,
             columns=['importance']).sort_values('importance', ascending=False).index.tolist()[:10])
     ######  Time to consolidate the predictions on test data #########
+
     if modeltype == 'Regression':
         if not isinstance(X_XGB_test, str):
             if log_y:
@@ -1343,6 +1363,7 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
                 pred_probas = model.predict_proba(x_test)
                 predsy = [np.argmax(line,axis=1) for line in pred_probas]
                 pred_xgbs = np.array(predsy)
+                pred_xgbs = pred_xgbs.reshape(-1, len(predsy))
         else:
             pred_xgbs = []
             pred_probas = []

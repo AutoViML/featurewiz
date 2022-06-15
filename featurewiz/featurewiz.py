@@ -1010,13 +1010,13 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     except:
                         print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
                     if test_data is not None:
-
-                        test_data[each_target] = mlb.transform(test_data[each_target])
-                        try:
-                            ## After converting test, just load it into dask again ##
-                            test[each_target] = dd.from_pandas(test_data[each_target], npartitions=n_workers)
-                        except:
-                            print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
+                        if each_target in test_data.columns:
+                            test_data[each_target] = mlb.transform(test_data[each_target])
+                            try:
+                                ## After converting test, just load it into dask again ##
+                                test[each_target] = dd.from_pandas(test_data[each_target], npartitions=n_workers)
+                            except:
+                                print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
                     print('Completed label encoding of target variable = %s' %each_target)
                     print('How model predictions need to be transformed for %s:\n\t%s' %(each_target, mlb.inverse_transformer))
 

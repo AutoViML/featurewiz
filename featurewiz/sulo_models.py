@@ -1,6 +1,6 @@
-import math
 import numpy as np
 import pandas as pd
+import math
 from collections import Counter
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, AdaBoostClassifier
@@ -23,47 +23,197 @@ from imblearn.combine import SMOTETomek
 import lightgbm
 from lightgbm import LGBMClassifier, LGBMRegressor
 from sklearn.multioutput import MultiOutputRegressor, MultiOutputClassifier
+from sklearn.multioutput import ClassifierChain, RegressorChain
 import scipy as sp
+import pdb
 
 from .featurewiz import get_class_distribution
 
 class SuloClassifier(BaseEstimator, ClassifierMixin):
     """
-    SuloClassifier works really fast and very well for small datasets. But
-    for big data sets, it does not really match a LightGBM or XGBoost that is finely tuned.
+    SuloClassifier works really fast and very well for all kinds of datasets.
+    It works on small as well as big data. It works in multi-class as well as multi-labels.
+    It works on regular balanced data as well as imbalanced data sets.
+    The reason it works so well is that it is an ensemble of highly tuned models.
+    You don't have to send any inputs but if you wanted to, you can send in two inputs:
+    n_estimators: number of models you want in the final ensemble.
+    base_estimator: base model you want to train in each of the ensembles.
+    If you want, you can igore both these inputs and it will automatically choose these.
+    It is fully compatible with scikit-learn pipelines and other models.
     """
     def __init__(self, n_estimators, base_estimator):
         self.n_estimators = n_estimators
         self.models = []
         self.base_estimator = base_estimator
+        self.multi_label =  False
+        self.current_i = None
+        self.max_number_of_classes = 1
+        self.scores = []
 
     def fit(self, X, y):
+        seed = 42
+        shuffleFlag = True
+        modeltype = 'Classification'
         start = time.time()
         # Use KFold for understanding the performance
         class_weights = get_class_weights(y, verbose=1)
         scale_pos_weight = get_scale_pos_weight(y)
+        #print('Class weights = %s' %class_weights)
         ## Don't change this since it gives an error ##
         metric  = 'auc'
         ### don't change this metric and eval metric - it gives error if you change it ##
         eval_metric = 'auc'
         row_limit = 10000
-        number_of_classes = int(num_classes(y) - 1)
+        if isinstance(y, pd.DataFrame):
+            if len(y.columns) >= 2:
+                number_of_classes = num_classes(y)
+                for each_i in y.columns:
+                    number_of_classes[each_i] = int(number_of_classes[each_i] - 1)
+                max_number_of_classes = np.max(list(number_of_classes.values()))
+            else:
+                number_of_classes = int(num_classes(y) - 1)
+                max_number_of_classes = np.max(number_of_classes)
+        else:
+            number_of_classes = int(num_classes(y) - 1)
+            max_number_of_classes = np.max(number_of_classes)
         data_samples = X.shape[0]
+        self.max_number_of_classes = max_number_of_classes
+        if self.n_estimators is None:
+            if data_samples <= row_limit:
+                self.n_estimators = min(5, int(2.5*np.log10(data_samples)))
+            else:
+                self.n_estimators = 4
+            print('Number of estimators = %d' %self.n_estimators)
         model_name = 'lgb'
+        num_splits = self.n_estimators
+        kfold = KFold(n_splits=num_splits, random_state=seed, shuffle=shuffleFlag)
+        ##### This is where we check if y is single label or multi-label ##
+        if isinstance(y, pd.DataFrame):
+            ###############################################################
+            ### This is for Multi-Label problems only #####################
+            ###############################################################
+            targets = y.columns.tolist()
+            if len(targets) > 1:
+                self.multi_label = y.columns.tolist()
+                ### You need to initialize the class before each run - otherwise, error!
+                if self.base_estimator is None:
+                    if self.max_number_of_classes <= 1:
+                        ##############################################################
+                        ###   This is for Binary Classification problems only ########
+                        ##############################################################
+                        if y.shape[0] <= row_limit:
+                            self.base_estimator = LogisticRegression(random_state=99, max_iter=5000, multi_class='auto')
+                        else:
+                            self.base_estimator = LGBMClassifier(is_unbalance=True, learning_rate=0.3, 
+                                                    max_depth=10, metric=metric,
+                                                    #num_class=self.max_number_of_classes,
+                                                    n_estimators=100,  num_leaves=84, 
+                                                    #objective='binary',
+                                                    boosting_type ='goss', scale_pos_weight=None)                    
+                    else:
+                        #############################################################
+                        ###   This is for Multi Classification problems only ########
+                        ### Make sure you don't put any class weights here since it won't work in multi-labels ##
+                        ##############################################################
+                        if y.shape[0] <= row_limit:
+                            #self.base_estimator = LogisticRegression(random_state=99, max_iter=5000, multi_class='ovr')
+                            self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
+                                                    max_depth=10, 
+                                                    #metric='multi_logloss',
+                                                    #num_class=self.max_number_of_classes,
+                                                    #objective='multiclass',
+                                                    n_estimators=100,  num_leaves=84, 
+                                                    boosting_type ='goss', scale_pos_weight=None,class_weight=None)
+                        else:
+                            self.base_estimator = LGBMClassifier(bagging_seed=1337,
+                                                   data_random_seed=1337,
+                                                   drop_seed=1337,
+                                                   feature_fraction_seed=1337,
+                                                   max_depth=3,
+                                                   n_estimators=150, seed=1337,
+                                                   verbose=-1)
+                #### Here is where we use the classifier chain for all Class problems ###########
+                
+                for i, (train_index, test_index) in enumerate(kfold.split(X)):
+                    start_time = time.time()
+                    # Split data into train and test based on folds          
+                    if isinstance(y, pd.Series) or isinstance(y, pd.DataFrame):
+                        y_train, y_test = y.iloc[train_index], y.iloc[test_index]                
+                    else:
+                        y_train, y_test = y[train_index], y[test_index]
+
+                    if isinstance(X, pd.DataFrame):
+                        x_train, x_test = X.iloc[train_index], X.iloc[test_index]
+                    else:
+                        x_train, x_test = X[train_index], X[test_index]
+
+                    # Convert the data into numpy arrays
+                    if not isinstance(x_train, np.ndarray):
+                        x_train, x_test = x_train.values, x_test.values
+
+
+                    if i == 0:
+                        #self.base_estimator = rand_search(self.base_estimator, x_train, y_train, 
+                        #                        model_name, verbose=1)
+                        #print('    hyper tuned base estimator = %s' %self.base_estimator)
+
+                        if self.max_number_of_classes <= 1:
+                            est_list = [ClassifierChain(self.base_estimator, order="random", cv=3, random_state=i) 
+                                        for i in range(num_splits)] 
+                        else:
+                            est_list = [ClassifierChain(self.base_estimator)#, order="random", random_state=i) 
+                                        for i in range(num_splits)] 
+                        print('Fitting a %s for %s targets with ClassifierChain. This will take time...' %(
+                                        str(self.base_estimator).split("(")[0],y.shape[1]))
+
+                    # Initialize model with your supervised algorithm of choice
+                    model = est_list[i]
+
+                    # Train model and use it to train on the fold
+                    model.fit(x_train, y_train)
+                    self.models.append(model)
+
+                    # Predict on remaining data of each fold
+                    preds = model.predict(x_test)
+
+                    # Use best classification metric to measure performance of model
+                    #score = balanced_accuracy_score(y_test, preds)
+                    score = print_accuracy(targets, y_test, preds)
+                    print("    Fold %s: Average OOF Score: %0.0f%%" %(i+1, 100*score))
+                    self.scores.append(score)
+                    
+                    # Finally, check out the total time taken
+                    end_time = time.time()
+                    timeTaken = end_time - start_time
+                    print("Time Taken for fold %s: %0.0f (seconds)" %(i+1, timeTaken))
+
+                # Compute average score
+                averageAccuracy = sum(self.scores)/len(self.scores)
+                print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(
+                                        self.n_estimators, 100*averageAccuracy))
+                end = time.time()
+                timeTaken = end - start
+                print("Time Taken overall: %0.0f (seconds)" %(timeTaken))
+                return self
+        ########################################################
+        #####  This is for Single Label Classification problems 
+        ########################################################
         if self.base_estimator is None:
             if data_samples <= row_limit:
+                ### For small datasets use RFC for Binary Class   ########################
                 if number_of_classes <= 1:
                     ### For binary-class problems use RandomForest ######
-                    rf = RandomForestClassifier(n_estimators=20, max_depth=2,
+                    self.base_estimator = RandomForestClassifier(n_estimators=50, max_depth=2,
                                     random_state=0, class_weight=class_weights)
                     model_name = 'rf'
                 else:
-                    ### For multiclass problems use LGBM ######
+                    ### For small datasets use LGBM for Multi Class   ########################
                     self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
                                             max_depth=10, metric='multi_logloss',
-                    n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='multiclass',
+                    n_estimators=130, num_class=number_of_classes, num_leaves=84, objective='multiclass',
                     boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
             else:
+                ### For large datasets use LGBM  ########################
                 if number_of_classes <= 1:
                     #self.base_estimator = LGBMClassifier(n_estimators=250, random_state=99, 
                     #            boosting_type ='goss', scale_pos_weight=scale_pos_weight)
@@ -80,20 +230,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='multiclass',
                     boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
                     
-        if self.n_estimators is None:
-            if data_samples <= row_limit:
-                self.n_estimators = min(5, int(2.5*np.log10(data_samples)))
-            else:
-                self.n_estimators = 4
-            print('Number of estimators = %d' %self.n_estimators)
-        seed = 42
-        shuffleFlag = True
-        kfold = KFold(n_splits=self.n_estimators, random_state=seed, shuffle=shuffleFlag)
-        est_list = self.n_estimators*[self.base_estimator]
-        fit_list = []
-
-        # This will hold all the accuracy scores
-        scores = list()
+        est_list = num_splits*[self.base_estimator]
 
         ### if there is a need to do SMOTE do it here ##
         smote = False
@@ -105,7 +242,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         # Perform CV
         for i, (train_index, test_index) in enumerate(kfold.split(X)):
             # Split data into train and test based on folds          
-            if isinstance(y, pd.Series):
+            if isinstance(y, pd.Series) or isinstance(y, pd.DataFrame):
                 y_train, y_test = y.iloc[train_index], y.iloc[test_index]                
             else:
                 y_train, y_test = y[train_index], y[test_index]
@@ -121,46 +258,8 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
 
             ##   small datasets processing #####
             if i == 0:
-                if data_samples <= row_limit and number_of_classes <= 1:
-                    criterion = ["gini", "entropy", "log_loss"]
-                    # Number of trees in random forest
-                    n_estimators = [int(x) for x in np.linspace(start = 50, stop = 300, num = 10)]
-                    # Number of features to consider at every split
-                    max_features = ['auto', 'sqrt', 'log']
-                    # Maximum number of levels in tree
-                    max_depth = [2, 4, 6, 10, None]
-                    # Minimum number of samples required to split a node
-                    min_samples_split = [2, 5, 10]
-                    # Minimum number of samples required at each leaf node
-                    min_samples_leaf = [1, 2, 4]
-                    # Method of selecting samples for training each tree
-                    bootstrap = [True, False]
-                    ###  These are the RandomForest params ########               
-                    params = {
-                                    'criterion': criterion,
-                                    'n_estimators': n_estimators,
-                                   'max_features': max_features,
-                                   'max_depth': max_depth,
-                                   'min_samples_split': min_samples_split,
-                                   'min_samples_leaf': min_samples_leaf,
-                                   'bootstrap': bootstrap}
-
-                    self.base_estimator = rand_search(rf, x_train, y_train, params, verbose=1)
-                else:
-                    # Number of trees in random forest
-                    n_estimators = np.linspace(50, 500, 10, dtype = "int")
-                    ### number of leaves is only for LGBM ###
-                    num_leaves = np.linspace(5, 500, 50, dtype = "int")
-                    ## learning rate is very important for LGBM ##
-                    learning_rate = sp.stats.uniform(scale=1)
-                    params = {
-                                    'n_estimators': n_estimators,
-                                    'num_leaves': num_leaves,
-                                    'learning_rate': learning_rate,
-                                }
-                    self.base_estimator = rand_search(self.base_estimator, x_train, y_train, params, verbose=1)
-
-                est_list = self.n_estimators*[self.base_estimator]
+                self.base_estimator = rand_search(self.base_estimator, x_train, y_train, model_name, verbose=1)
+                est_list = num_splits*[self.base_estimator]
                 print('    base estimator = %s' %self.base_estimator)
             
             ### SMOTE processing #####
@@ -204,14 +303,19 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             
             # Initialize model with your supervised algorithm of choice
             model = est_list[i]
-
             # Train model and use it to train on the fold
             if model_name =='rf':
                 model.fit(x_train, y_train)
             else:
                 early_stoppings = lightgbm.early_stopping(stopping_rounds=10, verbose=False)
-                model.fit(x_train, y_train, callbacks=[early_stoppings],
-                           eval_metric=eval_metric, eval_set=[(x_test, y_test)])
+                if number_of_classes <= 1:
+                    model.fit(x_train, y_train, callbacks=[early_stoppings],
+                           eval_metric=eval_metric, 
+                           eval_set=[(x_test, y_test)])
+                else:
+                    model.fit(x_train, y_train, callbacks=[early_stoppings],
+                           eval_metric="multi_logloss", 
+                           eval_set=[(x_test, y_test)])
                 
             self.models.append(model)
 
@@ -221,10 +325,10 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             # Use best classification metric to measure performance of model
             score = balanced_accuracy_score(y_test, preds)
             print("    Fold %s: OOF Score: %0.0f%%" %(i+1, 100*score))
-            scores.append(score)
+            self.scores.append(score)
 
         # Compute average score
-        averageAccuracy = sum(scores)/len(scores)
+        averageAccuracy = sum(self.scores)/len(self.scores)
         print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(self.n_estimators, 100*averageAccuracy))
 
 
@@ -235,18 +339,80 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def predict(self, X):
-        y_predis = np.column_stack([model.predict(X) for model in self.models ])
         from scipy import stats
-        return stats.mode(y_predis,axis=1)[0].ravel()
+        weights = self.scores
+        if self.multi_label:
+            ypre = np.array([model.predict(X) for model in self.models ])
+            y_predis = np.average(ypre, axis=0,weights=weights)
+            y_preds = np.round(y_predis,0).astype(int)
+            return y_preds
+        y_predis = np.column_stack([model.predict(X) for model in self.models ])
+        ### This weights the model's predictions according to OOB scores obtained
+        y_predis = np.average(y_predis, weights=weights,axis=1)
+        y_predis = np.round(y_predis,0).astype(int)
+        return y_predis
+        #return stats.mode(y_predis,axis=1)[0].ravel()
     
-from sklearn.model_selection import StratifiedKFold
+    def predict_proba(self, X):
+        weights = self.scores
+        if self.multi_label:
+            ypre = np.array([model.predict_proba(X) for model in self.models ])
+            ### This is for Binary class models ####
+            y_probas = np.average(ypre, axis=0,weights=weights)
+            #y_probas = Y_pred_chains.mean(axis=0)
+            print('Alert! Returning probabilities for each target in array shape: %s' %(y_probas.shape,))
+            return y_probas
+        ## Since multi-class produces two arrays of unequal shape, they cannot be stacked by numpy!
+        ypre = np.array([model.predict_proba(X) for model in self.models ])
+        y_probas = np.average(ypre, axis=0,weights=weights)
+        print('Returning probabilities for each target (shape): %s' %(y_probas.shape,))
+        return y_probas
+
+from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import RandomizedSearchCV
-def rand_search(model, X, y, params, verbose=0):
+def rand_search(model, X, y, model_name, verbose=0):
     start = time.time()
+    if model_name == 'rf':
+        criterion = ["gini", "entropy", "log_loss"]
+        # Number of trees in random forest
+        n_estimators = [int(x) for x in np.linspace(start = 50, stop = 300, num = 10)]
+        # Number of features to consider at every split
+        max_features = ['auto', 'sqrt', 'log']
+        # Maximum number of levels in tree
+        max_depth = [2, 4, 6, 10, None]
+        # Minimum number of samples required to split a node
+        min_samples_split = [2, 5, 10]
+        # Minimum number of samples required at each leaf node
+        min_samples_leaf = [1, 2, 4]
+        # Method of selecting samples for training each tree
+        bootstrap = [True, False]
+        ###  These are the RandomForest params ########
+        params = {
+                        'criterion': criterion,
+                        'n_estimators': n_estimators,
+                       'max_features': max_features,
+                       'max_depth': max_depth,
+                       'min_samples_split': min_samples_split,
+                       'min_samples_leaf': min_samples_leaf,
+                       'bootstrap': bootstrap
+                       }
+    else:
+        # Number of estimators in LGBM Classifier ##
+        n_estimators = np.linspace(50, 500, 10, dtype = "int")
+        ### number of leaves is only for LGBM ###
+        num_leaves = np.linspace(5, 500, 50, dtype = "int")
+        ## learning rate is very important for LGBM ##
+        learning_rate = sp.stats.uniform(scale=1)
+        params = {
+                        'n_estimators': n_estimators,
+                        'num_leaves': num_leaves,
+                        'learning_rate': learning_rate,
+                    }
+
     kfold = StratifiedKFold(n_splits=5, random_state=100, shuffle=True)
     if verbose:
         print("Finding best params for base estimator using random search...")
-    clf = RandomizedSearchCV(model, params, n_iter=3, scoring='balanced_accuracy',
+    clf = RandomizedSearchCV(model, params, n_iter=5, scoring='balanced_accuracy',
                          cv = kfold, n_jobs=-1, random_state=100)
     clf.fit(X, y)
     if verbose:
@@ -255,7 +421,7 @@ def rand_search(model, X, y, params, verbose=0):
         print("    best Params is :" , clf.best_params_)
         print("Time Taken for random search: %0.0f (seconds)" %(time.time()-start))
     return clf.best_estimator_
-
+##################################################################################
 # Calculate class weight
 from sklearn.utils.class_weight import compute_class_weight
 import copy
@@ -287,8 +453,14 @@ def get_class_weights(y_input, verbose=0):
     elif isinstance(y_input, pd.Series):
         pass
     elif isinstance(y_input, pd.DataFrame):
-        ### if it is a dataframe, return only if it s one column dataframe ##
-        y_input = y_input.iloc[:,0]
+        if len(y_input.columns) >= 2:
+            ### if it is a dataframe, return only if it is one column dataframe ##
+            class_weights = dict()
+            for each_target in y_input.columns:
+                class_weights[each_target] = get_class_weights(y_input[each_target])
+            return class_weights
+        else:
+            y_input = y_input.values.reshape(-1)
     else:
         ### if you cannot detect the type or if it is a multi-column dataframe, ignore it
         return None
@@ -302,11 +474,26 @@ def get_class_weights(y_input, verbose=0):
     return class_weights
 
 from collections import OrderedDict
-def get_scale_pos_weight(y_input):
+def get_scale_pos_weight(y_input, verbose=0):
     class_weighted_rows = get_class_weights(y_input)
+    if isinstance(y_input, np.ndarray):
+        y_input = pd.Series(y_input)
+    elif isinstance(y_input, pd.Series):
+        pass
+    elif isinstance(y_input, pd.DataFrame):
+        if len(y_input.columns) >= 2:
+            ### if it is a dataframe, return only if it is one column dataframe ##
+            rare_class_weights = dict()
+            for each_target in y_input.columns:
+                rare_class_weights[each_target] = get_scale_pos_weight(y_input[each_target])
+            return rare_class_weights
+        else:
+            y_input = y_input.values.reshape(-1)
+    
     rare_class = find_rare_class(y_input)
     rare_class_weight = class_weighted_rows[rare_class]
-    print('    For class %s, weight = %s' %(rare_class, rare_class_weight))
+    if verbose:
+        print('    For class %s, weight = %s' %(rare_class, rare_class_weight))
     return rare_class_weight
 ##########################################################################
 
@@ -343,10 +530,15 @@ def num_classes(y, verbose=0):
         if isinstance(y, pd.Series):
             ls = y.nunique()
         else:
-            y = y.iloc[:,0]
-            ls = y.nunique()
+            if len(y.columns) >= 2:
+                ls = dict()
+                for each_i in y.columns:
+                    ls[each_i] = y[each_i].nunique()
+                return ls
+            else:
+                ls = y.nunique()[0]
     return ls
-    
+
 def return_minority_classes(y, verbose=0):
     """
     #### Calculates the % count of each class in y and returns a 
@@ -365,3 +557,28 @@ def return_minority_classes(y, verbose=0):
             ls = y.value_counts()[(y.value_counts(1)<=0.05).values].index
     return ls
 #################################################################################
+def print_accuracy(target, y_test, y_preds, verbose=0):
+    bal_scores = []
+    from sklearn.metrics import balanced_accuracy_score, classification_report
+    if isinstance(target, str): 
+        bal_score = balanced_accuracy_score(y_test,y_preds)
+        if verbose:
+            print('Bal accu %0.0f%%' %(100*bal_score))
+        bal_scores.append(bal_score)
+        print(classification_report(y_test,y_preds))
+    elif len(target) == 1:
+        bal_score = balanced_accuracy_score(y_test,y_preds)
+        bal_scores.append(bal_score)
+        if verbose:
+            print('Bal accu %0.0f%%' %(100*bal_score))
+        print(classification_report(y_test,y_preds))
+    else:
+        for each_i, target_name in enumerate(target):
+            print('For %s:' %target_name)
+            bal_score = balanced_accuracy_score(y_test.values[:,each_i],y_preds[:,each_i])
+            bal_scores.append(bal_score)
+            if verbose:
+                print('    Bal accu %0.0f%%' %(100*bal_score))
+            print(classification_report(y_test.values[:,each_i],y_preds[:,each_i]))
+    return np.mean(bal_scores)
+##########################################################################################
