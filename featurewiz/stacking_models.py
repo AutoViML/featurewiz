@@ -7,7 +7,7 @@ warnings.filterwarnings('ignore')
 
 from sklearn.ensemble import RandomForestRegressor,  GradientBoostingRegressor
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor, ExtraTreeRegressor
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.pipeline import make_pipeline
@@ -24,7 +24,7 @@ from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.linear_model import Lasso, LassoCV, Ridge, RidgeCV, LassoLarsCV
 from sklearn.ensemble import ExtraTreesClassifier,ExtraTreesRegressor
-from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoostingClassifier
+#from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoostingClassifier
 from sklearn.multioutput import ClassifierChain, RegressorChain
 from xgboost import XGBClassifier, XGBRegressor
 from lightgbm import LGBMClassifier, LGBMRegressor
@@ -57,7 +57,7 @@ class Stacking_Classifier(BaseEstimator, ClassifierMixin, TransformerMixin):
     #################################################################################
     #### Greatly indebted to Gilbert Tanner who explained Stacked Models here
     ####   https://gilberttanner.com/blog/introduction-to-ensemble-learning
-    #### Modifed to create a Stacking Classifier that can handle multi-label targets
+    #### I used the blog to create a Stacking Classifier that can handle multi-label targets
     #################################################################################
     """
     def __init__(self):
@@ -162,7 +162,7 @@ class Stacking_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
     #################################################################################
     #### Greatly indebted to Gilbert Tanner who explained Stacked Models here
     ####   https://gilberttanner.com/blog/introduction-to-ensemble-learning
-    #### Modifed to create a Stacking Regressor that can handle multi-label targets
+    #### I used the blog to create a Stacking Regressor that can handle multi-label targets
     #################################################################################
     """
     def __init__(self, use_features=True):
@@ -263,7 +263,7 @@ class Blending_Regressor(BaseEstimator, RegressorMixin, TransformerMixin):
     #################################################################################
     #### Greatly indebted to Gilbert Tanner who explained Stacked Models here
     ####   https://gilberttanner.com/blog/introduction-to-ensemble-learning
-    #### Modifed to create a Blending Regressor that can handle multi-label targets
+    #### I used the blog to create a Blending Regressor that can handle multi-label targets
     #################################################################################
     """
     def __init__(self, holdout_pct=0.2, use_features=True):
@@ -408,8 +408,8 @@ def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
         model5 = DecisionTreeRegressor(random_state=seed,min_samples_leaf=2)
         estimators.append(('Decision Trees',model5))
         ####   Linear Models if Boosting is chosen #####
-        model6 = HistGradientBoostingRegressor(random_state=seed)
-        estimators.append(('Histogram Gradient Regressor',model6))
+        model6 = ExtraTreeRegressor(random_state=seed)
+        estimators.append(('Extra Tree Regressor',model6))
 
         #model7 = RandomForestRegressor(n_estimators=50,random_state=seed, n_jobs=-1)
         model7 = Ridge(alpha=0.5)

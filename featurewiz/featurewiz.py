@@ -3244,6 +3244,8 @@ def EDA_remove_special_chars(df):
 ###################################################################################################
 import random
 import collections
+import re
+import copy
 def EDA_make_column_names_unique(data_input):
     special_char_flag = False
     cols = data_input.columns.tolist()

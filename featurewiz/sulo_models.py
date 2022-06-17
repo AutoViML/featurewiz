@@ -4,6 +4,7 @@ import math
 from collections import Counter
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, AdaBoostClassifier
+from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.multiclass import OneVsRestClassifier, OneVsOneClassifier
 from sklearn.metrics import accuracy_score
@@ -26,6 +27,12 @@ from sklearn.multioutput import MultiOutputRegressor, MultiOutputClassifier
 from sklearn.multioutput import ClassifierChain, RegressorChain
 import scipy as sp
 import pdb
+from sklearn.semi_supervised import LabelPropagation
+from sklearn.ensemble import BaggingClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer, MissingIndicator
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
+from sklearn.compose import ColumnTransformer
 
 from .featurewiz import get_class_distribution
 
@@ -41,12 +48,12 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
     If you want, you can igore both these inputs and it will automatically choose these.
     It is fully compatible with scikit-learn pipelines and other models.
     """
-    def __init__(self, n_estimators, base_estimator):
+    def __init__(self, base_estimator=None, n_estimators=None, pipeline=True):
         self.n_estimators = n_estimators
-        self.models = []
         self.base_estimator = base_estimator
+        self.pipeline = pipeline
+        self.models = []
         self.multi_label =  False
-        self.current_i = None
         self.max_number_of_classes = 1
         self.scores = []
 
@@ -64,6 +71,37 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         ### don't change this metric and eval metric - it gives error if you change it ##
         eval_metric = 'auc'
         row_limit = 10000
+        ################          P I P E L I N E        ##########################
+        numeric_transformer = Pipeline(
+            steps=[("imputer", SimpleImputer(strategy="mean", add_indicator=True)), ("scaler", StandardScaler())]
+        )
+
+        categorical_transformer_low = Pipeline(
+            steps=[
+                ("imputer", SimpleImputer(strategy="constant", fill_value="missing", add_indicator=True)),
+                ("encoding", OneHotEncoder(handle_unknown="ignore", sparse=False)),
+            ]
+        )
+
+        categorical_transformer_high = Pipeline(
+            steps=[
+                ("imputer", SimpleImputer(strategy="constant", fill_value="missing", add_indicator=True)),
+                ("encoding", LabelEncoder()),
+            ]
+        )
+
+        numeric_features = X.select_dtypes(include=[np.number]).columns
+        categorical_features = X.select_dtypes(include=["object"]).columns
+
+        categorical_low, categorical_high = get_cardinality(X, categorical_features)
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ("numeric", numeric_transformer, numeric_features),
+                ("categorical_low", categorical_transformer_low, categorical_low),
+                ("categorical_high", categorical_transformer_high, categorical_high),
+            ]
+        )
+        ####################################################################################
         if isinstance(y, pd.DataFrame):
             if len(y.columns) >= 2:
                 number_of_classes = num_classes(y)
@@ -102,7 +140,14 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ###   This is for Binary Classification problems only ########
                         ##############################################################
                         if y.shape[0] <= row_limit:
-                            self.base_estimator = LogisticRegression(random_state=99, max_iter=5000, multi_class='auto')
+                            if (X.dtypes==float).all():
+                                print('    Selecting Label Propagation for this dataset...')
+                                self.base_estimator =  LabelPropagation()
+                                model_name = 'other'
+                            else:
+                                print('    Selecting Bagging Classifier for this dataset...')
+                                self.base_estimator = BaggingClassifier(n_estimators=150)
+                                model_name = 'bg'
                         else:
                             self.base_estimator = LGBMClassifier(is_unbalance=True, learning_rate=0.3, 
                                                     max_depth=10, metric=metric,
@@ -116,7 +161,6 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ### Make sure you don't put any class weights here since it won't work in multi-labels ##
                         ##############################################################
                         if y.shape[0] <= row_limit:
-                            #self.base_estimator = LogisticRegression(random_state=99, max_iter=5000, multi_class='ovr')
                             self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
                                                     max_depth=10, 
                                                     #metric='multi_logloss',
@@ -132,7 +176,6 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                                    max_depth=3,
                                                    n_estimators=150, seed=1337,
                                                    verbose=-1)
-                #### Here is where we use the classifier chain for all Class problems ###########
                 
                 for i, (train_index, test_index) in enumerate(kfold.split(X)):
                     start_time = time.time()
@@ -147,12 +190,10 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     else:
                         x_train, x_test = X[train_index], X[test_index]
 
-                    # Convert the data into numpy arrays
-                    if not isinstance(x_train, np.ndarray):
-                        x_train, x_test = x_train.values, x_test.values
-
-
+                    ###### Do this only the first time ################################################
                     if i == 0:
+                        ### It does not make sense to do hyper-param tuning for multi-label models ##
+                        ###    since ClassifierChains do not have many hyper params #################
                         #self.base_estimator = rand_search(self.base_estimator, x_train, y_train, 
                         #                        model_name, verbose=1)
                         #print('    hyper tuned base estimator = %s' %self.base_estimator)
@@ -170,11 +211,26 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     model = est_list[i]
 
                     # Train model and use it to train on the fold
-                    model.fit(x_train, y_train)
-                    self.models.append(model)
+                    if self.pipeline:
+                        ### This is only with a pipeline ########
+                        pipe = Pipeline(
+                            steps=[("preprocessor", preprocessor), ("classifier", model)]
+                        )
 
-                    # Predict on remaining data of each fold
-                    preds = model.predict(x_test)
+                        pipe.fit(x_train, y_train)
+                        self.models.append(pipe)
+
+                        # Predict on remaining data of each fold
+                        preds = pipe.predict(x_test)
+
+                    else:
+                        #### This is without a pipeline ###
+                        model.fit(x_train, y_train)
+                        self.models.append(model)
+
+                        # Predict on remaining data of each fold
+                        preds = model.predict(x_test)
+
 
                     # Use best classification metric to measure performance of model
                     #score = balanced_accuracy_score(y_test, preds)
@@ -202,16 +258,37 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             if data_samples <= row_limit:
                 ### For small datasets use RFC for Binary Class   ########################
                 if number_of_classes <= 1:
-                    ### For binary-class problems use RandomForest ######
-                    self.base_estimator = RandomForestClassifier(n_estimators=50, max_depth=2,
-                                    random_state=0, class_weight=class_weights)
-                    model_name = 'rf'
+                    ### For binary-class problems use RandomForest or the faster ET Classifier ######
+                    #self.base_estimator = ExtraTreesClassifier(n_estimators=50, max_depth=2,
+                    #                random_state=0, class_weight=class_weights)
+                    #model_name = 'rf'
+                    if (X.dtypes==float).all():
+                        print('    Selecting Label Propagation for this dataset...')
+                        self.base_estimator =  LabelPropagation()
+                        model_name = 'other'
+                    else:
+                        print('    Selecting Bagging Classifier for this dataset...')
+                        ### The Bagging classifier outperforms ETC most of the time ####
+                        self.base_estimator = BaggingClassifier(n_estimators=20)
+                        model_name = 'bg'
                 else:
                     ### For small datasets use LGBM for Multi Class   ########################
-                    self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
-                                            max_depth=10, metric='multi_logloss',
-                    n_estimators=130, num_class=number_of_classes, num_leaves=84, objective='multiclass',
-                    boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
+                    #self.base_estimator = ExtraTreesClassifier(n_estimators=50, max_depth=2,
+                    #                random_state=0, class_weight=class_weights)
+                    #model_name = 'rf'
+                    ### For multi-class problems use Label Propagation which is faster and better ##
+                    if (X.dtypes==float).all():
+                        print('    Selecting Label Propagation for this dataset...')
+                        self.base_estimator =  LabelPropagation()
+                        model_name = 'other'
+                    else:
+                        print('    Selecting Bagging Classifier for this dataset...')
+                        self.base_estimator = BaggingClassifier(n_estimators=20)
+                        model_name = 'bg'
+                    #self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
+                    #                        max_depth=10, metric='multi_logloss',
+                    #                        n_estimators=130, num_class=number_of_classes, num_leaves=84, objective='multiclass',
+                    #                        boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
             else:
                 ### For large datasets use LGBM  ########################
                 if number_of_classes <= 1:
@@ -229,9 +306,11 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                             max_depth=10, metric='multi_logloss',
                     n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='multiclass',
                     boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
-                    
-        est_list = num_splits*[self.base_estimator]
+        else:
+            model_name = 'other'
 
+        est_list = num_splits*[self.base_estimator]
+        
         ### if there is a need to do SMOTE do it here ##
         smote = False
         #list_classes = return_minority_classes(y)
@@ -253,14 +332,24 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                 x_train, x_test = X[train_index], X[test_index]
 
             # Convert the data into numpy arrays
-            if not isinstance(x_train, np.ndarray):
-                x_train, x_test = x_train.values, x_test.values
+            #if not isinstance(x_train, np.ndarray):
+            #    x_train, x_test = x_train.values, x_test.values
 
             ##   small datasets processing #####
             if i == 0:
-                self.base_estimator = rand_search(self.base_estimator, x_train, y_train, model_name, verbose=1)
+                if self.pipeline:
+                    # Train model and use it in a pipeline to train on the fold  ##
+                    pipe = Pipeline(
+                        steps=[("preprocessor", preprocessor), ("model", self.base_estimator)])
+                    self.base_estimator = rand_search(pipe, x_train, y_train, 
+                                            model_name, self.pipeline, verbose=1)
+                else:
+                    ### leave the base estimator as is ###
+                    self.base_estimator = rand_search(self.base_estimator, x_train, 
+                                        y_train, model_name, self.pipeline, verbose=1)
+
                 est_list = num_splits*[self.base_estimator]
-                print('    base estimator = %s' %self.base_estimator)
+                #print('    base estimator = %s' %self.base_estimator)
             
             ### SMOTE processing #####
             if i == 0:
@@ -303,20 +392,8 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             
             # Initialize model with your supervised algorithm of choice
             model = est_list[i]
-            # Train model and use it to train on the fold
-            if model_name =='rf':
-                model.fit(x_train, y_train)
-            else:
-                early_stoppings = lightgbm.early_stopping(stopping_rounds=10, verbose=False)
-                if number_of_classes <= 1:
-                    model.fit(x_train, y_train, callbacks=[early_stoppings],
-                           eval_metric=eval_metric, 
-                           eval_set=[(x_test, y_test)])
-                else:
-                    model.fit(x_train, y_train, callbacks=[early_stoppings],
-                           eval_metric="multi_logloss", 
-                           eval_set=[(x_test, y_test)])
-                
+            
+            model.fit(x_train, y_train)
             self.models.append(model)
 
             # Predict on remaining data of each fold
@@ -370,8 +447,12 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
 
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import RandomizedSearchCV
-def rand_search(model, X, y, model_name, verbose=0):
+def rand_search(model, X, y, model_name, pipe_flag=False, verbose=0):
     start = time.time()
+    if pipe_flag:
+        model_string = 'model__'
+    else:
+        model_string = ''
     if model_name == 'rf':
         criterion = ["gini", "entropy", "log_loss"]
         # Number of trees in random forest
@@ -386,17 +467,43 @@ def rand_search(model, X, y, model_name, verbose=0):
         min_samples_leaf = [1, 2, 4]
         # Method of selecting samples for training each tree
         bootstrap = [True, False]
+        ###  These are the RandomForest params ########        
+        params = {
+            model_string+'criterion': criterion,
+            model_string+'n_estimators': n_estimators,
+            #model_string+'max_features': max_features,
+            #model_string+'max_depth': max_depth,
+            #model_string+'min_samples_split': min_samples_split,
+            #model_string+'min_samples_leaf': min_samples_leaf,
+           model_string+'bootstrap': bootstrap,
+                       }
+    if model_name == 'bg':
+        criterion = ["gini", "entropy", "log_loss"]
+        # Number of trees in random forest
+        n_estimators = [int(x) for x in np.linspace(start = 50, stop = 300, num = 10)]
+        # Number of features to consider at every split
+        #max_features = ['auto', 'sqrt', 'log']
+        max_features = [0.3, 0.5, 0.7]
+        # Maximum number of levels in tree
+        max_depth = [2, 4, 6, 10, None]
+        # Minimum number of samples required to split a node
+        min_samples_split = [2, 5, 10]
+        # Minimum number of samples required at each leaf node
+        min_samples_leaf = [1, 2, 4]
+        # Method of selecting samples for training each tree
+        bootstrap = [True, False]
         ###  These are the RandomForest params ########
         params = {
-                        'criterion': criterion,
-                        'n_estimators': n_estimators,
-                       'max_features': max_features,
-                       'max_depth': max_depth,
-                       'min_samples_split': min_samples_split,
-                       'min_samples_leaf': min_samples_leaf,
-                       'bootstrap': bootstrap
+            #model_string+'criterion': criterion,
+            model_string+'n_estimators': n_estimators,
+            #model_string+'max_features': max_features,
+            #model_string+'max_depth': max_depth,
+            #model_string+'min_samples_split': min_samples_split,
+            #model_string+'min_samples_leaf': min_samples_leaf,
+            model_string+'bootstrap': bootstrap,
+            model_string+'bootstrap_features': bootstrap,
                        }
-    else:
+    elif model_name == 'lgb':
         # Number of estimators in LGBM Classifier ##
         n_estimators = np.linspace(50, 500, 10, dtype = "int")
         ### number of leaves is only for LGBM ###
@@ -404,20 +511,33 @@ def rand_search(model, X, y, model_name, verbose=0):
         ## learning rate is very important for LGBM ##
         learning_rate = sp.stats.uniform(scale=1)
         params = {
-                        'n_estimators': n_estimators,
-                        'num_leaves': num_leaves,
-                        'learning_rate': learning_rate,
+            model_string+'n_estimators': n_estimators,
+            model_string+'num_leaves': num_leaves,
+            model_string+'learning_rate': learning_rate,
                     }
+    elif model_name == 'other':
+        params =  {
+            model_string+'gamma': [2, 4, 10, 20, 32],
+            model_string+'kernel': ['knn', 'rbf'],
+            model_string+'max_iter': [500, 1000, 2000],
+            model_string+'n_neighbors': [2, 3, 5, 7],
+                }
+    else:
+        ### Since we don't know what model will be sent, we cannot tune it ##
+        params = {}
+        return model
 
     kfold = StratifiedKFold(n_splits=5, random_state=100, shuffle=True)
     if verbose:
         print("Finding best params for base estimator using random search...")
-    clf = RandomizedSearchCV(model, params, n_iter=5, scoring='balanced_accuracy',
+    clf = RandomizedSearchCV(model, params, n_iter=4, scoring='balanced_accuracy',
                          cv = kfold, n_jobs=-1, random_state=100)
+    
     clf.fit(X, y)
+
     if verbose:
         print("    best score is :" , clf.best_score_)
-        print("    best estimator is :" , clf.best_estimator_)
+        #print("    best estimator is :" , clf.best_estimator_)
         print("    best Params is :" , clf.best_params_)
         print("Time Taken for random search: %0.0f (seconds)" %(time.time()-start))
     return clf.best_estimator_
@@ -557,6 +677,14 @@ def return_minority_classes(y, verbose=0):
             ls = y.value_counts()[(y.value_counts(1)<=0.05).values].index
     return ls
 #################################################################################
+def get_cardinality(X, cat_features):
+    ## pick a limit for cardinal variables here ##
+    cat_limit = 30
+    mask = X[cat_features].nunique() > cat_limit
+    high_cardinal_vars = cat_features[mask]
+    low_cardinal_vars = cat_features[~mask]
+    return low_cardinal_vars, high_cardinal_vars
+################################################################################
 def print_accuracy(target, y_test, y_preds, verbose=0):
     bal_scores = []
     from sklearn.metrics import balanced_accuracy_score, classification_report
