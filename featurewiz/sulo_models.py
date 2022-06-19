@@ -48,14 +48,17 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
     If you want, you can igore both these inputs and it will automatically choose these.
     It is fully compatible with scikit-learn pipelines and other models.
     """
-    def __init__(self, base_estimator=None, n_estimators=None, pipeline=True):
+    def __init__(self, base_estimator=None, n_estimators=None, pipeline=True, weights=False, verbose=0):
         self.n_estimators = n_estimators
         self.base_estimator = base_estimator
         self.pipeline = pipeline
+        self.weights = weights
+        self.verbose = verbose
         self.models = []
         self.multi_label =  False
         self.max_number_of_classes = 1
         self.scores = []
+        self.classes = []
 
     def fit(self, X, y):
         seed = 42
@@ -63,7 +66,11 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         modeltype = 'Classification'
         start = time.time()
         # Use KFold for understanding the performance
-        class_weights = get_class_weights(y, verbose=1)
+        if self.weights:
+            print('Remember that using class weights will wrongly skew predict_probas from any classifier')
+        class_weights = get_class_weights(y, verbose=self.verbose)
+        ### Remember that putting class weights will totally destroy predict_probas ###
+        self.classes = print_flatten_dict(class_weights)
         scale_pos_weight = get_scale_pos_weight(y)
         #print('Class weights = %s' %class_weights)
         ## Don't change this since it gives an error ##
@@ -121,7 +128,8 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                 self.n_estimators = min(5, int(2.5*np.log10(data_samples)))
             else:
                 self.n_estimators = 4
-            print('Number of estimators = %d' %self.n_estimators)
+            if self.verbose:
+                print('Number of estimators = %d' %self.n_estimators)
         model_name = 'lgb'
         num_splits = self.n_estimators
         kfold = KFold(n_splits=num_splits, random_state=seed, shuffle=shuffleFlag)
@@ -131,6 +139,9 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             ### This is for Multi-Label problems only #####################
             ###############################################################
             targets = y.columns.tolist()
+            if is_y_object(y):
+                print('Cannot perform classification using object or string targets. Please convert to numeric and try again.')
+                return self
             if len(targets) > 1:
                 self.multi_label = y.columns.tolist()
                 ### You need to initialize the class before each run - otherwise, error!
@@ -141,11 +152,13 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ##############################################################
                         if y.shape[0] <= row_limit:
                             if (X.dtypes==float).all():
-                                print('    Selecting Label Propagation for this dataset...')
+                                print('    Selecting Label Propagation since it will work great for this dataset...')
+                                print('        however it will skew probabilities and show lower ROC AUC score than normal.')
                                 self.base_estimator =  LabelPropagation()
                                 model_name = 'other'
                             else:
-                                print('    Selecting Bagging Classifier for this dataset...')
+                                if self.verbose:
+                                    print('    Selecting Bagging Classifier for this dataset...')
                                 self.base_estimator = BaggingClassifier(n_estimators=150)
                                 model_name = 'bg'
                         else:
@@ -167,7 +180,12 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                                     #num_class=self.max_number_of_classes,
                                                     #objective='multiclass',
                                                     n_estimators=100,  num_leaves=84, 
-                                                    boosting_type ='goss', scale_pos_weight=None,class_weight=None)
+                                                    boosting_type ='goss', scale_pos_weight=None,
+                                                    class_weight=None, verbose=-1)
+                            print('    Selecting Label Propagation since it will work great for this dataset...')
+                            print('        however it will skew probabilities and show lower ROC AUC score than normal.')
+                            self.base_estimator =  LabelPropagation()
+                            model_name = 'other'
                         else:
                             self.base_estimator = LGBMClassifier(bagging_seed=1337,
                                                    data_random_seed=1337,
@@ -195,17 +213,22 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ### It does not make sense to do hyper-param tuning for multi-label models ##
                         ###    since ClassifierChains do not have many hyper params #################
                         #self.base_estimator = rand_search(self.base_estimator, x_train, y_train, 
-                        #                        model_name, verbose=1)
+                        #                        model_name, verbose=self.verbose)
                         #print('    hyper tuned base estimator = %s' %self.base_estimator)
 
                         if self.max_number_of_classes <= 1:
                             est_list = [ClassifierChain(self.base_estimator, order="random", cv=3, random_state=i) 
                                         for i in range(num_splits)] 
+                            if self.verbose:
+                                print('Fitting a %s for %s targets with MultiOutputClassifier. This will take time...' %(
+                                            str(self.base_estimator).split("(")[0],y.shape[1]))
                         else:
-                            est_list = [ClassifierChain(self.base_estimator)#, order="random", random_state=i) 
+                            ### You must use multioutputclassifier since it is the only one predicts probas correctly ##
+                            est_list = [MultiOutputClassifier(self.base_estimator)#, order="random", random_state=i) 
                                         for i in range(num_splits)] 
-                        print('Fitting a %s for %s targets with ClassifierChain. This will take time...' %(
-                                        str(self.base_estimator).split("(")[0],y.shape[1]))
+                            if self.verbose:
+                                print('Fitting a %s for %s targets with MultiOutputClassifier. This will take time...' %(
+                                            str(self.base_estimator).split("(")[0],y.shape[1]))
 
                     # Initialize model with your supervised algorithm of choice
                     model = est_list[i]
@@ -234,7 +257,8 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
 
                     # Use best classification metric to measure performance of model
                     #score = balanced_accuracy_score(y_test, preds)
-                    score = print_accuracy(targets, y_test, preds)
+                    
+                    score = print_accuracy(targets, y_test, preds, verbose=self.verbose)
                     print("    Fold %s: Average OOF Score: %0.0f%%" %(i+1, 100*score))
                     self.scores.append(score)
                     
@@ -245,7 +269,8 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
 
                 # Compute average score
                 averageAccuracy = sum(self.scores)/len(self.scores)
-                print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(
+                if self.verbose:
+                    print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(
                                         self.n_estimators, 100*averageAccuracy))
                 end = time.time()
                 timeTaken = end - start
@@ -263,11 +288,13 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     #                random_state=0, class_weight=class_weights)
                     #model_name = 'rf'
                     if (X.dtypes==float).all():
-                        print('    Selecting Label Propagation for this dataset...')
+                        print('    Selecting Label Propagation since it will work great for this dataset...')
+                        print('        however it will skew probabilities and show lower ROC AUC score than normal.')
                         self.base_estimator =  LabelPropagation()
                         model_name = 'other'
                     else:
-                        print('    Selecting Bagging Classifier for this dataset...')
+                        if self.verbose:
+                            print('    Selecting Bagging Classifier for this dataset...')
                         ### The Bagging classifier outperforms ETC most of the time ####
                         self.base_estimator = BaggingClassifier(n_estimators=20)
                         model_name = 'bg'
@@ -278,11 +305,13 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     #model_name = 'rf'
                     ### For multi-class problems use Label Propagation which is faster and better ##
                     if (X.dtypes==float).all():
-                        print('    Selecting Label Propagation for this dataset...')
+                        print('    Selecting Label Propagation since it will work great for this dataset...')
+                        print('        however it will skew probabilities and show lower ROC AUC score than normal.')
                         self.base_estimator =  LabelPropagation()
                         model_name = 'other'
                     else:
-                        print('    Selecting Bagging Classifier for this dataset...')
+                        if self.verbose:
+                            print('    Selecting Bagging Classifier for this dataset...')
                         self.base_estimator = BaggingClassifier(n_estimators=20)
                         model_name = 'bg'
                     #self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
@@ -296,16 +325,18 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     #            boosting_type ='goss', scale_pos_weight=scale_pos_weight)
                     self.base_estimator = LGBMClassifier(is_unbalance=True, learning_rate=0.3, 
                                             max_depth=10, metric=metric,
-                    n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='binary',
-                    boosting_type ='goss', scale_pos_weight=None)
+                                            n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='binary',
+                                            boosting_type ='goss', scale_pos_weight=None)
                                 
                 else:
                     #self.base_estimator = LGBMClassifier(n_estimators=250, random_state=99,
                     #                   boosting_type ='goss', class_weight=class_weights)        
+                    if self.weights:
+                        class_weights = None
                     self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
                                             max_depth=10, metric='multi_logloss',
-                    n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='multiclass',
-                    boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
+                                            n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='multiclass',
+                                            boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
         else:
             model_name = 'other'
 
@@ -342,11 +373,11 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     pipe = Pipeline(
                         steps=[("preprocessor", preprocessor), ("model", self.base_estimator)])
                     self.base_estimator = rand_search(pipe, x_train, y_train, 
-                                            model_name, self.pipeline, verbose=1)
+                                            model_name, self.pipeline, verbose=self.verbose)
                 else:
                     ### leave the base estimator as is ###
                     self.base_estimator = rand_search(self.base_estimator, x_train, 
-                                        y_train, model_name, self.pipeline, verbose=1)
+                                        y_train, model_name, self.pipeline, verbose=self.verbose)
 
                 est_list = num_splits*[self.base_estimator]
                 #print('    base estimator = %s' %self.base_estimator)
@@ -355,16 +386,14 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             if i == 0:
                 if smote:
                     print('Performing SMOTE...')
-                    print('    x_train shape before SMOTE = %s' %(x_train.shape,))
-                verbose = 1                
-            else:
-                verbose = 0
+                    if self.verbose:
+                        print('    x_train shape before SMOTE = %s' %(x_train.shape,))
                     
             if smote:
                 # Get the class distribution for perfoming relative sampling in the next line
+                ### It does not appear that class weights work well in SMOTE - hence avoid ###
                 #class_weighted_rows = get_class_distribution(y_train, verbose)
                 
-                ### It does not appear that class weights work well in SMOTE - hence avoid ###
                 try:
                     if number_of_classes <= 1:
                         sm = ADASYN(n_neighbors=5, random_state=seed, )
@@ -406,7 +435,8 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
 
         # Compute average score
         averageAccuracy = sum(self.scores)/len(self.scores)
-        print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(self.n_estimators, 100*averageAccuracy))
+        if self.verbose:
+            print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(self.n_estimators, 100*averageAccuracy))
 
 
         # Finally, check out the total time taken
@@ -419,30 +449,30 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         from scipy import stats
         weights = self.scores
         if self.multi_label:
+            ### In multi-label, targets have to be numeric, so you can leave weights as-is ##
             ypre = np.array([model.predict(X) for model in self.models ])
-            y_predis = np.average(ypre, axis=0,weights=weights)
+            y_predis = np.average(ypre, axis=0, weights=weights)
             y_preds = np.round(y_predis,0).astype(int)
             return y_preds
         y_predis = np.column_stack([model.predict(X) for model in self.models ])
         ### This weights the model's predictions according to OOB scores obtained
-        y_predis = np.average(y_predis, weights=weights,axis=1)
-        y_predis = np.round(y_predis,0).astype(int)
+        #### In single label, targets can be object or string, so weights cannot be applied always ##
+        if y_predis.dtype == object or y_predis.dtype == bool:
+            ### in the case of predictions that are strings, no need for weights ##
+            y_predis = stats.mode(y_predis, axis=1)[0].ravel()
+        else:
+            if str(y_predis.dtype) == 'category':
+                y_predis = stats.mode(y_predis, axis=1)[0].ravel()
+            else:
+                y_predis = np.average(y_predis, weights=weights, axis=1)
+                y_predis = np.round(y_predis,0).astype(int)
         return y_predis
         #return stats.mode(y_predis,axis=1)[0].ravel()
     
     def predict_proba(self, X):
         weights = self.scores
-        if self.multi_label:
-            ypre = np.array([model.predict_proba(X) for model in self.models ])
-            ### This is for Binary class models ####
-            y_probas = np.average(ypre, axis=0,weights=weights)
-            #y_probas = Y_pred_chains.mean(axis=0)
-            print('Alert! Returning probabilities for each target in array shape: %s' %(y_probas.shape,))
-            return y_probas
-        ## Since multi-class produces two arrays of unequal shape, they cannot be stacked by numpy!
-        ypre = np.array([model.predict_proba(X) for model in self.models ])
-        y_probas = np.average(ypre, axis=0,weights=weights)
-        print('Returning probabilities for each target (shape): %s' %(y_probas.shape,))
+        y_probas = [model.predict_proba(X) for model in self.models ]
+        y_probas = return_predict_proba(y_probas)
         return y_probas
 
 from sklearn.model_selection import StratifiedKFold, KFold
@@ -588,7 +618,7 @@ def get_class_weights(y_input, verbose=0):
     rare_class = find_rare_class(y_input)
     xp = Counter(y_input)
     class_weights = compute_class_weight('balanced', classes=classes, y=y_input)
-    class_weights = dict(zip(classes, np.round(class_weights/class_weights.min()).astype(int)))
+    class_weights = OrderedDict(zip(classes, np.round(class_weights/class_weights.min()).astype(int)))
     if verbose:
         print('Class weights used in classifier are: %s' %class_weights)
     return class_weights
@@ -603,7 +633,7 @@ def get_scale_pos_weight(y_input, verbose=0):
     elif isinstance(y_input, pd.DataFrame):
         if len(y_input.columns) >= 2:
             ### if it is a dataframe, return only if it is one column dataframe ##
-            rare_class_weights = dict()
+            rare_class_weights = OrderedDict()
             for each_target in y_input.columns:
                 rare_class_weights[each_target] = get_scale_pos_weight(y_input[each_target])
             return rare_class_weights
@@ -616,7 +646,6 @@ def get_scale_pos_weight(y_input, verbose=0):
         print('    For class %s, weight = %s' %(rare_class, rare_class_weight))
     return rare_class_weight
 ##########################################################################
-
 from collections import defaultdict
 from collections import OrderedDict
 def return_minority_samples(y, verbose=0):
@@ -651,7 +680,7 @@ def num_classes(y, verbose=0):
             ls = y.nunique()
         else:
             if len(y.columns) >= 2:
-                ls = dict()
+                ls = OrderedDict()
                 for each_i in y.columns:
                     ls[each_i] = y[each_i].nunique()
                 return ls
@@ -685,28 +714,151 @@ def get_cardinality(X, cat_features):
     low_cardinal_vars = cat_features[~mask]
     return low_cardinal_vars, high_cardinal_vars
 ################################################################################
+def is_y_object(y):
+    test1 = (y.dtypes.any()==object) | (y.dtypes.any()==bool)
+    test2 = str(y.dtypes.any())=='category'
+    return test1 | test2
+
+def print_flatten_dict(dd, separator='_', prefix=''):
+    ### this function is to flatten dict to print classes and their order ###
+    ### One solution here: https://stackoverflow.com/questions/6027558/flatten-nested-dictionaries-compressing-keys
+    ### I have modified it to make it work for me #################
+    return { prefix + separator + str(k) if prefix else k : v
+             for kk, vv in dd.items()
+             for k, v in print_flatten_dict(vv, separator, kk).items()
+             } if isinstance(dd, dict) else { prefix : dd }
+
 def print_accuracy(target, y_test, y_preds, verbose=0):
     bal_scores = []
     from sklearn.metrics import balanced_accuracy_score, classification_report
     if isinstance(target, str): 
         bal_score = balanced_accuracy_score(y_test,y_preds)
+        bal_scores.append(bal_score)
         if verbose:
             print('Bal accu %0.0f%%' %(100*bal_score))
-        bal_scores.append(bal_score)
-        print(classification_report(y_test,y_preds))
+            print(classification_report(y_test,y_preds))
     elif len(target) == 1:
         bal_score = balanced_accuracy_score(y_test,y_preds)
         bal_scores.append(bal_score)
         if verbose:
             print('Bal accu %0.0f%%' %(100*bal_score))
-        print(classification_report(y_test,y_preds))
+            print(classification_report(y_test,y_preds))
     else:
         for each_i, target_name in enumerate(target):
-            print('For %s:' %target_name)
             bal_score = balanced_accuracy_score(y_test.values[:,each_i],y_preds[:,each_i])
             bal_scores.append(bal_score)
             if verbose:
+                if each_i == 0:
+                    print('For %s:' %target_name)
                 print('    Bal accu %0.0f%%' %(100*bal_score))
-            print(classification_report(y_test.values[:,each_i],y_preds[:,each_i]))
+                print(classification_report(y_test.values[:,each_i],y_preds[:,each_i]))
     return np.mean(bal_scores)
 ##########################################################################################
+from collections import defaultdict
+def return_predict_proba(y_probas):
+    ### This is for detecting what-label what-class problems with probas ####
+    problemtype = ""
+    if isinstance(y_probas, list):
+        ### y_probas is a list when y is multi-label. 
+        if isinstance(y_probas[0], list):
+            ##    1. If y is multi_label but has more than two classes, y_probas[0] is also a list ##
+            problemtype = "multi_label_multi_class"
+        else:
+            initial = y_probas[0].shape[1]
+            if np.all([x.shape[1]==initial for x in y_probas]):
+                problemtype =  "multi_label_binary_class"
+            else:
+                problemtype = "multi_label_multi_class"
+    else:
+        problemtype = "single_label"
+    #### This is for making multi-label multi-class predictions into a dictionary ##
+    if problemtype == "multi_label_multi_class":
+        probas_dict = defaultdict(list)
+        ### Initialize the default dict #############
+        for each_target in range(len(y_probas[0])):
+            probas_dict[each_target] = []
+        #### Now that it is is initialized, compile each class into its own list ###
+        if isinstance(y_probas[0], list):
+            for each_i in range(len(y_probas)):
+                for each_j in range(len(y_probas[each_i])):
+                    if y_probas[each_i][each_j].shape[1] > 2:
+                        probas_dict[each_j].append(y_probas[each_i][each_j])
+                    else:
+                        probas_dict[each_j].append(y_probas[each_i][each_j][:,1])
+            #### Once all of the probas have been put in a dictionary, now compute means ##
+            for each_target in range(len(probas_dict)):
+                probas_dict[each_target] = np.array(probas_dict[each_target]).mean(axis=0)
+    elif problemtype == "multi_label_binary_class":
+        initial = y_probas[0].shape[1]
+        if np.all([x.shape[1]==initial for x in y_probas]):
+            probas_dict = np.array(y_probas).mean(axis=0)
+    return probas_dict   
+###############################################################################################
+from sklearn.metrics import roc_auc_score
+import copy
+from sklearn.metrics import balanced_accuracy_score, classification_report
+import pdb
+def print_sulo_accuracy(y_test, y_preds, y_probas=''):
+    bal_scores = []
+    ####### Once you have detected what problem it is, now print its scores #####
+    if y_test.ndim <= 1: 
+        bal_score = balanced_accuracy_score(y_test,y_preds)
+        print('Bal accu %0.0f%%' %(100*bal_score))
+        if not isinstance(y_probas, str):
+            print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas[:,1]))
+        bal_scores.append(bal_score)
+        print(classification_report(y_test,y_preds))
+    elif y_test.ndim >= 2:
+        if y_test.shape[1] == 1:
+            bal_score = balanced_accuracy_score(y_test,y_preds)
+            bal_scores.append(bal_score)
+            print('Bal accu %0.0f%%' %(100*bal_score))
+            if not isinstance(y_probas, str):
+                if y_probas.shape[1] > 2:
+                    print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas, multi_class="ovr"))
+                else:
+                    print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas[:,1]))
+            print(classification_report(y_test,y_preds))
+        else:
+            if isinstance(y_probas, str):
+                ### This is for multi-label problems without probas ####
+                for each_i in range(y_test.shape[1]):
+                    bal_score = balanced_accuracy_score(y_test.values[:,each_i],y_preds[:,each_i])
+                    bal_scores.append(bal_score)
+                    print('    Bal accu %0.0f%%' %(100*bal_score))
+            else:
+                ##### This is only for multi_label_multi_class problems
+                num_targets = y_test.shape[1]
+                for each_i in range(num_targets):
+                    if len(np.unique(y_test.values[:,each_i])) > 2:
+                        ### This nan problem happens due to Label Propagation but can be fixed as follows ##
+                        mat = y_probas[each_i]
+                        if np.any(np.isnan(mat)):
+                            mat = pd.DataFrame(mat).fillna(method='ffill').values
+                            bal_score = roc_auc_score(y_test.values[:,each_i],mat,multi_class="ovr")
+                        else:
+                            bal_score = roc_auc_score(y_test.values[:,each_i],y_probas[each_i],multi_class="ovr")
+                    else:
+                        if isinstance(y_probas, dict):
+                            if y_probas[each_i].ndim <= 1:
+                                ## This is caused by Label Propagation hence you must probas like this ##
+                                mat = y_probas[each_i]
+                                if np.any(np.isnan(mat)):
+                                    mat = pd.DataFrame(mat).fillna(method='ffill').values
+                                bal_score = roc_auc_score(y_test.values[:,each_i],mat)
+                            else:
+                                bal_score = roc_auc_score(y_test.values[:,each_i],y_probas[each_i][:,1])
+                        else:
+                            if y_probas.shape[1] == num_targets:
+                                ### This means Label Propagation was used which creates probas like this ##
+                                bal_score = roc_auc_score(y_test.values[:,each_i],y_probas[:,each_i])
+                            else:
+                                ### This means regular sklearn classifiers which predict multi dim probas #
+                                bal_score = roc_auc_score(y_test.values[:,each_i],y_probas[each_i])
+                    print('Target number %s: ROC AUC score %0.0f%%' %(each_i+1,100*bal_score))
+                    bal_scores.append(bal_score)
+                    print(classification_report(y_test.values[:,each_i],y_preds[:,each_i]))
+    final_score = np.mean(bal_scores)
+    print("final average score = %0.2f" %final_score)
+    return final_score
+##############################################################################
