@@ -802,14 +802,10 @@ def print_sulo_accuracy(y_test, y_preds, y_probas=''):
     bal_scores = []
     ####### Once you have detected what problem it is, now print its scores #####
     if y_test.ndim <= 1: 
-        ### This is a single label problem # we need to test for multiclass ##
         bal_score = balanced_accuracy_score(y_test,y_preds)
         print('Bal accu %0.0f%%' %(100*bal_score))
         if not isinstance(y_probas, str):
-            if y_probas.ndim <= 1:
-                print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas[:,1]))
-            else:
-                print('Multi-class ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas, multi_class="ovr"))
+            print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas[:,1]))
         bal_scores.append(bal_score)
         print(classification_report(y_test,y_preds))
     elif y_test.ndim >= 2:
@@ -863,6 +859,6 @@ def print_sulo_accuracy(y_test, y_preds, y_probas=''):
                     bal_scores.append(bal_score)
                     print(classification_report(y_test.values[:,each_i],y_preds[:,each_i]))
     final_score = np.mean(bal_scores)
-    print("final average accuracy score = %0.2f" %final_score)
+    print("final average score = %0.2f" %final_score)
     return final_score
 ##############################################################################

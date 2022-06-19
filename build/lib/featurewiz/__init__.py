@@ -21,7 +21,7 @@ from .featurewiz import FE_kmeans_resampler, FE_find_and_cap_outliers, EDA_find_
 from .featurewiz import split_data_n_ways, FE_concatenate_multiple_columns
 from .featurewiz import FE_discretize_numeric_variables
 from .ml_models import simple_XGBoost_model, simple_LightGBM_model, complex_XGBoost_model, complex_LightGBM_model,data_transform
-from .sulo_models import SuloClassifier, get_class_weights, get_scale_pos_weight, print_sulo_accuracy
+from .sulo_models import SuloClassifier, get_class_weights, get_scale_pos_weight
 from .my_encoders import My_LabelEncoder, Groupby_Aggregator, My_LabelEncoder_Pipe
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe
 from .sulov_method import FE_remove_variables_using_SULOV_method
