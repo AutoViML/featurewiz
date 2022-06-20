@@ -73,6 +73,11 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         self.classes = print_flatten_dict(class_weights)
         scale_pos_weight = get_scale_pos_weight(y)
         #print('Class weights = %s' %class_weights)
+        gpu_exists = check_if_GPU_exists()
+        if gpu_exists:
+            device="gpu"
+        else:
+            device="cpu"
         ## Don't change this since it gives an error ##
         metric  = 'auc'
         ### don't change this metric and eval metric - it gives error if you change it ##
@@ -164,6 +169,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         else:
                             self.base_estimator = LGBMClassifier(is_unbalance=True, learning_rate=0.3, 
                                                     max_depth=10, metric=metric,
+                                                    device=device,
                                                     #num_class=self.max_number_of_classes,
                                                     n_estimators=100,  num_leaves=84, 
                                                     #objective='binary',
@@ -176,6 +182,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         if y.shape[0] <= row_limit:
                             self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
                                                     max_depth=10, 
+                                                    device=device,
                                                     #metric='multi_logloss',
                                                     #num_class=self.max_number_of_classes,
                                                     #objective='multiclass',
@@ -193,6 +200,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                                    feature_fraction_seed=1337,
                                                    max_depth=3,
                                                    n_estimators=150, seed=1337,
+                                                   device=device,
                                                    verbose=-1)
                 
                 for i, (train_index, test_index) in enumerate(kfold.split(X)):
@@ -316,6 +324,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         model_name = 'bg'
                     #self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
                     #                        max_depth=10, metric='multi_logloss',
+                    #                        device=device,
                     #                        n_estimators=130, num_class=number_of_classes, num_leaves=84, objective='multiclass',
                     #                        boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
             else:
@@ -325,16 +334,19 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     #            boosting_type ='goss', scale_pos_weight=scale_pos_weight)
                     self.base_estimator = LGBMClassifier(is_unbalance=True, learning_rate=0.3, 
                                             max_depth=10, metric=metric,
+                                            device=device,
                                             n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='binary',
                                             boosting_type ='goss', scale_pos_weight=None)
                                 
                 else:
                     #self.base_estimator = LGBMClassifier(n_estimators=250, random_state=99,
-                    #                   boosting_type ='goss', class_weight=class_weights)        
+                    #                        device = device,
+                    #                        boosting_type ='goss', class_weight=class_weights)        
                     if self.weights:
                         class_weights = None
                     self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
                                             max_depth=10, metric='multi_logloss',
+                                            device=device,
                                             n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='multiclass',
                                             boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
         else:
@@ -372,12 +384,20 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     # Train model and use it in a pipeline to train on the fold  ##
                     pipe = Pipeline(
                         steps=[("preprocessor", preprocessor), ("model", self.base_estimator)])
-                    self.base_estimator = rand_search(pipe, x_train, y_train, 
-                                            model_name, self.pipeline, verbose=self.verbose)
+                    if model_name == 'other':
+                        print('No HPT tuning performed since base estimator is given by input...')
+                        self.base_estimator = copy.deepcopy(pipe)
+                    else:
+                        self.base_estimator = rand_search(pipe, x_train, y_train, 
+                                                model_name, self.pipeline, verbose=self.verbose)
                 else:
-                    ### leave the base estimator as is ###
-                    self.base_estimator = rand_search(self.base_estimator, x_train, 
-                                        y_train, model_name, self.pipeline, verbose=self.verbose)
+                    if model_name == 'other':
+                        ### leave the base estimator as is ###
+                        print('No HPT tuning performed since base estimator is given by input...')
+                    else:
+                        ### leave the base estimator as is ###
+                        self.base_estimator = rand_search(self.base_estimator, x_train, 
+                                            y_train, model_name, self.pipeline, verbose=self.verbose)
 
                 est_list = num_splits*[self.base_estimator]
                 #print('    base estimator = %s' %self.base_estimator)
@@ -866,3 +886,13 @@ def print_sulo_accuracy(y_test, y_preds, y_probas=''):
     print("final average accuracy score = %0.2f" %final_score)
     return final_score
 ##############################################################################
+import os
+def check_if_GPU_exists():
+    try:
+        os.environ['NVIDIA_VISIBLE_DEVICES']
+        print('GPU available on this device. Please activate it to speed up lightgbm.')
+        return True
+    except:
+        print('No GPU available on this device. Using cpu for lightgbm and others.')
+        return False
+###############################################################################
