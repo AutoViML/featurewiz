@@ -1172,11 +1172,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 print('    SULOV method is erroring. Continuing ...')
                 final_list = copy.deepcopy(numvars)
         else:
-                print('    Running faster SULOV method since data dimension %s m > 50 m. Continuing ...' %int(data_dim))
-                data_temp = dataname.sample(n=10000, replace=True, random_state=99)
-                final_list = FE_remove_variables_using_SULOV_method(data_temp,numvars,settings.modeltype,target,
-                             corr_limit,verbose, dask_xgboost_flag)
-                del data_temp
+                print('    Skipping SULOV method since data dimension %s m > 50 m. Continuing ...' %int(data_dim))
                 final_list = copy.deepcopy(numvars)            
     else:
         print('    Skipping SULOV method since there are no continuous vars. Continuing ...')
