@@ -1177,7 +1177,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 final_list = FE_remove_variables_using_SULOV_method(data_temp,numvars,settings.modeltype,target,
                              corr_limit,verbose, dask_xgboost_flag)
                 del data_temp
-                final_list = copy.deepcopy(numvars)            
     else:
         print('    Skipping SULOV method since there are no continuous vars. Continuing ...')
         final_list = copy.deepcopy(numvars)
