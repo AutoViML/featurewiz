@@ -4,7 +4,7 @@ import math
 from collections import Counter
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, AdaBoostClassifier
-from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.ensemble import ExtraTreesClassifier, ExtraTreesRegressor
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.multiclass import OneVsRestClassifier, OneVsOneClassifier
 from sklearn.metrics import accuracy_score
@@ -28,11 +28,13 @@ from sklearn.multioutput import ClassifierChain, RegressorChain
 import scipy as sp
 import pdb
 from sklearn.semi_supervised import LabelPropagation
-from sklearn.ensemble import BaggingClassifier
+from sklearn.ensemble import BaggingClassifier, BaggingRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer, MissingIndicator
 from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
 from sklearn.compose import ColumnTransformer
+from scipy.stats import uniform as sp_randFloat
+from scipy.stats import randint as sp_randInt
 
 from .featurewiz import get_class_distribution
 
@@ -48,17 +50,20 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
     If you want, you can igore both these inputs and it will automatically choose these.
     It is fully compatible with scikit-learn pipelines and other models.
     """
-    def __init__(self, base_estimator=None, n_estimators=None, pipeline=True, weights=False, verbose=0):
+    def __init__(self, base_estimator=None, n_estimators=None, pipeline=True, weights=False, 
+                                       regression=False, verbose=0):
         self.n_estimators = n_estimators
         self.base_estimator = base_estimator
         self.pipeline = pipeline
         self.weights = weights
+        self.regression = regression
         self.verbose = verbose
         self.models = []
         self.multi_label =  False
         self.max_number_of_classes = 1
         self.scores = []
         self.classes = []
+        self.regression_min_max = []
 
     def fit(self, X, y):
         seed = 42
@@ -68,7 +73,10 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         # Use KFold for understanding the performance
         if self.weights:
             print('Remember that using class weights will wrongly skew predict_probas from any classifier')
-        class_weights = get_class_weights(y, verbose=self.verbose)
+        if self.regression:
+            class_weights = []
+        else:
+            class_weights = get_class_weights(y, verbose=0)
         ### Remember that putting class weights will totally destroy predict_probas ###
         self.classes = print_flatten_dict(class_weights)
         scale_pos_weight = get_scale_pos_weight(y)
@@ -83,6 +91,9 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         ### don't change this metric and eval metric - it gives error if you change it ##
         eval_metric = 'auc'
         row_limit = 10000
+        if self.regression:
+            self.regression_min_max = get_max_min_from_y(y)
+            print('    Min and max classes of y = %s' %self.regression_min_max)
         ################          P I P E L I N E        ##########################
         numeric_transformer = Pipeline(
             steps=[("imputer", SimpleImputer(strategy="mean", add_indicator=True)), ("scaler", StandardScaler())]
@@ -138,6 +149,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         model_name = 'lgb'
         num_splits = self.n_estimators
         kfold = KFold(n_splits=num_splits, random_state=seed, shuffle=shuffleFlag)
+        scoring = 'balanced_accuracy'
         ##### This is where we check if y is single label or multi-label ##
         if isinstance(y, pd.DataFrame):
             ###############################################################
@@ -157,10 +169,11 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ##############################################################
                         if y.shape[0] <= row_limit:
                             if (X.dtypes==float).all():
-                                print('    Selecting Label Propagation since it will work great for this dataset...')
-                                print('        however it will skew probabilities and show lower ROC AUC score than normal.')
+                                if self.verbose:
+                                    print('    Selecting Label Propagation since it will work great for this dataset...')
+                                    print('        however it will skew probabilities and show lower ROC AUC score than normal.')
                                 self.base_estimator =  LabelPropagation()
-                                model_name = 'other'
+                                model_name = 'lp'
                             else:
                                 if self.verbose:
                                     print('    Selecting Bagging Classifier for this dataset...')
@@ -180,21 +193,36 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ### Make sure you don't put any class weights here since it won't work in multi-labels ##
                         ##############################################################
                         if y.shape[0] <= row_limit:
-                            self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
-                                                    max_depth=10, 
-                                                    device=device,
-                                                    #metric='multi_logloss',
-                                                    #num_class=self.max_number_of_classes,
-                                                    #objective='multiclass',
-                                                    n_estimators=100,  num_leaves=84, 
-                                                    boosting_type ='goss', scale_pos_weight=None,
-                                                    class_weight=None, verbose=-1)
-                            print('    Selecting Label Propagation since it will work great for this dataset...')
-                            print('        however it will skew probabilities and show lower ROC AUC score than normal.')
-                            self.base_estimator =  LabelPropagation()
-                            model_name = 'other'
+                            if self.regression:
+                                if self.verbose:
+                                    print('    Selecting Extra Trees Regressor since regression flag is set...')
+                                self.base_estimator = ExtraTreesRegressor(n_estimators=200, random_state=99)
+                                model_name = 'rf'
+                                scoring = 'neg_mean_squared_error'
+                            else:
+                                #self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
+                                #                    max_depth=10, 
+                                #                    device=device,
+                                #                    #metric='multi_logloss',
+                                #                    #num_class=self.max_number_of_classes,
+                                #                    #objective='multiclass',
+                                #                    n_estimators=100,  num_leaves=84, 
+                                #                    boosting_type ='goss', scale_pos_weight=None,
+                                #                        class_weight=None, verbose=-1)
+                                print('    Selecting Label Propagation since it works great for multiclass problems...')
+                                print('        however it will skew probabilities a little so be aware of this')
+                                self.base_estimator =  LabelPropagation()
+                                model_name = 'lp'
                         else:
-                            self.base_estimator = LGBMClassifier(bagging_seed=1337,
+                            if self.regression:
+                                if self.verbose:
+                                    print('    Selecting LGBM Regressor as base estimator...')
+                                self.base_estimator = LGBMRegressor(n_estimators=250)
+                                scoring = 'neg_mean_squared_error'
+                            else:
+                                if self.verbose:
+                                    print('    Selecting LGBM Classifier as base estimator...')
+                                self.base_estimator = LGBMClassifier(bagging_seed=1337,
                                                    data_random_seed=1337,
                                                    drop_seed=1337,
                                                    feature_fraction_seed=1337,
@@ -202,7 +230,9 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                                    n_estimators=150, seed=1337,
                                                    device=device,
                                                    verbose=-1)
-                
+                else:
+                    model_name == 'other'
+                ### Remember we don't to HPT Tuning for Multi-label problems since it errors ####
                 for i, (train_index, test_index) in enumerate(kfold.split(X)):
                     start_time = time.time()
                     # Split data into train and test based on folds          
@@ -223,7 +253,6 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         #self.base_estimator = rand_search(self.base_estimator, x_train, y_train, 
                         #                        model_name, verbose=self.verbose)
                         #print('    hyper tuned base estimator = %s' %self.base_estimator)
-
                         if self.max_number_of_classes <= 1:
                             est_list = [ClassifierChain(self.base_estimator, order="random", cv=3, random_state=i) 
                                         for i in range(num_splits)] 
@@ -231,12 +260,19 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                 print('Fitting a %s for %s targets with MultiOutputClassifier. This will take time...' %(
                                             str(self.base_estimator).split("(")[0],y.shape[1]))
                         else:
-                            ### You must use multioutputclassifier since it is the only one predicts probas correctly ##
-                            est_list = [MultiOutputClassifier(self.base_estimator)#, order="random", random_state=i) 
-                                        for i in range(num_splits)] 
-                            if self.verbose:
-                                print('Fitting a %s for %s targets with MultiOutputClassifier. This will take time...' %(
-                                            str(self.base_estimator).split("(")[0],y.shape[1]))
+                            if self.regression:
+                                scoring = 'neg_mean_squared_error'
+                                if self.verbose:
+                                    print('    Fitting with RegressorChain since regression flag is set...')
+                                est_list = [RegressorChain(self.base_estimator, order="random", random_state=i)
+                                            for i in range(num_splits)] 
+                            else:
+                                ### You must use multioutputclassifier since it is the only one predicts probas correctly ##
+                                est_list = [MultiOutputClassifier(self.base_estimator)#, order="random", random_state=i) 
+                                            for i in range(num_splits)] 
+                                if self.verbose:
+                                    print('Fitting a %s for %s targets with MultiOutputClassifier. This will take time...' %(
+                                                str(self.base_estimator).split("(")[0],y.shape[1]))
 
                     # Initialize model with your supervised algorithm of choice
                     model = est_list[i]
@@ -264,10 +300,14 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
 
 
                     # Use best classification metric to measure performance of model
-                    #score = balanced_accuracy_score(y_test, preds)
-                    
-                    score = print_accuracy(targets, y_test, preds, verbose=self.verbose)
-                    print("    Fold %s: Average OOF Score: %0.0f%%" %(i+1, 100*score))
+                    if self.regression:
+                        ### Use Regression predictions and convert them into classes here ##
+                        preds = convert_regression_to_classes(preds, y_test)
+                        score = rmse(y_test, preds)
+                        print("    Fold %s: Average OOF Error (lower is better): %0.0f" %(i+1, score))
+                    else:
+                        score = print_accuracy(targets, y_test, preds, verbose=self.verbose)
+                        print("    Fold %s: Average OOF Score: %0.0f%%" %(i+1, 100*score))
                     self.scores.append(score)
                     
                     # Finally, check out the total time taken
@@ -278,7 +318,11 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                 # Compute average score
                 averageAccuracy = sum(self.scores)/len(self.scores)
                 if self.verbose:
-                    print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(
+                    if self.regression:
+                        print("Average RMSE score of %s-model SuloClassifier: %0.3f" %(
+                                        self.n_estimators, averageAccuracy))
+                    else:                        
+                        print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(
                                         self.n_estimators, 100*averageAccuracy))
                 end = time.time()
                 timeTaken = end - start
@@ -287,19 +331,20 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         ########################################################
         #####  This is for Single Label Classification problems 
         ########################################################
+        if isinstance(y, pd.Series):
+            targets = y.name
+        else:
+            targets = []
         if self.base_estimator is None:
             if data_samples <= row_limit:
                 ### For small datasets use RFC for Binary Class   ########################
                 if number_of_classes <= 1:
                     ### For binary-class problems use RandomForest or the faster ET Classifier ######
-                    #self.base_estimator = ExtraTreesClassifier(n_estimators=50, max_depth=2,
-                    #                random_state=0, class_weight=class_weights)
-                    #model_name = 'rf'
                     if (X.dtypes==float).all():
                         print('    Selecting Label Propagation since it will work great for this dataset...')
                         print('        however it will skew probabilities and show lower ROC AUC score than normal.')
                         self.base_estimator =  LabelPropagation()
-                        model_name = 'other'
+                        model_name = 'lp'
                     else:
                         if self.verbose:
                             print('    Selecting Bagging Classifier for this dataset...')
@@ -307,29 +352,35 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         self.base_estimator = BaggingClassifier(n_estimators=20)
                         model_name = 'bg'
                 else:
-                    ### For small datasets use LGBM for Multi Class   ########################
-                    #self.base_estimator = ExtraTreesClassifier(n_estimators=50, max_depth=2,
-                    #                random_state=0, class_weight=class_weights)
-                    #model_name = 'rf'
-                    ### For multi-class problems use Label Propagation which is faster and better ##
-                    if (X.dtypes==float).all():
-                        print('    Selecting Label Propagation since it will work great for this dataset...')
-                        print('        however it will skew probabilities and show lower ROC AUC score than normal.')
-                        self.base_estimator =  LabelPropagation()
-                        model_name = 'other'
-                    else:
+                    ### For Multi-class datasets you can use Regressors for numeric classes ####################
+                    if self.regression:
+                        scoring = 'neg_mean_squared_error'
                         if self.verbose:
-                            print('    Selecting Bagging Classifier for this dataset...')
-                        self.base_estimator = BaggingClassifier(n_estimators=20)
-                        model_name = 'bg'
-                    #self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
-                    #                        max_depth=10, metric='multi_logloss',
-                    #                        device=device,
-                    #                        n_estimators=130, num_class=number_of_classes, num_leaves=84, objective='multiclass',
-                    #                        boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
+                            print('    Selecting Extra Trees Regressor as base estimator...')
+                        self.base_estimator = ExtraTreesRegressor(n_estimators=200, random_state=99)
+                        model_name = 'rf'
+                    else:
+                        ### For multi-class problems use Label Propagation which is faster and better ##
+                        if (X.dtypes==float).all():
+                            print('    Selecting Label Propagation since it will work great for this dataset...')
+                            print('        however it will skew probabilities and show lower ROC AUC score than normal.')
+                            self.base_estimator =  LabelPropagation()
+                            model_name = 'lp'
+                        else:
+                            if self.verbose:
+                                print('    Selecting Bagging Classifier for this dataset...')
+                            self.base_estimator = BaggingClassifier(n_estimators=20)
+                            model_name = 'bg'
+                        #self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
+                        #                        max_depth=10, metric='multi_logloss',
+                        #                        device=device,
+                        #                        n_estimators=130, num_class=number_of_classes, num_leaves=84, objective='multiclass',
+                        #                        boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
             else:
-                ### For large datasets use LGBM  ########################
+                ### For large datasets use LGBM or Regressors as well ########################
                 if number_of_classes <= 1:
+                    if self.verbose:
+                        print('    Selecting LGBM Classifier for this dataset...')
                     #self.base_estimator = LGBMClassifier(n_estimators=250, random_state=99, 
                     #            boosting_type ='goss', scale_pos_weight=scale_pos_weight)
                     self.base_estimator = LGBMClassifier(is_unbalance=True, learning_rate=0.3, 
@@ -339,16 +390,27 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                             boosting_type ='goss', scale_pos_weight=None)
                                 
                 else:
-                    #self.base_estimator = LGBMClassifier(n_estimators=250, random_state=99,
-                    #                        device = device,
-                    #                        boosting_type ='goss', class_weight=class_weights)        
-                    if self.weights:
-                        class_weights = None
-                    self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
-                                            max_depth=10, metric='multi_logloss',
-                                            device=device,
-                                            n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='multiclass',
-                                            boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
+                    ### For Multi-class datasets you can use Regressors for numeric classes ####################
+                    if self.regression:
+                        scoring = 'neg_mean_squared_error'
+                        if self.verbose:
+                            print('    Selecting LGBM Regressor as base estimator...')
+                        ###   Extra Trees is not so great for large data sets - LGBM is better ####
+                        #self.base_estimator = ExtraTreesClassifier(n_estimators=250, max_depth=2,
+                        #                random_state=0, class_weight=class_weights)
+                        #model_name = 'rf'
+                        self.base_estimator = LGBMRegressor(n_estimators=250, random_state=99)
+                        model_name = 'lgb'
+                    else:
+                        #if self.weights:
+                        #    class_weights = None
+                        if self.verbose:
+                            print('    Selecting LGBM Classifier as base estimator...')
+                        self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
+                                                max_depth=10, metric='multi_logloss',
+                                                device=device,
+                                                n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='multiclass',
+                                                boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
         else:
             model_name = 'other'
 
@@ -377,7 +439,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             # Convert the data into numpy arrays
             #if not isinstance(x_train, np.ndarray):
             #    x_train, x_test = x_train.values, x_test.values
-
+            
             ##   small datasets processing #####
             if i == 0:
                 if self.pipeline:
@@ -389,15 +451,16 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         self.base_estimator = copy.deepcopy(pipe)
                     else:
                         self.base_estimator = rand_search(pipe, x_train, y_train, 
-                                                model_name, self.pipeline, verbose=self.verbose)
+                                                model_name, self.pipeline, scoring, verbose=self.verbose)
                 else:
+                    ### This is for without a pipeline #######
                     if model_name == 'other':
                         ### leave the base estimator as is ###
                         print('No HPT tuning performed since base estimator is given by input...')
                     else:
                         ### leave the base estimator as is ###
                         self.base_estimator = rand_search(self.base_estimator, x_train, 
-                                            y_train, model_name, self.pipeline, verbose=self.verbose)
+                                            y_train, model_name, self.pipeline, scoring, verbose=self.verbose)
 
                 est_list = num_splits*[self.base_estimator]
                 #print('    base estimator = %s' %self.base_estimator)
@@ -449,15 +512,24 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             preds = model.predict(x_test)
 
             # Use best classification metric to measure performance of model
-            score = balanced_accuracy_score(y_test, preds)
-            print("    Fold %s: OOF Score: %0.0f%%" %(i+1, 100*score))
+            if self.regression:
+                ### Use Regression predictions and convert them into classes here ##
+                preds = convert_regression_to_classes(preds, y_test)
+                score = rmse(y_test, preds)
+                print("    Fold %s: Average OOF Error (lower is better): %0.3f" %(i+1, score))
+            else:
+                #score = balanced_accuracy_score(y_test, preds)
+                score = print_accuracy(targets, y_test, preds, verbose=self.verbose)
+                print("    Fold %s: OOF Score: %0.0f%%" %(i+1, 100*score))
             self.scores.append(score)
 
         # Compute average score
         averageAccuracy = sum(self.scores)/len(self.scores)
         if self.verbose:
-            print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(self.n_estimators, 100*averageAccuracy))
-
+            if self.regression:
+                print("Average RMSE of %s-model SuloClassifier: %0.3f" %(self.n_estimators, averageAccuracy))
+            else:
+                print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(self.n_estimators, 100*averageAccuracy))
 
         # Finally, check out the total time taken
         end = time.time()
@@ -473,6 +545,8 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             ypre = np.array([model.predict(X) for model in self.models ])
             y_predis = np.average(ypre, axis=0, weights=weights)
             y_preds = np.round(y_predis,0).astype(int)
+            if self.regression:
+                y_preds = convert_regression_to_classes(y_preds, self.regression_min_max)
             return y_preds
         y_predis = np.column_stack([model.predict(X) for model in self.models ])
         ### This weights the model's predictions according to OOB scores obtained
@@ -486,10 +560,14 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             else:
                 y_predis = np.average(y_predis, weights=weights, axis=1)
                 y_predis = np.round(y_predis,0).astype(int)
+        if self.regression:
+            y_predis = convert_regression_to_classes( y_predis, self.regression_min_max)
         return y_predis
-        #return stats.mode(y_predis,axis=1)[0].ravel()
     
     def predict_proba(self, X):
+        if self.regression:
+            print('If regression flag is set, then no probabilities can be obtained.')
+            return X
         weights = self.scores
         y_probas = [model.predict_proba(X) for model in self.models ]
         y_probas = return_predict_proba(y_probas)
@@ -497,49 +575,51 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
 
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import RandomizedSearchCV
-def rand_search(model, X, y, model_name, pipe_flag=False, verbose=0):
+def rand_search(model, X, y, model_name, pipe_flag=False, scoring=None, verbose=0):
     start = time.time()
     if pipe_flag:
         model_string = 'model__'
     else:
         model_string = ''
+    ### set n_iter here ####
+    n_iter = 5
     if model_name == 'rf':
-        criterion = ["gini", "entropy", "log_loss"]
+        #criterion = ["gini", "entropy", "log_loss"]
         # Number of trees in random forest
-        n_estimators = [int(x) for x in np.linspace(start = 50, stop = 300, num = 10)]
+        n_estimators = sp_randInt(100, 300)
         # Number of features to consider at every split
         max_features = ['auto', 'sqrt', 'log']
         # Maximum number of levels in tree
-        max_depth = [2, 4, 6, 10, None]
+        max_depth = sp_randInt(2, 10)
         # Minimum number of samples required to split a node
-        min_samples_split = [2, 5, 10]
+        min_samples_split = sp_randInt(2, 10)
         # Minimum number of samples required at each leaf node
-        min_samples_leaf = [1, 2, 4]
+        min_samples_leaf = sp_randInt(2, 10)
         # Method of selecting samples for training each tree
         bootstrap = [True, False]
         ###  These are the RandomForest params ########        
         params = {
-            model_string+'criterion': criterion,
+            #model_string+'criterion': criterion,
             model_string+'n_estimators': n_estimators,
-            #model_string+'max_features': max_features,
+            model_string+'max_features': max_features,
             #model_string+'max_depth': max_depth,
             #model_string+'min_samples_split': min_samples_split,
             #model_string+'min_samples_leaf': min_samples_leaf,
            model_string+'bootstrap': bootstrap,
                        }
-    if model_name == 'bg':
+    elif model_name == 'bg':
         criterion = ["gini", "entropy", "log_loss"]
         # Number of trees in random forest
-        n_estimators = [int(x) for x in np.linspace(start = 50, stop = 300, num = 10)]
+        n_estimators = sp_randInt(100, 300)
         # Number of features to consider at every split
         #max_features = ['auto', 'sqrt', 'log']
-        max_features = [0.3, 0.5, 0.7]
+        max_features = sp_randFloat(0.3,0.9)
         # Maximum number of levels in tree
-        max_depth = [2, 4, 6, 10, None]
+        max_depth = sp_randInt(2, 10)
         # Minimum number of samples required to split a node
-        min_samples_split = [2, 5, 10]
+        min_samples_split = sp_randInt(2, 10)
         # Minimum number of samples required at each leaf node
-        min_samples_leaf = [1, 2, 4]
+        min_samples_leaf = sp_randInt(2, 10)
         # Method of selecting samples for training each tree
         bootstrap = [True, False]
         ###  These are the RandomForest params ########
@@ -555,9 +635,9 @@ def rand_search(model, X, y, model_name, pipe_flag=False, verbose=0):
                        }
     elif model_name == 'lgb':
         # Number of estimators in LGBM Classifier ##
-        n_estimators = np.linspace(50, 500, 10, dtype = "int")
+        n_estimators = sp_randInt(100, 500)
         ### number of leaves is only for LGBM ###
-        num_leaves = np.linspace(5, 500, 50, dtype = "int")
+        num_leaves = sp_randInt(5, 300)
         ## learning rate is very important for LGBM ##
         learning_rate = sp.stats.uniform(scale=1)
         params = {
@@ -565,22 +645,22 @@ def rand_search(model, X, y, model_name, pipe_flag=False, verbose=0):
             model_string+'num_leaves': num_leaves,
             model_string+'learning_rate': learning_rate,
                     }
-    elif model_name == 'other':
+    elif model_name == 'lp':
         params =  {
-            model_string+'gamma': [2, 4, 10, 20, 32],
+            model_string+'gamma': sp_randInt(0, 32),
             model_string+'kernel': ['knn', 'rbf'],
-            model_string+'max_iter': [500, 1000, 2000],
-            model_string+'n_neighbors': [2, 3, 5, 7],
+            model_string+'max_iter': sp_randInt(50, 500),
+            model_string+'n_neighbors': sp_randInt(2, 5),
                 }
     else:
         ### Since we don't know what model will be sent, we cannot tune it ##
         params = {}
         return model
 
-    kfold = StratifiedKFold(n_splits=5, random_state=100, shuffle=True)
+    kfold = KFold(n_splits=5, random_state=100, shuffle=True)
     if verbose:
         print("Finding best params for base estimator using random search...")
-    clf = RandomizedSearchCV(model, params, n_iter=4, scoring='balanced_accuracy',
+    clf = RandomizedSearchCV(model, params, n_iter=n_iter, scoring=scoring,
                          cv = kfold, n_jobs=-1, random_state=100)
     
     clf.fit(X, y)
@@ -757,7 +837,7 @@ def print_accuracy(target, y_test, y_preds, verbose=0):
         if verbose:
             print('Bal accu %0.0f%%' %(100*bal_score))
             print(classification_report(y_test,y_preds))
-    elif len(target) == 1:
+    elif len(target) <= 1:
         bal_score = balanced_accuracy_score(y_test,y_preds)
         bal_scores.append(bal_score)
         if verbose:
@@ -850,6 +930,7 @@ def print_sulo_accuracy(y_test, y_preds, y_probas=''):
                     bal_score = balanced_accuracy_score(y_test.values[:,each_i],y_preds[:,each_i])
                     bal_scores.append(bal_score)
                     print('    Bal accu %0.0f%%' %(100*bal_score))
+                    print(classification_report(y_test.values[:,each_i],y_preds[:,each_i]))
             else:
                 ##### This is only for multi_label_multi_class problems
                 num_targets = y_test.shape[1]
@@ -893,6 +974,38 @@ def check_if_GPU_exists():
         print('GPU available on this device. Please activate it to speed up lightgbm.')
         return True
     except:
-        print('No GPU available on this device. Using cpu for lightgbm and others.')
+        print('No GPU available on this device. Using CPU for lightgbm and others.')
         return False
 ###############################################################################
+def get_max_min_from_y(actuals):
+    if isinstance(actuals, pd.Series):
+        Y_min = actuals.values.min()
+        Y_max = actuals.values.max()
+    elif isinstance(actuals, pd.DataFrame):
+        Y_min = actuals.values.ravel().min()
+        Y_max = actuals.values.ravel().max()
+    else:
+        Y_min = actuals.min()
+        Y_max = actuals.max()
+    return np.array([Y_min, Y_max])
+
+def convert_regression_to_classes(predictions, actuals):
+    if isinstance(actuals, pd.Series):
+        Y_min = actuals.values.min()
+        Y_max = actuals.values.max()
+    elif isinstance(actuals, pd.DataFrame):
+        Y_min = actuals.values.ravel().min()
+        Y_max = actuals.values.ravel().max()
+    else:
+        Y_min = actuals.min()
+        Y_max = actuals.max()
+    predictions = np.round(predictions,0).astype(int)
+    predictions = np.where(predictions<Y_min, Y_min, predictions)
+    predictions = np.where(predictions>Y_max, Y_max, predictions)
+    return predictions
+###############################################################################
+from sklearn.metrics import mean_squared_error
+
+def rmse(y_actual, y_predicted):
+    return mean_squared_error(y_actual, y_predicted, squared=False)
+##############################################################################
