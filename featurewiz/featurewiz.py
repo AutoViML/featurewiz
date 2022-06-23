@@ -1446,56 +1446,69 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ##########################################################################
     ## In one case, column names get changed in train but not in test since it test is not available.
     print('Returning 2 dataframes: dataname and test_data with %d important features.' %len(important_features))
-    ### You select the features with the same old names as before #######
-    
-    old_important_features = copy.deepcopy(important_features)
-    if len(date_cols) > 0:
-        date_replacer = date_col_mappers.get  # For faster gets.
-        important_features1 = [date_replacer(n, n) for n in important_features]
-    else:
-        important_features1 = [item_replacer(n, n) for n in important_features]
-    important_features = find_remove_duplicates(important_features1)
-    if old_important_features == important_features:
-        ## Don't drop the old target since there is only one target here ###
-        pass
-    else:
-        ### You just move the values from the new names to the old feature names ##
-        dataname[important_features] = dataname[old_important_features]
-
-    old_target = copy.deepcopy(target)
-    
-    if isinstance(target, str):
-        target = item_replacer(target, target)
-    else:
-        target = [item_replacer(n, n) for n in target]
-
-    if old_target == target:
-        ## Don't drop the old target since there is only one target here ###
-        pass
-    else:
-        ### you don't need drop the cols that have changed since only a few are selected #######
-        dataname[target] = dataname[old_target]
-    #### This is where we check whether to return test data or not ######
-    if isinstance(test_data, str) or test_data is None:
-        if feature_gen or feature_type:
+    if feature_gen or feature_type:
+        if isinstance(test_data, str) or test_data is None:
             ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
             dataname = pd.concat([train_ids, dataname], axis=1)
-        return important_features, dataname[important_features+target]
-    else:
-        if feature_gen or feature_type:
+            return important_features, dataname[important_features+target]
+        else:
             ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
             dataname = pd.concat([train_ids, dataname], axis=1)
             test_data = pd.concat([test_ids, test_data], axis=1)
-        #### now change the values from new feature names to old feature names ###
-        test_data[important_features] = test_data[old_important_features]
-        ### You select the features with the same old names as before #######
-        if isinstance(target, str):
-            if target in list(test_data): ### see if target exists in this test data
-                return dataname[important_features+[target]], test_data[important_features+[target]]
-            else:
+            if isinstance(target, str):
                 return dataname[important_features+[target]], test_data[important_features]
+            else:
+                return dataname[important_features+target], test_data[important_features]
+    else:
+        ### You select the features with the same old names as before #######
+        old_important_features = copy.deepcopy(important_features)
+        if len(date_cols) > 0:
+            date_replacer = date_col_mappers.get  # For faster gets.
+            important_features1 = [date_replacer(n, n) for n in important_features]
         else:
-            return dataname[important_features+target], test_data[important_features]
+            important_features1 = [item_replacer(n, n) for n in important_features]
+        important_features = find_remove_duplicates(important_features1)
+        if old_important_features == important_features:
+            ## Don't drop the old target since there is only one target here ###
+            pass
+        else:
+            ### You just move the values from the new names to the old feature names ##
+            dataname[important_features] = dataname[old_important_features]
+
+        old_target = copy.deepcopy(target)
+        
+        if isinstance(target, str):
+            target = item_replacer(target, target)
+        else:
+            target = [item_replacer(n, n) for n in target]
+
+        if old_target == target:
+            ## Don't drop the old target since there is only one target here ###
+            pass
+        else:
+            ### you don't need drop the cols that have changed since only a few are selected #######
+            dataname[target] = dataname[old_target]
+        #### This is where we check whether to return test data or not ######
+        if isinstance(test_data, str) or test_data is None:
+            if feature_gen or feature_type:
+                ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
+                dataname = pd.concat([train_ids, dataname], axis=1)
+            return important_features, dataname[important_features+target]
+        else:
+            if feature_gen or feature_type:
+                ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
+                dataname = pd.concat([train_ids, dataname], axis=1)
+                test_data = pd.concat([test_ids, test_data], axis=1)
+            #### now change the values from new feature names to old feature names ###
+            test_data[important_features] = test_data[old_important_features]
+            ### You select the features with the same old names as before #######
+            if isinstance(target, str):
+                if target in list(test_data): ### see if target exists in this test data
+                    return dataname[important_features+[target]], test_data[important_features+[target]]
+                else:
+                    return dataname[important_features+[target]], test_data[important_features]
+            else:
+                return dataname[important_features+target], test_data[important_features]
 ################################################################################
 def remove_highly_correlated_vars_fast(df, corr_limit=0.70):
     """

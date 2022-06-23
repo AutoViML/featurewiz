@@ -79,6 +79,15 @@ As of June 2022, thanks to [arturdaraujo](https://github.com/arturdaraujo), feat
 1. <b>Performing Feature Engineering</b>: One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions such as Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features to find best features was difficult and left only to "experts" or "professionals". featurewiz was created to help you in this endeavor.<br>
 <p>featurewiz now enables you to add hundreds of such features with a single line of code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go. Not only that, using the next step, featurewiz will sift through numerous such variables and find only the least correlated and most relevant features to your model. All in one step!.<br>
 
+You must use this syntax for feature engg. Otherwise, featurewiz will give an error:
+
+```
+import featurewiz as FW
+outputs = FW.featurewiz(dataname=train, target=target, corr_limit=0.70, verbose=2, sep=',', 
+		header=0, test_data='',feature_engg='', category_encoders='',
+		dask_xgboost_flag=False, nrows=None)
+```
+
 ![feature_engg](feature_engg.jpg)
 
 ## 2.  Feature Selection
@@ -188,7 +197,7 @@ pip install -r requirements.txt
 
 ## Usage
 
-As of Jan 2022, you now invoke featurewiz as a scikit-learn compatible fit and predict transformer pipeline. See syntax below.
+As of Jan 2022, you now invoke featurewiz in two ways for two different goals. For feature selection, you must use the scikit-learn compatible fit and predict transformer syntax such as below.
 
 ```
 from featurewiz import FeatureWiz
@@ -198,15 +207,11 @@ X_test_selected = features.transform(X_test)
 features.features  ### provides the list of selected features ###
 ```
 
-Alternatively, you can continue to use the existing featurewiz function as it is now:
+Alternatively, you can use featurewiz for feature engineering using this older syntax. Otherwise, it will give an error. If you want to combine feature engg and then feature selection, you must use this older syntax:
+
 ```
 import featurewiz as FW
-```
-
-Load a data set (any CSV or text file) into a Pandas dataframe and give it the name of the target(s) variable. If you have more than one target, it will handle multi-label targets too. Just give it a list of variables in that case. If you don't have a dataframe, you can simply enter the name and path of the file to load into featurewiz:
-
-```
-outputs = FW.featurewiz(dataname, target, corr_limit=0.70, verbose=2, sep=',', 
+outputs = FW.featurewiz(dataname=train, target=target, corr_limit=0.70, verbose=2, sep=',', 
 		header=0, test_data='',feature_engg='', category_encoders='',
 		dask_xgboost_flag=False, nrows=None)
 ```

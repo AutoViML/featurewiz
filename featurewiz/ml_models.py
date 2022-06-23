@@ -1340,10 +1340,10 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
                 index=model.estimators_[i].feature_name_,
                 columns=['importance']).sort_values('importance', ascending=False).index.tolist()[:10]))
     else: 
-        print('Top 10 features:\n', pd.DataFrame(model.feature_importances_,index=model.feature_name_,
-            columns=['importance']).sort_values('importance', ascending=False).index.tolist()[:10])
-    ######  Time to consolidate the predictions on test data #########
-
+        print('Top 10 features:\n', pd.DataFrame(
+        model.booster_.feature_importance(importance_type='gain'),index=columns,
+        columns=['importance']).sort_values('importance', ascending=False).index.tolist()[:10])
+        ######  Time to consolidate the predictions on test data #########
     if modeltype == 'Regression':
         if not isinstance(X_XGB_test, str):
             if log_y:
