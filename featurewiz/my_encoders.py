@@ -444,7 +444,7 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
     ###   It returns original dataframe with added features using numeric variables aggregated
     ###   What are aggregate? aggregates can be "count, "mean", "median", "mode", "min", "max", etc.
     ###   What do we aggregrate? all numeric columns in your data
-    ###   What do we groupby? a groupby column which is usually a categorical varaiable.
+    ###   What do we groupby? categorical columns which are usually object or string varaiables.
     ###   Make sure to select best features afterwards using FE_remove_variables_using_SULOV_method.
     #################################################################################################
     ### Inputs:
@@ -455,7 +455,8 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
     ###         List of aggregates available: {'count','sum','mean','mad','median','min','max',
     ###               'mode','abs', 'prod','std','var','sem','skew','kurt',
     ###                'quantile','cumsum','cumprod','cummax','cummin'}
-    ###   groupby_column: this is to groupby all the numeric features and compute aggregates by.
+    ###   categoricals: columns to groupby all the numeric features and compute aggregates by.
+    ###   numerics: columns that will be grouped by categoricals above using aggregate types.
     ### Outputs:
     ###     dataframe: The same input dataframe with additional features created by this function.
     #################################################################################################
@@ -591,158 +592,220 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
     def predict(self, X, **fit_params):
         #print('There is no predict function in Rare class combiner. Returning...')
         return X
-######################################################################################
+###################################################################################
+import numpy as np
+import pandas as pd
+from sklearn.base import TransformerMixin, BaseEstimator
+from collections import defaultdict
+import pdb
 import copy
 from sklearn.base import TransformerMixin
 from collections import defaultdict
-class My_Groupby_Encoder(TransformerMixin):
+class Ranking_Aggregator(BaseEstimator, TransformerMixin):
     """
     #################################################################################################
-    ######  This Groupby_Encoder Class works just like any Transformer in sklearn  ##################
-    #####  You can add any groupby features based on categorical columns in a data frame  ###########
-    #####  The beauty of this function is that it can take care of NaN's and unknown values in Test.#
+    ######  This Ranking_Aggregator Class works just like any Transformer in sklearn  ###############
+    #####  You can rank any ID column based on categorical columns in data. Why is it needed?  ######
+    ###  If you have a patient in hospital then ranking them by city, state or illness is needed ####
     #####  It uses the same fit() and fit_transform() methods of sklearn's LabelEncoder class.  #####
+    ### But you cannot use it in sklearn pipelines since they are more rigit in creating features ###
     #################################################################################################
-    ###   This function is a very fast function that will iteratively compute aggregates for all numeric columns
-    ###   It returns original dataframe with added features using numeric variables grouped and aggregated
-    ###   What do you mean aggregate? aggregates can be "count, "mean", "median", "mode", "min", "max", etc.
-    ###   What do you aggregrate? all numeric columns in your data
-    ###   What do you groupby? a groupby column
-    ###      except those numeric variables you designate in the ignore_variables list. Can be empty.
+    ###   This function is a very fast function that will iteratively compute rankings for ID vars ##
+    ###   It returns original dataframe with added features using ID variables ranked by cat vars ### 
+    ###   What are aggregates? aggregates can be "count, "mean", "median", "mode", "min", "max", etc.
+    ###   What do we aggregrate? all numeric columns in your data
+    ###   What do we Rank? ID variables which are usually object or string varaiables.
+    ###   Make sure to select uncorrelated features afterwards using FE_remove_variables_using_SULOV_method.
     #################################################################################################
     ### Inputs:
     ###   dft: Just sent in the data frame df that you want features added to
     ###   agg_types: list of computational types: 'mean','median','count', 'max', 'min', 'sum', etc.
-    ###         One caveat: these agg_types must be found in the following agg_func of numpy or pandas groupby statement.
-    ###         List of aggregates available: {'count','sum','mean','mad','median','min','max','mode','abs',
-    ###               'prod','std','var','sem','skew','kurt',
+    ###         One caveat: these agg_types must be found in the following agg_func of numpy 
+    ###                    or pandas groupby statements.
+    ###         List of aggregates available: {'count','sum','mean','mad','median','min','max',
+    ###               'mode','abs', 'prod','std','var','sem','skew','kurt',
     ###                'quantile','cumsum','cumprod','cummax','cummin'}
-    ###   groupby_column: this is to groupby all the numeric features and compute aggregates by.
-    ###   ignore_variables: list of variables to ignore among numeric variables in data since they may be ID variables.
+    ###   categoricals: columns to groupby all the numeric features and compute aggregates by.
+    ###   idvars: columns that will ranked by categoricals above using aggregate types.
     ### Outputs:
-    ###     dft: original dataframe with tons of additional features created by this function.
+    ###     dataframe: The same input dataframe with additional features created by this function.
     #################################################################################################
-    ###     Make sure you reduce correlated variables by using FE_remove_variables_using_SULOV_method()
     Usage:
-        MGB = My_Groupby_Encoder(groupby_column, agg_types, ignore_variables=[])
-        MGB.fit(train)
-        train = MGB.transform(train)
-        test = MGB.transform(test)
+        MGB = Ranking_Aggregator(categoricals=catcols,aggregates=['mean','skew'], idvars=idvars)
+        trainx = MGB.fit_transform(train)
+        testx = MGB.transform(test)
     """
-    def __init__(self, groupby_column, agg_types, ignore_variables=[]):
-        if isinstance(groupby_column, str):
-            self.groupby_column = [groupby_column]
-        else:
-            self.groupby_column = groupby_column
-        if isinstance(agg_types, str):
-            self.agg_types = [agg_types]
-        else:
-            self.agg_types = agg_types
+    def __init__(self, categoricals=[], aggregates=[], idvars=''):
+        # store the number of dimension of the target to predict an array of
+        # similar shape at predict
+        self.transformers =  defaultdict(str)
+        self.categoricals = categoricals
+        self.agg_types = aggregates
+        self.idvars = idvars
+        self.train_cols = defaultdict(str)
+        self.func_set = {'average', 'min', 'max', 'dense', 'first'}
+        ### ‘first’ is not allowed for non-numeric variables ##
+        
+    def get_params(self, deep=True):
+        # This is to make it scikit-learn compatible ####
+        return {"categoricals": self.categoricals, "aggregates": self.agg_types,
+                    "idvars": self.idvars}
 
-        if isinstance(ignore_variables, str):
-            self.ignore_variables = [ignore_variables]
-        else:
-            self.ignore_variables = ignore_variables
-        ### there are certain functions that give only error:
-        ### We need to test and make sure all these functions work.
-        self.func_set = {'count','sum','mean','mad','median','min','max','mode',
-                        'std','var','sem', 'skew','kurt','abs', 'prod',
-                        'quantile','cumsum','cumprod','cummax','cummin'}
-        self.train_cols = []  ## this keeps track of which cols were created ###
-        self.MLB_dict = {}
-
-    def fit(self, dft):
-        dft = copy.deepcopy(dft)
-        if isinstance(dft, pd.Series):
-            print('data to transform must be a dataframe')
-            return self
-        elif isinstance(dft, np.ndarray):
-            print('data to transform must be a dataframe')
-            return self
-        ### Make sure the list of functions they send in are acceptable functions. If not, the aggregate will blow up!
-        ### Only select those that match the func set ############
-        self.agg_types = list(set(self.agg_types).intersection(self.func_set))
-        copy_cols = copy.deepcopy(self.groupby_column)
-        for each_col in copy_cols:
-            MLB = My_LabelEncoder()
-            dft[each_col] = MLB.fit(dft[each_col])
-            self.MLB_dict[each_col] = MLB
-
+    def set_params(self, **parameters):
+        for parameter, value in parameters.items():
+            setattr(self, parameter, value)
         return self
 
-    def transform(self, dft ):
-        ##### First make a copy of dataframe ###
-        dft_index = dft.index
-        dft = copy.deepcopy(dft)
-        if isinstance(dft, pd.Series):
-            print('data to transform must be a dataframe')
-            return self
-        elif isinstance(dft, np.ndarray):
-            print('data to transform must be a dataframe')
-            return self
+    def fit(self, X, **fit_params):
+        """Fit the model according to the given training data"""
         try:
-            ###
-            ### first if groupby cols had NaN's you need to fill them before aggregating
-            ### If you don't do that, then your groupby aggregating will miss those NaNs
-            copy_cols = copy.deepcopy(self.groupby_column)
-            for each_col in copy_cols:
-                MLB = self.MLB_dict[each_col]
-                dft[each_col] = MLB.transform(dft[each_col])
-
-            ## Since you want to ignore some variables, you can drop them here
-            ls = dft.select_dtypes('number').columns.tolist()
-            ignore_in_list = [x for x in self.ignore_variables if x in ls]
-            if len(ignore_in_list) == len(self.ignore_variables) and left_subtract(ignore_in_list,self.ignore_variables)==[]:
-                dft_cont = copy.deepcopy(dft.select_dtypes('number').drop(self.ignore_variables,axis=1))
+            print('Beware: Potentially creates %d features (some will be dropped due to zero variance)' %(
+                len(self.categoricals)*len(self.agg_types)))
+        except Exception as e:
+            print('Erroring due to %s' %e)
+        ##### First make a copy of dataframe ###
+        dft_index = X.index
+        dft = copy.deepcopy(X)
+        # transformers are designed to modify X which must be multi-dimensional
+        if isinstance(X, pd.Series) or isinstance(X, np.ndarray):
+            print('Data cannot be a numpy array or a pandas Series. Must be dataframe!')
+            return X
+        if isinstance(self.categoricals, str):
+            self.categoricals = [self.categoricals]
+        if isinstance(self.idvars, str):
+            if self.idvars == 'all':
+                nunique_train = X.nunique().reset_index()
+                nunique_min = 0.20
+                nunique_max = 0.4
+                ID_limit_min = max(10, int(nunique_min*(len(X)))) ### X% of rows must be unique for it to be called ID
+                ID_limit_max = max(10, int(nunique_max*(len(X)))) ### X% of rows must be unique for it to be called ID
+                ls = nunique_train[(nunique_train[0]<=ID_limit_max) & (nunique_train[0]>=ID_limit_min) ]['index'].tolist()
+                if len(ls) > 0:
+                    print('    Using first one from %s vars as ID vars since all option was chosen.' %ls)
+                    self.idvars = ls[0]
+                else:
+                    print('    No ID vars found that metet criteria of being %s-%s nuniques of dataset length. Returning' %(nunique_min, nunique_max))
+                    return self
             else:
-                dft_cont = copy.deepcopy(dft.select_dtypes('number'))
-
-            #### This is the main part where we create aggregated columns ######
-            dft_full = dft_cont.groupby(self.groupby_column).agg(self.agg_types)
-            if len(self.groupby_column) == 1:
-                str_col = self.groupby_column[0]
-            else:
-                str_col = "_".join(self.groupby_column)
-            cols =  [x+'_by_'+str_col+'_'+y for (x,y) in dft_full.columns]
-            dft_full.columns = cols
-            dft_full = dft_full.reset_index()
+                print('    %s ID variable chosen...' %self.idvars)
+        elif isinstance(self.idvars, list):
+            print('    only one ID variable can be chosen at a time. Choosing first one from list %s' %self.idvars)
+            self.idvars = self.idvars[0]
+        else:
+            print('    %s ID vars unrecognized. Please check your input and try again.' %self.idvars)
+            return self
+        ### Make sure the list of functions they send in are acceptable functions ##
+        ### Make sure that the aggregate functions are real aggregators! ##
+        self.agg_types = list(set(self.agg_types).intersection(self.func_set))
+        dft_temp = dft[self.idvars]
+        ### Check if non-numeric dtype is used in dataset for ranking ##
+        if isinstance(dft_temp, pd.Series):
+            if not dft_temp.dtype.kind in 'biufc':
+                print('    "first" aggregate type not allowed in non-numeric columns')
+                if 'first' in self.agg_types:
+                    self.agg_types.remove('first')
+        else:
+            for col in dft_temp.columns:
+                if not dft_temp[col].dtype.kind in 'biufc':
+                    print('    "first" aggregate type not allowed in non-numeric columns')
+                    if 'first' in self.agg_types:
+                        self.agg_types.remove('first')
+        copy_cats = copy.deepcopy(self.categoricals)
+        #### if categoricals is already a list, then start transforming ###
+        for i, each_catvar in enumerate(copy_cats):
+            cols_added = []
+            try:
+                group_list = [self.idvars, each_catvar]
+            except:
+                print('    %s column(s) given not found in data. Please correct your input.' %self.idvars)
+                return self
+            ### Then find the unique categories in the column ###
+            
+            for each_type in self.agg_types:
+                new_col =  str(self.idvars) + '_ranked_by_'+ str(each_catvar) + '_' + each_type
+                try:
+                    df_temp = dft.groupby(group_list)[self.idvars].rank(method=each_type,ascending=True)
+                    if df_temp.nunique() > 1:
+                        dft[new_col] = df_temp.values
+                        cols_added.append(new_col)
+                        continue
+                except:
+                    print('Error trying to add new aggregate column for %s by %s' %(each_catvar, each_type))
             
             # make sure there are no zero-variance cols. If so, drop them #
-            if len(self.train_cols) == 0:
-                #### drop zero variance cols the first time
-                copy_cols = copy.deepcopy(cols)
-                for each_col in cols:
-                    if len(dft_full[each_col].value_counts()) == 1:
-                        dft_full = dft_full.drop(each_col, axis=1)
-                num_cols_created = dft_full.shape[1] - len(self.groupby_column)
-                print('%d new columns created for numeric data grouped by %s for aggregates %s' %(num_cols_created,
-                                    self.groupby_column, self.agg_types))
-                self.train_cols = dft_full.columns.tolist()
+            
+            if len(cols_added) > 0:
+                copy_cols = copy.deepcopy(cols_added)
+                dft_full = pd.DataFrame()
+                dft_full = dft[[self.idvars,each_catvar]+cols_added].drop_duplicates(subset=[self.idvars,each_catvar],keep='first')
+                print('    %s columns added for %s' %(len(cols_added), each_catvar))
+                self.train_cols[each_catvar] = cols_added
+                self.transformers[each_catvar] = dft_full
             else:
-                #### if it is the second time, just use column names created during train
-                if len(left_subtract(self.train_cols, list(dft_full))) == 0:
-                    #### make sure that they are the exact same columns, if not, leave dft_full as is
-                    dft_full = dft_full[self.train_cols]
-                else:
-                    print('\nWarning: train and test have different number of columns. Continuing...')
+                print('No columns added for %s. Continuing...' %each_catvar)
+                continue
+                
+            del dft_full
+            del df_temp
             
-            dft = dft.merge(dft_full, on=self.groupby_column, how='left')
+        return self
+    
+    def transform(self, X, **fit_params):
+        for i, each_catvar in enumerate(self.categoricals):
             
-            #### Now change the label encoded columns back to original status ##
-            copy_cols = copy.deepcopy(self.groupby_column)
-            for each_col in copy_cols:
-                MLB = self.MLB_dict[each_col]
-                dft[each_col] = MLB.inverse_transform(dft[each_col])
+            if len(self.train_cols[each_catvar]) == 0:
+                ## skip this variable if it has no transformed variables
+                continue
+            else:
+                if each_catvar in self.train_cols.keys():
+                    dft_full = pd.DataFrame()
+                    ### now combine the aggregated variables with given dataset ###
+                    cols_added = self.train_cols[each_catvar]
+                    dft_full = self.transformers[each_catvar]
+                    ### simply fill in the missing values with the word "0" ##
+                    ### Remember that fillna only works at the dataframe level!
+                    try:
+                        X = pd.merge(X, dft_full, on=[self.idvars,each_catvar], how='left')
+                        X[cols_added].fillna(0, inplace=True)
+                    except:
+                        for each_col in cols_added:
+                            X[each_col] = 0.0
+                        print('    Erroring on creating aggregate vars for %s. Continuing...' %each_catvar)
+                        continue
+        ### once all columns have been transferred return the dataframe ##
+        return X
 
-            ### provide the index the same as before ####
-            dft.index = dft_index
+    def fit_transform(self, X, **fit_params):
+        X = copy.deepcopy(X)
+        ### Since X for yT in a pipeline is sent as X, we need to switch X and y this way ##
+        self.fit(X)
+        for i, each_catvar in enumerate(self.categoricals):
+            if len(self.train_cols[each_catvar]) == 0:
+                ## skip this variable if it has no transformed variables
+                continue
+            else:
+                if each_catvar in self.train_cols.keys():
+                    dft_full = pd.DataFrame()
+                    cols_added = self.train_cols[each_catvar]
+                    ### now combine the aggregated variables with given dataset ###
+                    dft_full = self.transformers[each_catvar]
+                    ### simply fill in the missing values with the word "0" ##
+                    ### Remember that fillna only works at the dataframe level!
+                    if len(cols_added) > 0:
+                        X = pd.merge(X, dft_full, on=[self.idvars,each_catvar], how='left')
+                        X[cols_added].fillna(0, inplace=True)
+        ### once all columns have been transferred return the dataframe ##
+        return X
 
-        except Exception as inst:
-            print(type(inst))    # the exception instance
-            print(inst.args)     # arguments stored in .args
-            print(inst)          # __str__ allows args to be printed directly,
-            ### if for some reason, the groupby blows up, then just return the dataframe as is - no changes!
-            print('Error in groupby function: returning dataframe as is')
-            return dft
-        return dft
+    def inverse_transform(self, X, **fit_params):
+        ### One problem with this approach is that you have combined categories into one.
+        ###   You cannot uncombine them since they no longer have a unique category. 
+        ###   You will get back the last transformed category when you inverse transform it.
+        print('There is no inverse transform for this aggregator...')
+        return X
+    
+    def predict(self, X, **fit_params):
+        #print('There is no predict function in Rare class combiner. Returning...')
+        return X
+###################################################################################
 ###################################################################################

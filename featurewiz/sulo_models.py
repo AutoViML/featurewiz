@@ -64,12 +64,20 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         self.scores = []
         self.classes = []
         self.regression_min_max = []
+        self.model_name = ''
+        self.features = []
 
     def fit(self, X, y):
         seed = 42
         shuffleFlag = True
         modeltype = 'Classification'
+        features_limit = 50 ## if there are more than 50 features in dataset, better to use LGBM ##
         start = time.time()
+        if isinstance(X, pd.DataFrame):
+            self.features = X.columns.tolist()
+        else:
+            print('Cannot operate SuloClassifier on numpy arrays. Must be dataframes. Returning...')
+            return self
         # Use KFold for understanding the performance
         if self.weights:
             print('Remember that using class weights will wrongly skew predict_probas from any classifier')
@@ -146,7 +154,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                 self.n_estimators = 4
             if self.verbose:
                 print('Number of estimators = %d' %self.n_estimators)
-        model_name = 'lgb'
+        self.model_name = 'lgb'
         num_splits = self.n_estimators
         kfold = KFold(n_splits=num_splits, random_state=seed, shuffle=shuffleFlag)
         scoring = 'balanced_accuracy'
@@ -168,25 +176,34 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ###   This is for Binary Classification problems only ########
                         ##############################################################
                         if y.shape[0] <= row_limit:
-                            if (X.dtypes==float).all():
+                            if (X.dtypes==float).all() and len(self.features) <= features_limit:
                                 if self.verbose:
                                     print('    Selecting Label Propagation since it will work great for this dataset...')
                                     print('        however it will skew probabilities and show lower ROC AUC score than normal.')
                                 self.base_estimator =  LabelPropagation()
-                                model_name = 'lp'
+                                self.model_name = 'lp'
                             else:
-                                if self.verbose:
-                                    print('    Selecting Bagging Classifier for this dataset...')
-                                self.base_estimator = BaggingClassifier(n_estimators=150)
-                                model_name = 'bg'
+                                if len(self.features) <= features_limit:
+                                    if self.verbose:
+                                        print('    Selecting Bagging Classifier for this dataset...')
+                                    self.base_estimator = BaggingClassifier(n_estimators=150)
+                                    self.model_name = 'bg'
+                                else:
+                                    if self.verbose:
+                                        print('    Selecting LGBM Regressor as base estimator...')
+                                    self.base_estimator = LGBMClassifier(device=device, random_state=99)
                         else:
-                            self.base_estimator = LGBMClassifier(is_unbalance=True, learning_rate=0.3, 
-                                                    max_depth=10, metric=metric,
+                            if self.verbose:
+                                print('    Selecting LGBM Regressor as base estimator...')
+                            self.base_estimator = LGBMClassifier(is_unbalance=True, 
+                                                    #max_depth=10, metric=metric,
                                                     device=device,
                                                     #num_class=self.max_number_of_classes,
-                                                    n_estimators=100,  num_leaves=84, 
+                                                    #n_estimators=100,  num_leaves=84, 
                                                     #objective='binary',
-                                                    boosting_type ='goss', scale_pos_weight=None)                    
+                                                    boosting_type ='goss', 
+                                                    #scale_pos_weight=None,
+                                                    random_state=99)
                     else:
                         #############################################################
                         ###   This is for Multi Classification problems only ########
@@ -194,11 +211,16 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ##############################################################
                         if y.shape[0] <= row_limit:
                             if self.regression:
-                                if self.verbose:
-                                    print('    Selecting Extra Trees Regressor since regression flag is set...')
-                                self.base_estimator = ExtraTreesRegressor(n_estimators=200, random_state=99)
-                                model_name = 'rf'
-                                scoring = 'neg_mean_squared_error'
+                                if len(self.features) <= features_limit:
+                                    if self.verbose:
+                                        print('    Selecting Extra Trees Regressor since regression flag is set...')
+                                    self.base_estimator = ExtraTreesRegressor(n_estimators=200, random_state=99)
+                                    self.model_name = 'rf'
+                                    scoring = 'neg_mean_squared_error'
+                                else:
+                                    if self.verbose:
+                                        print('    Selecting LGBM Regressor as base estimator...')
+                                    self.base_estimator = LGBMRegressor(device=device, random_state=99)                                    
                             else:
                                 #self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
                                 #                    max_depth=10, 
@@ -209,10 +231,15 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                 #                    n_estimators=100,  num_leaves=84, 
                                 #                    boosting_type ='goss', scale_pos_weight=None,
                                 #                        class_weight=None, verbose=-1)
-                                print('    Selecting Label Propagation since it works great for multiclass problems...')
-                                print('        however it will skew probabilities a little so be aware of this')
-                                self.base_estimator =  LabelPropagation()
-                                model_name = 'lp'
+                                if (X.dtypes==float).all() and len(self.features) <= features_limit:
+                                    print('    Selecting Label Propagation since it works great for multiclass problems...')
+                                    print('        however it will skew probabilities a little so be aware of this')
+                                    self.base_estimator =  LabelPropagation()
+                                    self.model_name = 'lp'
+                                else:
+                                    if self.verbose:
+                                        print('    Selecting LGBM Classifier as base estimator...')
+                                    self.base_estimator = LGBMClassifier(device=device, random_state=99)
                         else:
                             if self.regression:
                                 if self.verbose:
@@ -231,7 +258,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                                    device=device,
                                                    verbose=-1)
                 else:
-                    model_name == 'other'
+                    self.model_name == 'other'
                 ### Remember we don't to HPT Tuning for Multi-label problems since it errors ####
                 for i, (train_index, test_index) in enumerate(kfold.split(X)):
                     start_time = time.time()
@@ -251,7 +278,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ### It does not make sense to do hyper-param tuning for multi-label models ##
                         ###    since ClassifierChains do not have many hyper params #################
                         #self.base_estimator = rand_search(self.base_estimator, x_train, y_train, 
-                        #                        model_name, verbose=self.verbose)
+                        #                        self.model_name, verbose=self.verbose)
                         #print('    hyper tuned base estimator = %s' %self.base_estimator)
                         if self.max_number_of_classes <= 1:
                             est_list = [ClassifierChain(self.base_estimator, order="random", cv=3, random_state=i) 
@@ -340,37 +367,52 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                 ### For small datasets use RFC for Binary Class   ########################
                 if number_of_classes <= 1:
                     ### For binary-class problems use RandomForest or the faster ET Classifier ######
-                    if (X.dtypes==float).all():
+                    if (X.dtypes==float).all() and len(self.features) <= features_limit:
                         print('    Selecting Label Propagation since it will work great for this dataset...')
                         print('        however it will skew probabilities and show lower ROC AUC score than normal.')
                         self.base_estimator =  LabelPropagation()
-                        model_name = 'lp'
+                        self.model_name = 'lp'
                     else:
-                        if self.verbose:
-                            print('    Selecting Bagging Classifier for this dataset...')
-                        ### The Bagging classifier outperforms ETC most of the time ####
-                        self.base_estimator = BaggingClassifier(n_estimators=20)
-                        model_name = 'bg'
+                        if len(self.features) <= features_limit:
+                            if self.verbose:
+                                print('    Selecting Bagging Classifier for this dataset...')
+                            ### The Bagging classifier outperforms ETC most of the time ####
+                            self.base_estimator = BaggingClassifier(n_estimators=20)
+                            self.model_name = 'bg'
+                        else:
+                            if self.verbose:
+                                print('    Selecting LGBM Classifier as base estimator...')
+                            self.base_estimator = LGBMClassifier(device=device, random_state=99)
                 else:
                     ### For Multi-class datasets you can use Regressors for numeric classes ####################
                     if self.regression:
-                        scoring = 'neg_mean_squared_error'
-                        if self.verbose:
-                            print('    Selecting Extra Trees Regressor as base estimator...')
-                        self.base_estimator = ExtraTreesRegressor(n_estimators=200, random_state=99)
-                        model_name = 'rf'
-                    else:
-                        ### For multi-class problems use Label Propagation which is faster and better ##
-                        if (X.dtypes==float).all():
-                            print('    Selecting Label Propagation since it will work great for this dataset...')
-                            print('        however it will skew probabilities and show lower ROC AUC score than normal.')
-                            self.base_estimator =  LabelPropagation()
-                            model_name = 'lp'
+                        if len(self.features) <= features_limit:
+                            scoring = 'neg_mean_squared_error'
+                            if self.verbose:
+                                print('    Selecting Extra Trees Regressor as base estimator...')
+                            self.base_estimator = ExtraTreesRegressor(n_estimators=200, random_state=99)
+                            self.model_name = 'rf'
                         else:
                             if self.verbose:
-                                print('    Selecting Bagging Classifier for this dataset...')
-                            self.base_estimator = BaggingClassifier(n_estimators=20)
-                            model_name = 'bg'
+                                print('    Selecting LGBM Regressor as base estimator...')
+                            self.base_estimator = LGBMRegressor(device=device, random_state=99)
+                    else:
+                        ### For multi-class problems use Label Propagation which is faster and better ##
+                        if (X.dtypes==float).all() and len(self.features) <= features_limit:
+                                print('    Selecting Label Propagation since it will work great for this dataset...')
+                                print('        however it will skew probabilities and show lower ROC AUC score than normal.')
+                                self.base_estimator =  LabelPropagation()
+                                self.model_name = 'lp'
+                        else:
+                            if len(self.features) <= features_limit:
+                                if self.verbose:
+                                    print('    Selecting Bagging Classifier for this dataset...')
+                                self.base_estimator = BaggingClassifier(n_estimators=20)
+                                self.model_name = 'bg'
+                            else:
+                                if self.verbose:
+                                    print('    Selecting LGBM Classifier as base estimator...')
+                                self.base_estimator = LGBMClassifier(device=device, random_state=99)
                         #self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
                         #                        max_depth=10, metric='multi_logloss',
                         #                        device=device,
@@ -388,7 +430,6 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                             device=device,
                                             n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='binary',
                                             boosting_type ='goss', scale_pos_weight=None)
-                                
                 else:
                     ### For Multi-class datasets you can use Regressors for numeric classes ####################
                     if self.regression:
@@ -398,9 +439,9 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ###   Extra Trees is not so great for large data sets - LGBM is better ####
                         #self.base_estimator = ExtraTreesClassifier(n_estimators=250, max_depth=2,
                         #                random_state=0, class_weight=class_weights)
-                        #model_name = 'rf'
+                        #self.model_name = 'rf'
                         self.base_estimator = LGBMRegressor(n_estimators=250, random_state=99)
-                        model_name = 'lgb'
+                        self.model_name = 'lgb'
                     else:
                         #if self.weights:
                         #    class_weights = None
@@ -412,7 +453,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                                 n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='multiclass',
                                                 boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
         else:
-            model_name = 'other'
+            self.model_name = 'other'
 
         est_list = num_splits*[self.base_estimator]
         
@@ -446,21 +487,28 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     # Train model and use it in a pipeline to train on the fold  ##
                     pipe = Pipeline(
                         steps=[("preprocessor", preprocessor), ("model", self.base_estimator)])
-                    if model_name == 'other':
+                    if self.model_name == 'other':
                         print('No HPT tuning performed since base estimator is given by input...')
                         self.base_estimator = copy.deepcopy(pipe)
                     else:
-                        self.base_estimator = rand_search(pipe, x_train, y_train, 
-                                                model_name, self.pipeline, scoring, verbose=self.verbose)
+                        if len(self.features) <= features_limit:
+                            self.base_estimator = rand_search(pipe, x_train, y_train, 
+                                                    self.model_name, self.pipeline, scoring, verbose=self.verbose)
+                        else:
+                            print('No HPT tuning performed since number of features is too large...')
+                            self.base_estimator = copy.deepcopy(pipe)
                 else:
                     ### This is for without a pipeline #######
-                    if model_name == 'other':
+                    if self.model_name == 'other':
                         ### leave the base estimator as is ###
                         print('No HPT tuning performed since base estimator is given by input...')
                     else:
-                        ### leave the base estimator as is ###
-                        self.base_estimator = rand_search(self.base_estimator, x_train, 
-                                            y_train, model_name, self.pipeline, scoring, verbose=self.verbose)
+                        if len(self.features) <= features_limit:
+                            ### leave the base estimator as is ###
+                            self.base_estimator = rand_search(self.base_estimator, x_train, 
+                                                y_train, self.model_name, self.pipeline, scoring, verbose=self.verbose)
+                        else:
+                            print('No HPT tuning performed since number of features is too large...')
 
                 est_list = num_splits*[self.base_estimator]
                 #print('    base estimator = %s' %self.base_estimator)
@@ -573,6 +621,55 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         y_probas = return_predict_proba(y_probas)
         return y_probas
 
+    def plot_importance(self, max_features=10):
+        import lightgbm as lgbm
+        from xgboost import plot_importance
+        model_name = self.model_name
+        feature_names = self.features
+        
+        model_name = 'rf'
+        if  model_name == 'lgb' or model_name == 'xgb':
+            for i, model in enumerate(self.models):
+                if self.pipeline:
+                    model_object = model.named_steps['model']
+                else:
+                    model_object = model
+                feature_importances = model_object.booster_.feature_importance(importance_type='gain')
+                if i == 0:
+                    feature_imp = pd.DataFrame({'Value':feature_importances,'Feature':feature_names})
+                else:
+                    feature_imp = pd.concat([feature_imp, 
+                        pd.DataFrame({'Value':feature_importances,'Feature':feature_names})], axis=0)
+                #lgbm.plot_importance(model_object, importance_type='gain', max_num_features=max_features)
+            feature_imp = feature_imp.groupby('Feature').mean().sort_values('Value',ascending=False).reset_index()
+            feature_imp.set_index('Feature')[:max_features].plot(kind='barh', title='Top 10 Features')
+            ### This is for XGB ###
+            #plot_importance(self.model.named_steps['model'], importance_type='gain', max_num_features=max_features)
+        elif model_name == 'lp':
+            print('No feature importances available for LabelPropagation algorithm. Returning...')
+            return
+        elif model_name == 'rf':
+            ### These are for RandomForestClassifier kind of scikit-learn models ###
+            try:
+                for i, model in enumerate(self.models):
+                    if self.pipeline:
+                        model_object = model.named_steps['model']
+                    else:
+                        model_object = model
+                    feature_importances = model_object.feature_importances_
+                    if i == 0:
+                        feature_imp = pd.DataFrame({'Value':feature_importances,'Feature':feature_names})
+                    else:
+                        feature_imp = pd.concat([feature_imp, 
+                            pd.DataFrame({'Value':feature_importances,'Feature':feature_names})], axis=0)
+                feature_imp = feature_imp.groupby('Feature').mean().sort_values('Value',ascending=False).reset_index()
+                feature_imp.set_index('Feature')[:max_features].plot(kind='barh', title='Top 10 Features')
+            except:
+                    print('Could not plot feature importances. Please check your model and try again.')                
+        else:
+            print('No feature importances available for this algorithm. Returning...')
+            return
+
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import RandomizedSearchCV
 def rand_search(model, X, y, model_name, pipe_flag=False, scoring=None, verbose=0):
@@ -582,7 +679,7 @@ def rand_search(model, X, y, model_name, pipe_flag=False, scoring=None, verbose=
     else:
         model_string = ''
     ### set n_iter here ####
-    n_iter = 5
+    n_iter = 3
     if model_name == 'rf':
         #criterion = ["gini", "entropy", "log_loss"]
         # Number of trees in random forest
@@ -601,11 +698,11 @@ def rand_search(model, X, y, model_name, pipe_flag=False, scoring=None, verbose=
         params = {
             #model_string+'criterion': criterion,
             model_string+'n_estimators': n_estimators,
-            model_string+'max_features': max_features,
+            #model_string+'max_features': max_features,
             #model_string+'max_depth': max_depth,
             #model_string+'min_samples_split': min_samples_split,
             #model_string+'min_samples_leaf': min_samples_leaf,
-           model_string+'bootstrap': bootstrap,
+           #model_string+'bootstrap': bootstrap,
                        }
     elif model_name == 'bg':
         criterion = ["gini", "entropy", "log_loss"]
@@ -630,8 +727,8 @@ def rand_search(model, X, y, model_name, pipe_flag=False, scoring=None, verbose=
             #model_string+'max_depth': max_depth,
             #model_string+'min_samples_split': min_samples_split,
             #model_string+'min_samples_leaf': min_samples_leaf,
-            model_string+'bootstrap': bootstrap,
-            model_string+'bootstrap_features': bootstrap,
+            #model_string+'bootstrap': bootstrap,
+            #model_string+'bootstrap_features': bootstrap,
                        }
     elif model_name == 'lgb':
         # Number of estimators in LGBM Classifier ##
@@ -642,15 +739,15 @@ def rand_search(model, X, y, model_name, pipe_flag=False, scoring=None, verbose=
         learning_rate = sp.stats.uniform(scale=1)
         params = {
             model_string+'n_estimators': n_estimators,
-            model_string+'num_leaves': num_leaves,
+            #model_string+'num_leaves': num_leaves,
             model_string+'learning_rate': learning_rate,
                     }
     elif model_name == 'lp':
         params =  {
-            model_string+'gamma': sp_randInt(0, 32),
+            #model_string+'gamma': sp_randInt(0, 32),
             model_string+'kernel': ['knn', 'rbf'],
-            model_string+'max_iter': sp_randInt(50, 500),
-            model_string+'n_neighbors': sp_randInt(2, 5),
+            #model_string+'max_iter': sp_randInt(50, 500),
+            #model_string+'n_neighbors': sp_randInt(2, 5),
                 }
     else:
         ### Since we don't know what model will be sent, we cannot tune it ##
@@ -935,6 +1032,7 @@ def print_sulo_accuracy(y_test, y_preds, y_probas=''):
                 ##### This is only for multi_label_multi_class problems
                 num_targets = y_test.shape[1]
                 for each_i in range(num_targets):
+                    print('    Bal accu %0.0f%%' %(100*balanced_accuracy_score(y_test.values[:,each_i],y_preds[:,each_i])))
                     if len(np.unique(y_test.values[:,each_i])) > 2:
                         ### This nan problem happens due to Label Propagation but can be fixed as follows ##
                         mat = y_probas[each_i]
@@ -942,7 +1040,7 @@ def print_sulo_accuracy(y_test, y_preds, y_probas=''):
                             mat = pd.DataFrame(mat).fillna(method='ffill').values
                             bal_score = roc_auc_score(y_test.values[:,each_i],mat,multi_class="ovr")
                         else:
-                            bal_score = roc_auc_score(y_test.values[:,each_i],y_probas[each_i],multi_class="ovr")
+                            bal_score = roc_auc_score(y_test.values[:,each_i],mat,multi_class="ovr")
                     else:
                         if isinstance(y_probas, dict):
                             if y_probas[each_i].ndim <= 1:
