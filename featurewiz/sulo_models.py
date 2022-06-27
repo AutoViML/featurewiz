@@ -744,7 +744,8 @@ def rand_search(model, X, y, model_name, pipe_flag=False, scoring=None, verbose=
                     }
     elif model_name == 'lp':
         params =  {
-            #model_string+'gamma': sp_randInt(0, 32),
+            ### Don't overly complicate this simple model. It works best with no tuning!
+            model_string+'gamma': sp_randInt(0, 32),
             model_string+'kernel': ['knn', 'rbf'],
             #model_string+'max_iter': sp_randInt(50, 500),
             #model_string+'n_neighbors': sp_randInt(2, 5),

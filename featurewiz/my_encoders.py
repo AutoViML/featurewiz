@@ -21,6 +21,8 @@ from category_encoders.glmm import GLMMEncoder
 from sklearn.preprocessing import LabelEncoder
 from category_encoders.wrapper import PolynomialWrapper
 from sklearn.preprocessing import FunctionTransformer
+from pandas.api.types import is_datetime64_any_dtype
+
 #################################################################################
 def left_subtract(l1,l2):
     lst = []
@@ -158,6 +160,7 @@ class Rare_Class_Combiner_Pipe(BaseEstimator, TransformerMixin ):
 
     def fit(self, X, y=None, **fit_params):
         """Fit the model according to the given training data"""        
+        X =  copy.deepcopy(X)
         # transformers need a default name for rare categories ##
         def return_cat_value():
             return "rare_categories"
@@ -179,6 +182,7 @@ class Rare_Class_Combiner_Pipe(BaseEstimator, TransformerMixin ):
         return self
     
     def transform(self, X, y=None, **fit_params):
+        X =  copy.deepcopy(X)
         each_catvar = X.name
         if self.zero_low_counts[each_catvar]:
             pass
@@ -189,6 +193,7 @@ class Rare_Class_Combiner_Pipe(BaseEstimator, TransformerMixin ):
         return X
 
     def fit_transform(self, X, y=None, **fit_params):
+        X =  copy.deepcopy(X)
         ### Since X for yT in a pipeline is sent as X, we need to switch X and y this way ##
         self.fit(X, y)
         each_catvar = X.name
@@ -217,6 +222,7 @@ class Rare_Class_Combiner_Pipe(BaseEstimator, TransformerMixin ):
         #print('There is no predict function in Rare class combiner. Returning...')
         return X
 ######################################################################################
+from pandas.api.types import is_numeric_dtype
 class Rare_Class_Combiner(BaseEstimator, TransformerMixin):
     """
     This is the general version of combining classes in categorical vars. 
@@ -227,8 +233,15 @@ class Rare_Class_Combiner(BaseEstimator, TransformerMixin):
         # similar shape at predict
         self.transformers =  transformers
         self.categorical_features = categorical_features
-        self.zero_low_counts = zero_low_counts
+        self.zero_low_counts = {}
+        if zero_low_counts:
+            for each_cat in categorical_features:
+                self.zero_low_counts[each_cat] = zero_low_counts
+        else:
+            for each_cat in categorical_features:
+                self.zero_low_counts[each_cat] = 0
         
+
     def get_params(self, deep=True):
         # This is to make it scikit-learn compatible ####
         return {"transformers": self.transformers, "categorical_features": self.categorical_features,
@@ -241,36 +254,42 @@ class Rare_Class_Combiner(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None, **fit_params):
         """Fit the model according to the given training data"""        
+        X =  copy.deepcopy(X)
         # transformers need a default name for rare categories ##
-        def return_cat_value():
-            return "rare_categories"
         # transformers are designed to modify X which is 2d dimensional
-        if isinstance(X, pd.Series):
-            self.categorical_features = [X.name]
-        elif isinstance(X, np.ndarray):
-            print('Error: Input cannot be a numpy array for transformers')
-            return X, y
-        else:
-            # if X is a dataframe, then you need the list of features ##
-            self.categorical_features = X.columns.tolist()
-        if isinstance(self.categorical_features, str):
-            self.categorical_features = [self.categorical_features]
+        if len(self.categorical_features) == 0:
+            if isinstance(X, pd.Series):
+                self.categorical_features = [X.name]
+            elif isinstance(X, np.ndarray):
+                print('Error: Input cannot be a numpy array for transformers')
+                return X, y
+            else:
+                # if X is a dataframe, then you need the list of features ##
+                self.categorical_features = X.columns.tolist()
+            if isinstance(self.categorical_features, str):
+                self.categorical_features = [self.categorical_features]
         #### if it is already a list, then leave it as is ###
         for i, each_catvar in enumerate(self.categorical_features):
-            self.transformers[each_catvar] = defaultdict(return_cat_value)
+            if is_numeric_dtype(X[each_catvar]):
+                max_value = X[each_catvar].max()
+                save_value = max_value+1
+            else:
+                save_value = "rare_categories"
             ### Then find the unique categories in the column ###
             self.transformers[each_catvar] = dict(zip(X[each_catvar].unique(),X[each_catvar].unique()))
             low_counts = X[[each_catvar]].apply(lambda x: x.value_counts()[
                     (x.value_counts()<=(0.01*x.shape[0])).values].index).values.ravel()
+            ### This is where we find whether cat var has even a single low category ###
             if len(low_counts) == 0:
-                self.zero_low_counts[each_catvar] = True
+                self.zero_low_counts[each_catvar] = save_value
             else:
-                self.zero_low_counts[each_catvar] = False
+                self.zero_low_counts[each_catvar] = 0
             for each_low in low_counts:
-                self.transformers[each_catvar].update({each_low:'rare_categories'})
+                self.transformers[each_catvar].update({each_low: save_value})
         return self
     
     def transform(self, X, y=None, **fit_params):
+        X =  copy.deepcopy(X)
         for i, each_catvar in enumerate(self.categorical_features):
             if self.zero_low_counts[each_catvar]:
                 continue
@@ -279,9 +298,10 @@ class Rare_Class_Combiner(BaseEstimator, TransformerMixin):
                 ### simply fill in the missing values with the word "missing" ##
                 ### Remember that fillna only works at dataframe level! ##
                 X[[each_catvar]] = X[[each_catvar]].fillna('missing')
-        return X, y
+        return X
 
     def fit_transform(self, X, y=None, **fit_params):
+        X =  copy.deepcopy(X)
         ### Since X for yT in a pipeline is sent as X, we need to switch X and y this way ##
         self.fit(X, y)
         for i, each_catvar in enumerate(self.categorical_features):
@@ -292,7 +312,7 @@ class Rare_Class_Combiner(BaseEstimator, TransformerMixin):
                 ### simply fill in the missing values with the word "missing" ##
                 ### Remember that fillna only works at dataframe level! ##
                 X[[each_catvar]] = X[[each_catvar]].fillna('missing')
-        return X, y
+        return X
 
     def inverse_transform(self, X, **fit_params):
         ### One problem with this approach is that you have combined categories into one.
@@ -309,7 +329,7 @@ class Rare_Class_Combiner(BaseEstimator, TransformerMixin):
     
     def predict(self, X, y=None, **fit_params):
         #print('There is no predict function in Rare class combiner. Returning...')
-        return X, y
+        return X
 ######################################################################################
 class My_LabelEncoder_Pipe(BaseEstimator, TransformerMixin):
     """
@@ -507,6 +527,7 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
             if self.numerics != 'all':
                 self.numerics = [self.numerics]
         ### Make sure the list of functions they send in are acceptable functions ##
+        
         ls = X.select_dtypes('number').columns.tolist()
         if self.numerics == 'all':
             self.numerics = copy.deepcopy(ls)
@@ -524,10 +545,15 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
                 print('    %s columns given not found in data. Please correct your input.')
                 return X
             ### Then find the unique categories in the column ###
-            dft_full = dft_cont.groupby(each_catvar).agg(self.agg_types)
-            cols =  [a +'_by_'+ str(each_catvar) +'_'+ b for (a,b) in dft_full.columns]
-            dft_full.columns = cols
             
+            try:
+                dft_full = dft_cont.groupby(each_catvar).agg(self.agg_types)
+                cols =  [a +'_by_'+ str(each_catvar) +'_'+ b for (a,b) in dft_full.columns]
+                dft_full.columns = cols
+            except:
+                print('    Error: There are no unique categories in %s column. Skipping it...###' %each_catvar)
+                self.categoricals.remove(each_catvar)
+                continue            
             # make sure there are no zero-variance cols. If so, drop them #
             #### drop zero variance cols the first time
             copy_cols = copy.deepcopy(cols)
@@ -714,11 +740,8 @@ class Ranking_Aggregator(BaseEstimator, TransformerMixin):
         #### if categoricals is already a list, then start transforming ###
         for i, each_catvar in enumerate(copy_cats):
             cols_added = []
-            try:
-                group_list = [self.idvars, each_catvar]
-            except:
-                print('    %s column(s) given not found in data. Please correct your input.' %self.idvars)
-                return self
+            group_list = [self.idvars, each_catvar]
+
             ### Then find the unique categories in the column ###
             
             for each_type in self.agg_types:
@@ -808,4 +831,272 @@ class Ranking_Aggregator(BaseEstimator, TransformerMixin):
         #print('There is no predict function in Rare class combiner. Returning...')
         return X
 ###################################################################################
-###################################################################################
+import copy
+class DateTime_Transformer(BaseEstimator, TransformerMixin):
+    """
+    ################################################################################################
+    ######     The DateTime_Transformer class works just like sklearn's Transformers but better! ###
+    #####  It creates new features out of any date-time var in your dataset. It also handles NaN's##
+    ##  The beauty of this function is that it takes care of NaN's and a variety of date formats.###
+    ##################### This is the BEST working version - don't mess with it!! ##################
+    ################################################################################################
+    Usage:
+          ds = DateTime_Transformer(ts_column=col)
+          ds.fit_transform(train) ## this will give your transformed values as a dataframe
+          ds.transform(test) ### this will give your transformed values as a dataframe
+              
+    Usage in Column Transformers and Pipelines:
+          No. It cannot be used in pipelines since it need to produce two columns for the next stage in pipeline.
+          See if you can change it to fit an sklearn pipeline on your own. I'd be curious to know how.
+    """
+    def __init__(self, ts_column):
+        self.ts_column = ts_column
+        self.cols_added = []
+        self.fitted = False
+        self.X_transformed = None
+        self.train = False
+        
+    def fit(self, X, y=None):
+        X = copy.deepcopy(X)
+        ### Now you can check if the parts of tuple are dataframe series, etc.
+        if isinstance(X, tuple):
+            y = X[1]
+            X = X[0]
+        ### Now you can check if the parts of tuple are dataframe series, etc.
+        if isinstance(X, pd.Series):
+            print('    X must be dataframe. Converting it to a pd.DataFrame.')
+            X = pd.DataFrame(X.values, columns=[X.name])
+        elif isinstance(X, np.ndarray):
+            X = pd.DataFrame(X)
+            print('    X must be dataframe. Converting it to a pd.DataFrame.')
+        else:
+            #### There is no way to transform dataframes since you will get a nested renamer error if you try ###
+            ### But if it is a one-dimensional dataframe, convert it into a Series
+            print('    X is a DataFrame...')
+        X_trans, self.cols_added = FE_create_time_series_features(X, self.ts_column, ts_adds_in=[])
+        self.fitted = True
+        self.train = True
+        self.X_transformed = X_trans
+        return self
+    
+    def transform(self, X, y=None):
+        X = copy.deepcopy(X)
+        if self.fitted and self.train:
+            self.train = False
+            return self.X_transformed[self.cols_added]
+        else:
+            self.fit(X)
+            return self.X_transformed[self.cols_added]    
+        
+    def fit_transform(self, X, y=None):
+        X = copy.deepcopy(X)
+        self.fit(X)
+        return self.X_transformed[self.cols_added]
+######################################################################################################
+import copy
+def _create_ts_features(df, tscol):
+    """
+    This takes in input a dataframe and a date variable.
+    It then creates time series features using the pandas .dt.weekday kind of syntax.
+    It also returns the data frame of added features with each variable as an integer variable.
+    """
+    df = copy.deepcopy(df)
+    dt_adds = []
+    try:
+        df[tscol+'_hour'] = df[tscol].dt.hour.fillna(0).astype(int)
+        df[tscol+'_minute'] = df[tscol].dt.minute.fillna(0).astype(int)
+        dt_adds.append(tscol+'_hour')
+        dt_adds.append(tscol+'_minute')
+    except:
+        print('    Error in creating hour-second derived features. Continuing...')
+    try:
+        df[tscol+'_dayofweek'] = df[tscol].dt.dayofweek.fillna(0).astype(int)
+        dt_adds.append(tscol+'_dayofweek')
+        if tscol+'_hour' in dt_adds:
+            DAYS = dict(zip(range(7),['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']))
+            df[tscol+'_dayofweek'] = df[tscol+'_dayofweek'].map(DAYS)
+            df.loc[:,tscol+'_dayofweek_hour_cross'] = df[tscol+'_dayofweek'] +" "+ df[tscol+'_hour'].astype(str)
+            dt_adds.append(tscol+'_dayofweek_hour_cross')
+        df[tscol+'_quarter'] = df[tscol].dt.quarter.fillna(0).astype(int)
+        dt_adds.append(tscol+'_quarter')
+        df[tscol+'_month'] = df[tscol].dt.month.fillna(0).astype(int)
+        MONTHS = dict(zip(range(1,13),['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul',
+                                    'Aug', 'Sep', 'Oct', 'Nov', 'Dec']))
+        df[tscol+'_month'] = df[tscol+'_month'].map(MONTHS)
+        dt_adds.append(tscol+'_month')
+        #### Add some features for months ########################################
+        festives = ['Oct','Nov','Dec']
+        name_col = tscol+"_is_festive"
+        df[name_col] = 0
+        df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in festives else 0).values
+        ### Remember that fillna only works at dataframe level! ###
+        df[[name_col]] = df[[name_col]].fillna(0)
+        dt_adds.append(name_col)
+        summer = ['Jun','Jul','Aug']
+        name_col = tscol+"_is_summer"
+        df[name_col] = 0
+        df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in summer else 0).values
+        ### Remember that fillna only works at dataframe level! ###
+        df[[name_col]] = df[[name_col]].fillna(0)
+        dt_adds.append(name_col)
+        winter = ['Dec','Jan','Feb']
+        name_col = tscol+"_is_winter"
+        df[name_col] = 0
+        df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in winter else 0).values
+        ### Remember that fillna only works at dataframe level! ###
+        df[[name_col]] = df[[name_col]].fillna(0)
+        dt_adds.append(name_col)
+        cold = ['Oct','Nov','Dec','Jan','Feb','Mar']
+        name_col = tscol+"_is_cold"
+        df[name_col] = 0
+        df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in cold else 0).values
+        ### Remember that fillna only works at dataframe level! ###
+        df[[name_col]] = df[[name_col]].fillna(0)
+        dt_adds.append(name_col)
+        warm = ['Apr','May','Jun','Jul','Aug','Sep']
+        name_col = tscol+"_is_warm"
+        df[name_col] = 0
+        df[name_col] = df[tscol+'_month'].map(lambda x: 1 if x in warm else 0).values
+        ### Remember that fillna only works at dataframe level! ###
+        df[[name_col]] = df[[name_col]].fillna(0)
+        dt_adds.append(name_col)
+        #########################################################################
+        if tscol+'_dayofweek' in dt_adds:
+            df.loc[:,tscol+'_month_dayofweek_cross'] = df[tscol+'_month'] +" "+ df[tscol+'_dayofweek']
+            dt_adds.append(tscol+'_month_dayofweek_cross')
+        df[tscol+'_year'] = df[tscol].dt.year.fillna(0).astype(int)
+        dt_adds.append(tscol+'_year')
+        today = date.today()
+        df[tscol+'_age_in_years'] = today.year - df[tscol].dt.year.fillna(0).astype(int)
+        dt_adds.append(tscol+'_age_in_years')
+        df[tscol+'_dayofyear'] = df[tscol].dt.dayofyear.fillna(0).astype(int)
+        dt_adds.append(tscol+'_dayofyear')
+        df[tscol+'_dayofmonth'] = df[tscol].dt.day.fillna(0).astype(int)
+        dt_adds.append(tscol+'_dayofmonth')
+        df[tscol+'_weekofyear'] = df[tscol].dt.weekofyear.fillna(0).astype(int)
+        dt_adds.append(tscol+'_weekofyear')
+        weekends = (df[tscol+'_dayofweek'] == 'Sat') | (df[tscol+'_dayofweek'] == 'Sun')
+        df[tscol+'_typeofday'] = 'weekday'
+        df.loc[weekends, tscol+'_typeofday'] = 'weekend'
+        dt_adds.append(tscol+'_typeofday')
+        if tscol+'_typeofday' in dt_adds:
+            df.loc[:,tscol+'_month_typeofday_cross'] = df[tscol+'_month'] +" "+ df[tscol+'_typeofday']
+            dt_adds.append(tscol+'_month_typeofday_cross')
+    except:
+        print('    Error in creating date time derived features. Continuing...')
+    print('    created %d columns from time series %s column' %(len(dt_adds),tscol))
+    return df, dt_adds
+################################################################
+from dateutil.relativedelta import relativedelta
+from datetime import date
+##### This is a little utility that computes age from year ####
+def compute_age(year_string):
+    today = date.today()
+    age = relativedelta(today, year_string)
+    return age.years
+#################################################################
+def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
+    """
+    FE means FEATURE ENGINEERING - That means this function will create new features
+    #######        B E W A R E  : H U G E   N U M B E R   O F  F E A T U R E S  ###########
+    This creates between 100 and 110 date time features for each date variable. The number
+    of features depends on whether it is just a year variable or a year+month+day and
+    whether it has hours and minutes or seconds. So this can create all these features
+    using just the date time column that you send in. Optinally, you can send in a list
+    of columns that you want returned. It will preserved those same columns and return them.
+    ######################################################################################
+    Inputs:
+    dtf: pandas DataFrame
+    ts_column: name of the time series column
+    ts_adds_in: list of time series columns you want in the returned dataframe.
+
+    Outputs:
+    dtf: The original pandas dataframe with new fields created by splitting date-time field
+    rem_ts_cols: List of added variables as output. This will be useful for future ts_adds_in
+                 This list of columns is useful for matching test with train dataframes.
+    ######################################################################################
+    """
+    dtf = copy.deepcopy(dft)
+    reset_index = False
+    if not ts_adds_in:
+        # ts_column = None assumes that that index is the time series index
+        reset_index = False
+        if ts_column is None:
+            reset_index = True
+            ts_column = dtf.index.name
+            dtf = dtf.reset_index()
+
+        ### In some extreme cases, date time vars are not processed yet and hence we must fill missing values here!
+        null_nums = dtf[ts_column].isnull().sum()
+        if  null_nums > 0:
+            # missing_flag = True
+            new_missing_col = ts_column + '_Missing_Flag'
+            dtf[new_missing_col] = 0
+            dtf.loc[dtf[ts_column].isnull(),new_missing_col]=1
+            ### Remember that fillna only works at dataframe level! ###
+            dtf[[ts_column]] = dtf[[ts_column]].fillna(method='ffill')
+            print('        adding %s column due to missing values in data' %new_missing_col)
+            if dtf[dtf[ts_column].isnull()].shape[0] > 0:
+                ### Remember that fillna only works at dataframe level! ###
+                dtf[[ts_column]] = dtf[[ts_column]].fillna(method='bfill')
+
+        if dtf[ts_column].dtype == float:
+            dtf[ts_column] = dtf[ts_column].astype(int)
+
+        ### if we have already found that it was a date time var, then leave it as it is. Thats good enough!
+        items = dtf[ts_column].apply(str).apply(len).values
+        #### In some extreme cases,
+        if all(items[0] == item for item in items):
+            if items[0] == 4:
+                ### If it is just a year variable alone, you should leave it as just a year!
+                dtf[ts_column] = pd.to_datetime(dtf[ts_column],format='%Y')
+                ts_adds = []
+            else:
+                ### if it is not a year alone, then convert it into a date time variable
+                dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
+                ### this is where you create the time series features #####
+                dtf, ts_adds = _create_ts_features(df=dtf, tscol=ts_column)
+        else:
+            dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
+            ### this is where you create the time series features #####
+            dtf, ts_adds = _create_ts_features(df=dtf, tscol=ts_column)
+    else:
+        dtf[ts_column] = pd.to_datetime(dtf[ts_column], infer_datetime_format=True)
+        ### this is where you create the time series features #####
+        dtf, ts_adds = _create_ts_features(df=dtf, tscol=ts_column)
+    ####### This is where we make sure train and test have the same number of columns ####
+    try:
+        if not ts_adds_in:
+            ts_adds_copy = copy.deepcopy(ts_adds)
+            rem_cols = left_subtract(dtf.columns.tolist(), ts_adds_copy)
+            ts_adds_num = dtf[ts_adds].select_dtypes(include='number').columns.tolist()
+            ### drop those columns where all rows are same i.e. zero variance  ####
+            for col in ts_adds_num:
+                if dtf[col].std() == 0:
+                    dtf = dtf.drop(col, axis=1)
+                    ts_adds.remove(col)
+            removed_ts_cols = left_subtract(ts_adds_copy, ts_adds)
+            print('        dropped %d time series added columns due to zero variance' %len(removed_ts_cols))
+            rem_ts_cols = ts_adds
+            dtf = dtf[rem_cols+rem_ts_cols]
+        else:
+            #rem_cols = left_subtract(dtf.columns.tolist(), ts_adds_in)
+            rem_cols = left_subtract(ts_adds, ts_adds_in)
+            dtf.drop(rem_cols, axis=1, inplace=True)
+            #dtf = dtf[rem_cols+ts_adds_in]
+            rem_ts_cols = ts_adds_in
+        # If you had reset the index earlier, set it back before returning
+        # to  make it consistent with the dataframe that was sent as input
+        if reset_index:
+            dtf = dtf.set_index(ts_column)
+        elif ts_column in dtf.columns:
+            print('        dropping %s column after time series done' %ts_column)
+            dtf = dtf.drop(ts_column, axis=1)
+        else:
+            pass
+        print('    After dropping zero variance cols, shape of data: %s' %(dtf.shape,))
+    except Exception as e:
+        print(e)
+        print('Error in Processing %s column for date time features. Continuing...' %ts_column)
+    return dtf, rem_ts_cols
+######################################################################################
