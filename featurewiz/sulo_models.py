@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import math
 from collections import Counter
+from sklearn.linear_model import Ridge, Lasso, RidgeCV
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, AdaBoostClassifier
 from sklearn.ensemble import ExtraTreesClassifier, ExtraTreesRegressor
@@ -151,15 +152,16 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         self.max_number_of_classes = max_number_of_classes
         if self.n_estimators is None:
             if data_samples <= row_limit:
-                self.n_estimators = min(10, int(2.5*np.log10(data_samples)))
+                self.n_estimators = min(5, int(1.5*np.log10(data_samples)))
             else:
-                self.n_estimators = min(20, int(2.5*np.log10(data_samples)))
+                self.n_estimators = min(10, int(1.5*np.log10(data_samples)))
             if self.verbose:
                 print('Number of estimators = %d' %self.n_estimators)
         self.model_name = 'lgb'
         num_splits = self.n_estimators
         kfold = KFold(n_splits=num_splits, random_state=seed, shuffle=shuffleFlag)
         scoring = 'balanced_accuracy'
+        print('    Number of estimators used in SuloClassifier = %s' %num_splits)
         ##### This is where we check if y is single label or multi-label ##
         if isinstance(y, pd.DataFrame):
             ###############################################################
@@ -1194,15 +1196,14 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
         data_samples = X.shape[0]
         if self.n_estimators is None:
             if data_samples <= row_limit:
-                self.n_estimators = min(10, int(2.5*np.log10(data_samples)))
+                self.n_estimators = min(5, int(1.5*np.log10(data_samples)))
             else:
-                self.n_estimators = min(20, int(2.5*np.log10(data_samples)))
-            if self.verbose:
-                print('Number of estimators = %d' %self.n_estimators)
+                self.n_estimators = min(5, int(1.2*np.log10(data_samples)))
         self.model_name = 'lgb'
         num_splits = self.n_estimators
         kfold = KFold(n_splits=num_splits, random_state=seed, shuffle=shuffleFlag)
         scoring = 'neg_mean_squared_error'
+        print('    Number of estimators used in SuloRegressor = %s' %num_splits)
         ##### This is where we check if y is single label or multi-label ##
         if isinstance(y, pd.DataFrame):
             if self.log_transform:
@@ -1227,10 +1228,9 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                     if y.shape[0] <= row_limit:
                         if self.integers_only:
                             if (X.dtypes==float).all() and len(self.features) <= features_limit:
-                                print('    Selecting Label Propagation since it works great for multiclass problems...')
-                                print('        however it will skew probabilities a little so be aware of this')
-                                self.base_estimator =  LabelPropagation()
-                                self.model_name = 'lp'
+                                print('    Selecting Ridge as base_estimator. Feel free to send in your own estimator.')
+                                self.base_estimator = Ridge(normalize=False)
+                                self.model_name = 'other'
                             else:
                                 if self.verbose:
                                     print('    Selecting LGBM Classifier as base estimator...')
@@ -1238,8 +1238,8 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                         else:
                             if len(self.features) <= features_limit:
                                 if self.verbose:
-                                    print('    Selecting Extra Trees Regressor since integers_only flag is set...')
-                                self.base_estimator = ExtraTreesRegressor(n_estimators=200, random_state=99)
+                                    print('    Selecting Bagging Regressor since integers_only flag is set...')
+                                self.base_estimator = BaggingRegressor(n_estimators=200, random_state=99)
                                 self.model_name = 'rf'
                             else:
                                 if self.verbose:
@@ -1308,7 +1308,7 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                             preds = np.round(preds,0).astype(int)
                             
                     score = rmse(y_test, preds)
-                    print("    Fold %s: Average OOF Error (lower is better): %0.3f" %(i+1, score))
+                    print("    Fold %s: Average OOF Error (smaller is better): %0.3f" %(i+1, score))
                     self.scores.append(score)
                     
                     # Finally, check out the total time taken
@@ -1349,10 +1349,9 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                 ### For Multi-class datasets you can use Regressors for numeric classes ####################
                 ### For multi-class problems use Label Propagation which is faster and better ##
                 if (X.dtypes==float).all() and len(self.features) <= features_limit:
-                        print('    Selecting Label Propagation since it will work great for this dataset...')
-                        print('        however it will skew probabilities and show lower ROC AUC score than normal.')
-                        self.base_estimator =  LabelPropagation()
-                        self.model_name = 'lp'
+                        print('    Selecting Ridge as base_estimator. Feel free to send in your own estimator.')
+                        self.base_estimator = Ridge(normalize=False)
+                        self.model_name = 'other'
                 else:
                     if len(self.features) <= features_limit:
                         if self.verbose:
@@ -1364,9 +1363,6 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                         if self.verbose:
                             print('    Selecting LGBM Regressor as base estimator...')
                         ###   Extra Trees is not so great for large data sets - LGBM is better ####
-                        #self.base_estimator = ExtraTreesClassifier(n_estimators=250, max_depth=2,
-                        #                random_state=0, class_weight=class_weights)
-                        #self.model_name = 'rf'
                         self.base_estimator = LGBMRegressor(n_estimators=250, random_state=99)
                         self.model_name = 'lgb'
         else:
@@ -1473,7 +1469,7 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                 preds = np.round(preds,0).astype(int)
 
             score = rmse(y_test, preds)
-            print("    Fold %s: Average OOF Error (lower is better): %0.3f" %(i+1, score))
+            print("    Fold %s: Average OOF Error (smaller is better): %0.3f" %(i+1, score))
             self.scores.append(score)
 
         # Compute average score

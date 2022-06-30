@@ -12,6 +12,12 @@ Take a look at the benchmarking results notebook here for SuloClassifier:
 
 ![SuloClassifier](SuloClassifier.png)
 
+We ran a similar benchmarking result in SuloRegressor against XGBoost and LightGBM Regressors and it held its own against them. Take a look at the benchmarking result:
+
+![Notebook](https://github.com/AutoViML/featurewiz/blob/main/examples/SuloRegressor_Benchmarking_Results.ipynb)
+
+![SuloRegressor](SuloRegressor.png)
+
 ## Update (May 2022)
 <ol>
 <li><b>featurewiz as of version 0.1.50 or higher has multiple high performance models</b> that you can use to build highly performant models once you have completed feature selection. These models are based on LightGBM and XGBoost and have even Stacking and Blending ensembles. You can find them as functions starting with "simple_" and "complex_" under featurewiz. All the best!<br></li>
