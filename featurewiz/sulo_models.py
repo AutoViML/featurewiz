@@ -17,7 +17,7 @@ from sklearn.metrics import balanced_accuracy_score
 from sklearn.ensemble import VotingRegressor, VotingClassifier
 import copy
 from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin, clone
-from sklearn.base import ClassifierMixin
+from sklearn.base import ClassifierMixin, RegressorMixin
 from imblearn.over_sampling import SMOTENC, ADASYN
 from imblearn.over_sampling import SMOTE, SVMSMOTE
 from imblearn.combine import SMOTETomek 
@@ -68,6 +68,8 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         self.features = []
 
     def fit(self, X, y):
+        X = copy.deepcopy(X)
+        print('Input data shapes: X = %s, y = %s' %(X.shape, y.shape,))
         seed = 42
         shuffleFlag = True
         modeltype = 'Classification'
@@ -149,9 +151,9 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         self.max_number_of_classes = max_number_of_classes
         if self.n_estimators is None:
             if data_samples <= row_limit:
-                self.n_estimators = min(5, int(2.5*np.log10(data_samples)))
+                self.n_estimators = min(10, int(2.5*np.log10(data_samples)))
             else:
-                self.n_estimators = 4
+                self.n_estimators = min(20, int(2.5*np.log10(data_samples)))
             if self.verbose:
                 print('Number of estimators = %d' %self.n_estimators)
         self.model_name = 'lgb'
@@ -281,7 +283,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         #                        self.model_name, verbose=self.verbose)
                         #print('    hyper tuned base estimator = %s' %self.base_estimator)
                         if self.max_number_of_classes <= 1:
-                            est_list = [ClassifierChain(self.base_estimator, order="random", cv=3, random_state=i) 
+                            est_list = [ClassifierChain(self.base_estimator, order=None, cv=3, random_state=i) 
                                         for i in range(num_splits)] 
                             if self.verbose:
                                 print('Fitting a %s for %s targets with MultiOutputClassifier. This will take time...' %(
@@ -291,7 +293,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                 scoring = 'neg_mean_squared_error'
                                 if self.verbose:
                                     print('    Fitting with RegressorChain since regression flag is set...')
-                                est_list = [RegressorChain(self.base_estimator, order="random", random_state=i)
+                                est_list = [RegressorChain(self.base_estimator, order=None, random_state=i)
                                             for i in range(num_splits)] 
                             else:
                                 ### You must use multioutputclassifier since it is the only one predicts probas correctly ##
@@ -308,7 +310,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     if self.pipeline:
                         ### This is only with a pipeline ########
                         pipe = Pipeline(
-                            steps=[("preprocessor", preprocessor), ("classifier", model)]
+                            steps=[("preprocessor", preprocessor), ("model", model)]
                         )
 
                         pipe.fit(x_train, y_train)
@@ -331,7 +333,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ### Use Regression predictions and convert them into classes here ##
                         preds = convert_regression_to_classes(preds, y_test)
                         score = rmse(y_test, preds)
-                        print("    Fold %s: Average OOF Error (lower is better): %0.0f" %(i+1, score))
+                        print("    Fold %s: Average OOF Error (lower is better): %0.3f" %(i+1, score))
                     else:
                         score = print_accuracy(targets, y_test, preds, verbose=self.verbose)
                         print("    Fold %s: Average OOF Score: %0.0f%%" %(i+1, 100*score))
@@ -626,8 +628,6 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         from xgboost import plot_importance
         model_name = self.model_name
         feature_names = self.features
-        
-        model_name = 'rf'
         if  model_name == 'lgb' or model_name == 'xgb':
             for i, model in enumerate(self.models):
                 if self.pipeline:
@@ -669,7 +669,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         else:
             print('No feature importances available for this algorithm. Returning...')
             return
-
+#####################################################################################################
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import RandomizedSearchCV
 def rand_search(model, X, y, model_name, pipe_flag=False, scoring=None, verbose=0):
@@ -1108,3 +1108,477 @@ from sklearn.metrics import mean_squared_error
 def rmse(y_actual, y_predicted):
     return mean_squared_error(y_actual, y_predicted, squared=False)
 ##############################################################################
+class SuloRegressor(BaseEstimator, RegressorMixin):
+    """
+    SuloRegressor works really fast and very well for all kinds of datasets.
+    It works on small as well as big data. It works in Integer mode as well as float-mode.
+    It works on regular balanced data as well as skewed regression targets.
+    The reason it works so well is that Sulo is an ensemble of highly tuned models.
+    You don't have to send any inputs but if you wanted to, you can send in two inputs:
+    If you want, you can igore both these inputs and it will automatically choose these.
+    It is fully compatible with scikit-learn pipelines and other models.
+
+    Inputs:
+    n_estimators: number of models you want in the final ensemble.
+    base_estimator: base model you want to train in each of the ensembles.
+
+    """
+    def __init__(self, base_estimator=None, n_estimators=None, pipeline=True, imbalanced=False, 
+                                       integers_only=False, log_transform=False, verbose=0):
+        self.n_estimators = n_estimators
+        self.base_estimator = base_estimator
+        self.pipeline = pipeline
+        self.imbalanced = imbalanced
+        self.integers_only = integers_only
+        self.log_transform = log_transform
+        self.verbose = verbose
+        self.models = []
+        self.multi_label =  False
+        self.scores = []
+        self.integers_only_min_max = []
+        self.model_name = ''
+        self.features = []
+
+    def fit(self, X, y):
+        X = copy.deepcopy(X)
+        print('Input data shapes: X = %s, y = %s' %(X.shape, y.shape,))
+        seed = 42
+        shuffleFlag = True
+        modeltype = 'Regression'
+        features_limit = 50 ## if there are more than 50 features in dataset, better to use LGBM ##
+        start = time.time()
+        if isinstance(X, pd.DataFrame):
+            self.features = X.columns.tolist()
+        else:
+            print('Cannot operate SuloClassifier on numpy arrays. Must be dataframes. Returning...')
+            return self
+        # Use KFold for understanding the performance
+        if self.imbalanced:
+            print('Remember that using class weights will wrongly skew predict_probas from any classifier')
+        ### Remember that putting class weights will totally destroy predict_probas ###
+        gpu_exists = check_if_GPU_exists()
+        if gpu_exists:
+            device="gpu"
+        else:
+            device="cpu"
+        row_limit = 10000
+        if self.integers_only:
+            self.integers_only_min_max = get_max_min_from_y(y)
+            print('    Min and max values of y = %s' %self.integers_only_min_max)
+        ################          P I P E L I N E        ##########################
+        numeric_transformer = Pipeline(
+            steps=[("imputer", SimpleImputer(strategy="mean", add_indicator=True)), ("scaler", StandardScaler())])
+
+        categorical_transformer_low = Pipeline(
+            steps=[
+                ("imputer", SimpleImputer(strategy="constant", fill_value="missing", add_indicator=True)),
+                ("encoding", OneHotEncoder(handle_unknown="ignore", sparse=False)),])
+
+        categorical_transformer_high = Pipeline(
+            steps=[
+                ("imputer", SimpleImputer(strategy="constant", fill_value="missing", add_indicator=True)),
+                ("encoding", LabelEncoder()),])
+
+        numeric_features = X.select_dtypes(include='number').columns
+        categorical_features = X.select_dtypes(include=["object"]).columns
+
+        categorical_low, categorical_high = get_cardinality(X, categorical_features)
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ("numeric", numeric_transformer, numeric_features),
+                ("categorical_low", categorical_transformer_low, categorical_low),
+                ("categorical_high", categorical_transformer_high, categorical_high),
+            ]
+        )
+        ####################################################################################
+        data_samples = X.shape[0]
+        if self.n_estimators is None:
+            if data_samples <= row_limit:
+                self.n_estimators = min(10, int(2.5*np.log10(data_samples)))
+            else:
+                self.n_estimators = min(20, int(2.5*np.log10(data_samples)))
+            if self.verbose:
+                print('Number of estimators = %d' %self.n_estimators)
+        self.model_name = 'lgb'
+        num_splits = self.n_estimators
+        kfold = KFold(n_splits=num_splits, random_state=seed, shuffle=shuffleFlag)
+        scoring = 'neg_mean_squared_error'
+        ##### This is where we check if y is single label or multi-label ##
+        if isinstance(y, pd.DataFrame):
+            if self.log_transform:
+                if self.verbose:
+                    print('    transforming targets into log targets')
+                y = np.log1p(y)
+            ###############################################################
+            ### This is for Multi-Label problems only #####################
+            ###############################################################
+            targets = y.columns.tolist()
+            if is_y_object(y):
+                print('Cannot perform Regression using object or string targets. Please convert to numeric and try again.')
+                return self
+            if len(targets) > 1:
+                self.multi_label = y.columns.tolist()
+                ### You need to initialize the class before each run - otherwise, error!
+                if self.base_estimator is None:
+                    ################################################################
+                    ###   This is for Single Label Regression problems only ########
+                    ###   Make sure you don't do imbalanced SMOTE work here  #######
+                    ################################################################
+                    if y.shape[0] <= row_limit:
+                        if self.integers_only:
+                            if (X.dtypes==float).all() and len(self.features) <= features_limit:
+                                print('    Selecting Label Propagation since it works great for multiclass problems...')
+                                print('        however it will skew probabilities a little so be aware of this')
+                                self.base_estimator =  LabelPropagation()
+                                self.model_name = 'lp'
+                            else:
+                                if self.verbose:
+                                    print('    Selecting LGBM Classifier as base estimator...')
+                                self.base_estimator = LGBMRegressor(device=device, random_state=99)                                    
+                        else:
+                            if len(self.features) <= features_limit:
+                                if self.verbose:
+                                    print('    Selecting Extra Trees Regressor since integers_only flag is set...')
+                                self.base_estimator = ExtraTreesRegressor(n_estimators=200, random_state=99)
+                                self.model_name = 'rf'
+                            else:
+                                if self.verbose:
+                                    print('    Selecting LGBM Regressor as base estimator...')
+                                self.base_estimator = LGBMRegressor(device=device, random_state=99)                                    
+                    else:
+                        if self.verbose:
+                            print('    Selecting LGBM Regressor as base estimator...')
+                        self.base_estimator = LGBMRegressor(n_estimators=250)
+                else:
+                    self.model_name == 'other'
+                ### Remember we don't to HPT Tuning for Multi-label problems since it errors ####
+                for i, (train_index, test_index) in enumerate(kfold.split(X)):
+                    start_time = time.time()
+                    # Split data into train and test based on folds          
+                    if isinstance(y, pd.Series) or isinstance(y, pd.DataFrame):
+                        y_train, y_test = y.iloc[train_index], y.iloc[test_index]                
+                    else:
+                        y_train, y_test = y[train_index], y[test_index]
+
+                    if isinstance(X, pd.DataFrame):
+                        x_train, x_test = X.iloc[train_index], X.iloc[test_index]
+                    else:
+                        x_train, x_test = X[train_index], X[test_index]
+
+                    ###### Do this only the first time ################################################
+                    if i == 0:
+                        ### It does not make sense to do hyper-param tuning for multi-label models ##
+                        ###    since ClassifierChains do not have many hyper params #################
+                        #self.base_estimator = rand_search(self.base_estimator, x_train, y_train, 
+                        #                        self.model_name, verbose=self.verbose)
+                        #print('    hyper tuned base estimator = %s' %self.base_estimator)
+                        if self.verbose:
+                            print('    Fitting with RegressorChain...')
+                        est_list = [RegressorChain(self.base_estimator, order=None, random_state=i)
+                                    for i in range(num_splits)] 
+
+                    # Initialize model with your supervised algorithm of choice
+                    model = est_list[i]
+
+                    # Train model and use it to train on the fold
+                    if self.pipeline:
+                        ### This is only with a pipeline ########
+                        pipe = Pipeline(
+                            steps=[("preprocessor", preprocessor), ("model", model)]
+                        )
+
+                        pipe.fit(x_train, y_train)
+                        self.models.append(pipe)
+
+                        # Predict on remaining data of each fold
+                        preds = pipe.predict(x_test)
+
+                    else:
+                        #### This is without a pipeline ###
+                        model.fit(x_train, y_train)
+                        self.models.append(model)
+
+                        # Predict on remaining data of each fold
+                        preds = model.predict(x_test)
+
+                        if self.log_transform:
+                            preds = np.expm1(preds)
+                        elif self.integers_only:
+                            ### Use Regression predictions and convert them into integers here ##
+                            preds = np.round(preds,0).astype(int)
+                            
+                    score = rmse(y_test, preds)
+                    print("    Fold %s: Average OOF Error (lower is better): %0.3f" %(i+1, score))
+                    self.scores.append(score)
+                    
+                    # Finally, check out the total time taken
+                    end_time = time.time()
+                    timeTaken = end_time - start_time
+                    print("Time Taken for fold %s: %0.0f (seconds)" %(i+1, timeTaken))
+                
+                # Compute average score
+                averageAccuracy = sum(self.scores)/len(self.scores)
+                if self.verbose:
+                    print("Average RMSE score of %s-model SuloRegressor: %0.3f" %(
+                                    self.n_estimators, averageAccuracy))
+                end = time.time()
+                timeTaken = end - start
+                print("Time Taken overall: %0.0f (seconds)" %(timeTaken))
+                return self
+        ########################################################
+        #####  This is for Single Label Classification problems 
+        ########################################################
+        if isinstance(y, pd.Series):
+            targets = y.name
+        else:
+            targets = []
+        if self.base_estimator is None:
+            if data_samples <= row_limit:
+                ### For small datasets use RFR for Regressions   ########################
+                if len(self.features) <= features_limit:
+                    if self.verbose:
+                        print('    Selecting Bagging Regressor for this dataset...')
+                    ### The Bagging classifier outperforms ETC most of the time ####
+                    self.base_estimator = BaggingRegressor(n_estimators=20)
+                    self.model_name = 'bg'
+                else:
+                    if self.verbose:
+                        print('    Selecting LGBM Regressor as base estimator...')
+                    self.base_estimator = LGBMRegressor(device=device, random_state=99)
+            else:
+                ### For Multi-class datasets you can use Regressors for numeric classes ####################
+                ### For multi-class problems use Label Propagation which is faster and better ##
+                if (X.dtypes==float).all() and len(self.features) <= features_limit:
+                        print('    Selecting Label Propagation since it will work great for this dataset...')
+                        print('        however it will skew probabilities and show lower ROC AUC score than normal.')
+                        self.base_estimator =  LabelPropagation()
+                        self.model_name = 'lp'
+                else:
+                    if len(self.features) <= features_limit:
+                        if self.verbose:
+                            print('    Selecting Bagging Regressor for this dataset...')
+                        self.base_estimator = BaggingRegressor(n_estimators=20)
+                        self.model_name = 'bg'
+                    else:
+                        scoring = 'neg_mean_squared_error'
+                        if self.verbose:
+                            print('    Selecting LGBM Regressor as base estimator...')
+                        ###   Extra Trees is not so great for large data sets - LGBM is better ####
+                        #self.base_estimator = ExtraTreesClassifier(n_estimators=250, max_depth=2,
+                        #                random_state=0, class_weight=class_weights)
+                        #self.model_name = 'rf'
+                        self.base_estimator = LGBMRegressor(n_estimators=250, random_state=99)
+                        self.model_name = 'lgb'
+        else:
+            self.model_name = 'other'
+
+        est_list = num_splits*[self.base_estimator]
+        
+        ### if there is a need to do SMOTE do it here ##
+        smote = False
+        #list_classes = return_minority_classes(y)
+        #if not list_classes.empty:
+        #    smote = True
+        #### For now, don't do SMOTE since it is making things really slow ##
+        
+        # Perform CV
+        for i, (train_index, test_index) in enumerate(kfold.split(X)):
+            # Split data into train and test based on folds          
+            if isinstance(y, pd.Series) or isinstance(y, pd.DataFrame):
+                y_train, y_test = y.iloc[train_index], y.iloc[test_index]                
+            else:
+                y_train, y_test = y[train_index], y[test_index]
+
+            if isinstance(X, pd.DataFrame):
+                x_train, x_test = X.iloc[train_index], X.iloc[test_index]
+            else:
+                x_train, x_test = X[train_index], X[test_index]
+
+            # Convert the data into numpy arrays
+            #if not isinstance(x_train, np.ndarray):
+            #    x_train, x_test = x_train.values, x_test.values
+            
+            ##   small datasets processing #####
+            if i == 0:
+                if self.pipeline:
+                    # Train model and use it in a pipeline to train on the fold  ##
+                    pipe = Pipeline(
+                        steps=[("preprocessor", preprocessor), ("model", self.base_estimator)])
+                    if self.model_name == 'other':
+                        print('No HPT tuning performed since base estimator is given by input...')
+                        self.base_estimator = copy.deepcopy(pipe)
+                    else:
+                        if len(self.features) <= features_limit:
+                            self.base_estimator = rand_search(pipe, x_train, y_train, 
+                                                    self.model_name, self.pipeline, scoring, verbose=self.verbose)
+                        else:
+                            print('No HPT tuning performed since number of features is too large...')
+                            self.base_estimator = copy.deepcopy(pipe)
+                else:
+                    ### This is for without a pipeline #######
+                    if self.model_name == 'other':
+                        ### leave the base estimator as is ###
+                        print('No HPT tuning performed since base estimator is given by input...')
+                    else:
+                        if len(self.features) <= features_limit:
+                            ### leave the base estimator as is ###
+                            self.base_estimator = rand_search(self.base_estimator, x_train, 
+                                                y_train, self.model_name, self.pipeline, scoring, verbose=self.verbose)
+                        else:
+                            print('No HPT tuning performed since number of features is too large...')
+
+                est_list = num_splits*[self.base_estimator]
+                #print('    base estimator = %s' %self.base_estimator)
+            
+            ### SMOTE processing #####
+            if i == 0:
+                if smote:
+                    print('Performing SMOTE...')
+                    if self.verbose:
+                        print('    x_train shape before SMOTE = %s' %(x_train.shape,))
+                    
+            if smote:
+                # Get the class distribution for perfoming relative sampling in the next line
+                ### It does not appear that class weights work well in SMOTE - hence avoid ###
+                #class_weighted_rows = get_class_distribution(y_train, verbose)
+                
+                try:
+                    sm = ADASYN(n_neighbors=5, random_state=seed, )
+                                #sampling_strategy=class_weighted_rows)
+                    
+                    x_train, y_train = sm.fit_resample(x_train, y_train)
+                    if i == 0:
+                        print('    x_train shape after SMOTE = %s' %(x_train.shape,))
+                except:
+                    sm = SMOTETomek(random_state=42,)
+                    #sm = ADASYN(n_neighbors=2, random_state=seed, )
+                                #sampling_strategy=class_weighted_rows)
+                    x_train, y_train = sm.fit_resample(x_train, y_train)                    
+                    if i == 0 and smote:
+                        print('    x_train shape after SMOTE = %s' %(x_train.shape,))
+            
+            # Initialize model with your supervised algorithm of choice
+            model = est_list[i]
+            
+            model.fit(x_train, y_train)
+            self.models.append(model)
+
+            # Predict on remaining data of each fold
+            preds = model.predict(x_test)
+
+            if self.log_transform:
+                preds = np.expm1(preds)
+            elif self.integers_only:
+                ### Use Regression predictions and convert them into integers here ##
+                preds = np.round(preds,0).astype(int)
+
+            score = rmse(y_test, preds)
+            print("    Fold %s: Average OOF Error (lower is better): %0.3f" %(i+1, score))
+            self.scores.append(score)
+
+        # Compute average score
+        averageAccuracy = sum(self.scores)/len(self.scores)
+        if self.verbose:
+            print("Average RMSE of %s-model SuloRegressor: %0.3f" %(self.n_estimators, averageAccuracy))
+
+        # Finally, check out the total time taken
+        end = time.time()
+        timeTaken = end-start
+        print("Time Taken: %0.0f (seconds)" %timeTaken)
+        return self
+
+    def predict(self, X):
+        from scipy import stats
+        weights = 1/np.array(self.scores)
+        if self.multi_label:
+            ### In multi-label, targets have to be numeric, so you can leave weights as-is ##
+            ypre = np.array([model.predict(X) for model in self.models ])
+            y_predis = np.average(ypre, axis=0, weights=weights)
+            if self.log_transform:
+                y_predis = np.expm1(y_predis)
+            ### leave the next line as if since you want to check for it separately
+            if self.integers_only:
+                y_predis = np.round(y_predis,0).astype(int)
+            return y_predis
+        y_predis = np.column_stack([model.predict(X) for model in self.models ])
+        ### This weights the model's predictions according to OOB scores obtained
+        #### In single label, targets can be object or string, so weights cannot be applied always ##
+        y_predis = np.average(y_predis, weights=weights, axis=1)
+        if self.log_transform:
+            y_predis = np.expm1(y_predis)
+        if self.integers_only:
+            y_predis = np.round(y_predis,0).astype(int)
+        return y_predis
+    
+    def predict_proba(self, X):
+        print('In regression, no probabilities can be obtained.')
+        return X
+
+    def plot_importance(self, max_features=10):
+        import lightgbm as lgbm
+        from xgboost import plot_importance
+        model_name = self.model_name
+        feature_names = self.features
+
+        if  model_name == 'lgb' or model_name == 'xgb':
+            for i, model in enumerate(self.models):
+                if self.pipeline:
+                    if self.multi_label:
+                        #model_object = model.named_steps['model'].base_estimator
+                        print('No feature importances available for multi_label targets. Returning...')
+                        return
+                    else:
+                        model_object = model.named_steps['model']
+                else:
+                    if self.multi_label:
+                        #model_object = model.base_estimator
+                        print('No feature importances available for multi_label targets. Returning...')
+                        return
+                    else:
+                        model_object = model
+                feature_importances = model_object.booster_.feature_importance(importance_type='gain')
+                if i == 0:
+                    feature_imp = pd.DataFrame({'Value':feature_importances,'Feature':feature_names})
+                else:
+                    feature_imp = pd.concat([feature_imp, 
+                        pd.DataFrame({'Value':feature_importances,'Feature':feature_names})], axis=0)
+                #lgbm.plot_importance(model_object, importance_type='gain', max_num_features=max_features)
+            feature_imp = feature_imp.groupby('Feature').mean().sort_values('Value',ascending=False).reset_index()
+            feature_imp.set_index('Feature')[:max_features].plot(kind='barh', title='Top 10 Features')
+            ### This is for XGB ###
+            #plot_importance(self.model.named_steps['model'], importance_type='gain', max_num_features=max_features)
+        elif model_name == 'lp':
+            print('No feature importances available for LabelPropagation algorithm. Returning...')
+            return
+        elif model_name == 'rf':
+            ### These are for RandomForestClassifier kind of scikit-learn models ###
+            try:
+                for i, model in enumerate(self.models):
+                    if self.pipeline:
+                        if self.multi_label:
+                            #model_object = model.named_steps['model'].base_estimator
+                            print('No feature importances available for multi_label targets. Returning...')
+                            return
+                        else:
+                            model_object = model.named_steps['model']
+                    else:
+                        if self.multi_label:
+                            #model_object = model.base_estimator
+                            print('No feature importances available for multi_label targets. Returning...')
+                            return
+                        else:
+                            model_object = model
+                    feature_importances = model_object.feature_importances_
+                    if i == 0:
+                        feature_imp = pd.DataFrame({'Value':feature_importances,'Feature':feature_names})
+                    else:
+                        feature_imp = pd.concat([feature_imp, 
+                            pd.DataFrame({'Value':feature_importances,'Feature':feature_names})], axis=0)
+                feature_imp = feature_imp.groupby('Feature').mean().sort_values('Value',ascending=False).reset_index()
+                feature_imp.set_index('Feature')[:max_features].plot(kind='barh', title='Top 10 Features')
+            except:
+                    print('Could not plot feature importances. Please check your model and try again.')                
+        else:
+            print('No feature importances available for this algorithm. Returning...')
+            return
+#######################################################################################################

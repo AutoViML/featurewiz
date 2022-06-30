@@ -531,9 +531,8 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
         ls = X.select_dtypes('number').columns.tolist()
         if self.numerics == 'all':
             self.numerics = copy.deepcopy(ls)
-        else:
-            ### Make sure that the numerics are numeric variables! ##
-            self.numerics = list(set(self.numerics).intersection(ls))
+        ### Make sure that the numerics are numeric variables! ##
+        #self.numerics = list(set(self.numerics).intersection(ls))
         ### Make sure that the aggregate functions are real aggregators! ##
         self.agg_types = list(set(self.agg_types).intersection(self.func_set))
         copy_cats = copy.deepcopy(self.categoricals)
@@ -542,11 +541,11 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
             try:
                 dft_cont = X[self.numerics+[each_catvar]]
             except:
-                print('    %s columns given not found in data. Please correct your input.')
+                print('    %s columns given not found in data. Please correct your input.' %self.numerics)
                 return X
             ### Then find the unique categories in the column ###
-            
             try:
+                #### This is where we create the aggregated features ########
                 dft_full = dft_cont.groupby(each_catvar).agg(self.agg_types)
                 cols =  [a +'_by_'+ str(each_catvar) +'_'+ b for (a,b) in dft_full.columns]
                 dft_full.columns = cols
@@ -883,15 +882,16 @@ class DateTime_Transformer(BaseEstimator, TransformerMixin):
         X = copy.deepcopy(X)
         if self.fitted and self.train:
             self.train = False
-            return self.X_transformed[self.cols_added]
+            return self.X_transformed
         else:
             self.fit(X)
-            return self.X_transformed[self.cols_added]    
+            return self.X_transformed 
         
     def fit_transform(self, X, y=None):
         X = copy.deepcopy(X)
         self.fit(X)
-        return self.X_transformed[self.cols_added]
+        self.train = False
+        return self.X_transformed
 ######################################################################################################
 import copy
 def _create_ts_features(df, tscol):
@@ -1100,3 +1100,141 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
         print('Error in Processing %s column for date time features. Continuing...' %ts_column)
     return dtf, rem_ts_cols
 ######################################################################################
+from pandas.api.types import is_numeric_dtype
+#gives fit_transform method for free
+from sklearn.base import BaseEstimator, TransformerMixin 
+import copy
+import pdb
+class Binning_Transformer(BaseEstimator, TransformerMixin):
+    """
+        ######   This is where we do ENTROPY BINNING OF CONTINUOUS VARS ###########
+        #### Best to do binning by using Target variables: that's why we use DT's
+        #### Make sure your input is pandas Series or DataFrame with all NUMERICS.
+        #### Otherwise Binning canot be done. This transformer ensures you get the
+        #### Best Results by generalizing using Regressors and Classifiers.
+        ############################################################################
+    """
+    def __init__(self, verbose=0):
+        self.verbose = verbose
+        ### This is where we set the max depth for setting defaults for clf ##
+        self.new_bincols = {}
+        self.entropy_threshold = {}
+        self.fitted = False
+        self.clfs = {}
+        self.max_number_of_classes = 1
+    
+    def get_params(self, deep=True):
+        # This is to make it scikit-learn compatible ####
+        return {"verbose": self.verbose}
+
+    def set_params(self, **parameters):
+        for parameter, value in parameters.items():
+            setattr(self, parameter, value)
+        return self
+
+    def num_classes(self, y):
+        """
+        ### Returns number of classes in y
+        """
+        from collections import defaultdict
+        from collections import OrderedDict
+        y = copy.deepcopy(y)
+        if isinstance(y, np.ndarray):
+            ls = pd.Series(y).nunique()
+        else:
+            if isinstance(y, pd.Series):
+                ls = y.nunique()
+            else:
+                if len(y.columns) >= 2:
+                    ls = OrderedDict()
+                    for each_i in y.columns:
+                        ls[each_i] = y[each_i].nunique()
+                    return ls
+                else:
+                    ls = y.nunique()[0]
+        return ls
+
+    
+    def fit(self, X, y, **fit_params):
+        from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
+        X = copy.deepcopy(X)
+        if isinstance(y, pd.DataFrame):
+            if len(y.columns) >= 2:
+                number_of_classes = self.num_classes(y)
+                for each_i in y.columns:
+                    number_of_classes[each_i] = int(number_of_classes[each_i] - 1)
+                max_number_of_classes = np.max(list(number_of_classes.values()))
+            else:
+                number_of_classes = int(self.num_classes(y) - 1)
+                max_number_of_classes = np.max(number_of_classes)
+        else:
+            number_of_classes = int(self.num_classes(y) - 1)
+            max_number_of_classes = np.max(number_of_classes)
+        self.max_number_of_classes = max_number_of_classes
+        seed = 99
+        if isinstance(X, np.ndarray):
+            print('    X cannot be numpy array. It must be either pandas Series or DataFrame!')
+            return self
+        elif isinstance(X, pd.Series):
+            self.continuous_vars = [X.name]
+            X = pd.DataFrame(X)
+        elif isinstance(X, pd.DataFrame):
+            self.continuous_vars = X.columns.tolist()
+        else:
+            print('Input seems to be of unknown data type. Returning...')
+            return self
+        ####### This is where we bin each variable through a method known as Entropy Binning ##############
+        X = X.fillna(-999)
+        for each_num in self.continuous_vars:
+            ###   This is an Awesome Entropy Based Binning Method for Continuous Variables ###########
+            max_depth = max(2, int(np.log10(X[each_num].max()-X[each_num].min())))
+            if is_numeric_dtype(y) and self.max_number_of_classes > 25:
+                clf = DecisionTreeRegressor(criterion='mse',min_samples_leaf=2,
+                                            max_depth=max_depth,
+                                            random_state=seed)
+            else:
+                clf = DecisionTreeClassifier(criterion='entropy',min_samples_leaf=2,
+                                                 max_depth=max_depth,
+                                                 random_state=seed)
+            try:
+                clf.fit(X[each_num].values.reshape(-1,1), y)
+                ranges = clf.tree_.threshold[clf.tree_.threshold>-2].tolist()
+                ranges.append(np.inf)
+                ranges.insert(0, -np.inf)
+                self.entropy_threshold[each_num] = np.sort(ranges)        
+                self.new_bincols[each_num] = None
+                self.clfs[each_num] = clf
+                if self.verbose:
+                    print('    %d bins created for %s...' %((len(ranges)-1), each_num))
+            except:
+                self.entropy_threshold[each_num] =  None
+                print('Skipping %s column for Entropy Binning due to Error. Check your input and try again' %each_num)
+        self.fitted = True
+        return self
+    
+    def transform(self, X, y=None, **fit_params):
+        X = copy.deepcopy(X)
+        ####### This is where we bin each variable through a method known as Entropy Binning ##############
+        for each_num in self.continuous_vars:
+            if isinstance(X, pd.Series):
+                X = pd.DataFrame(X)
+                entropy_threshold = self.entropy_threshold[each_num]
+                if entropy_threshold is None:
+                    print('skipping binning since there are no bins available for %s' %each_num)
+                    continue
+                else:
+                    try:
+                        X[each_num] = np.digitize(X[each_num].values, entropy_threshold)
+                        #### We Drop the original continuous variable after you have created the bin when Flag is true
+                        self.new_bincols[each_num] = X[each_num].nunique()
+                    except:
+                        print('Error in %s during Entropy Binning' %each_num)
+        return X.values, y
+    
+    def fit_transform(self, X, y=None, **fit_params):
+        X = copy.deepcopy(X)
+        self.fit(X, y)
+        self.fitted = True
+        X_transformed, _ = self.transform(X, y)
+        return X_transformed, y    
+################################################################################################

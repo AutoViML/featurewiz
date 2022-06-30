@@ -2754,6 +2754,10 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
     1. In Train data, we select rows prior to the current row's date and match category. We calculate mean.
     2. In Test, we select rows matching the category and any row prior to the current row's date. Again mean.
     3. In both cases, if there is no match, we just select all rows prior to the current row's date and find their mean.
+    ###########################################################################
+    #### There is a mistake here. It should not calculate new values for test.
+    ####   It should take the values from train for the same category and date 
+    ###########################################################################
     ############    I N P U T S    A N D      O U T P U T S     #####################################
     Inputs:
         train2: a training dataframe
@@ -2787,6 +2791,10 @@ def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, categor
         #print(' i = ', i+1, price_val)
         train2.iloc[i,-1] = price_val
         i += 1
+    ###########################################################################
+    #### There is a mistake here. It should not calculate new values for test.
+    ####   It should take the values from train for the same category and date 
+    ###########################################################################
     if not isinstance(test2, str):
         test2[new_col] = 0
         i = 0
