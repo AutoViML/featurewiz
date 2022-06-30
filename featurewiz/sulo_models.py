@@ -24,6 +24,7 @@ from imblearn.over_sampling import SMOTE, SVMSMOTE
 from imblearn.combine import SMOTETomek 
 import lightgbm
 from lightgbm import LGBMClassifier, LGBMRegressor
+from xgboost import XGBRegressor, XGBClassifier
 from sklearn.multioutput import MultiOutputRegressor, MultiOutputClassifier
 from sklearn.multioutput import ClassifierChain, RegressorChain
 import scipy as sp
@@ -179,7 +180,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ##############################################################
                         ###   This is for Binary Classification problems only ########
                         ##############################################################
-                        if y.shape[0] <= row_limit:
+                        if data_samples <= row_limit:
                             if (X.dtypes==float).all() and len(self.features) <= features_limit:
                                 if self.verbose:
                                     print('    Selecting Label Propagation since it will work great for this dataset...')
@@ -197,9 +198,14 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                         print('    Selecting LGBM Regressor as base estimator...')
                                     self.base_estimator = LGBMClassifier(device=device, random_state=99)
                         else:
+                            ### This is for large datasets in Binary classes ###########
                             if self.verbose:
                                 print('    Selecting LGBM Regressor as base estimator...')
-                            self.base_estimator = LGBMClassifier(is_unbalance=True, 
+                            if gpu_exists:
+                                self.base_estimator = XGBRegressor(n_estimators=250, 
+                                    n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
+                            else:
+                                self.base_estimator = LGBMClassifier(is_unbalance=True, 
                                                     #max_depth=10, metric=metric,
                                                     device=device,
                                                     #num_class=self.max_number_of_classes,
@@ -213,7 +219,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ###   This is for Multi Classification problems only ########
                         ### Make sure you don't put any class weights here since it won't work in multi-labels ##
                         ##############################################################
-                        if y.shape[0] <= row_limit:
+                        if data_samples <= row_limit:
                             if self.regression:
                                 if len(self.features) <= features_limit:
                                     if self.verbose:
@@ -226,6 +232,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                                         print('    Selecting LGBM Regressor as base estimator...')
                                     self.base_estimator = LGBMRegressor(device=device, random_state=99)                                    
                             else:
+                                #### For large datasets with Multiple Classes XGB is a good choice for Regressors ##
                                 #self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
                                 #                    max_depth=10, 
                                 #                    device=device,
@@ -247,8 +254,12 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         else:
                             if self.regression:
                                 if self.verbose:
-                                    print('    Selecting LGBM Regressor as base estimator...')
-                                self.base_estimator = LGBMRegressor(n_estimators=250)
+                                    print('    Selecting XGB Regressor as base estimator...')
+                                if gpu_exists:
+                                    self.base_estimator = XGBRegressor(n_estimators=250, 
+                                        n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
+                                else:
+                                    self.base_estimator = XGBRegressor(n_estimators=250, n_jobs=-1)
                                 scoring = 'neg_mean_squared_error'
                             else:
                                 if self.verbose:
@@ -362,8 +373,11 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         ########################################################
         #####  This is for Single Label Classification problems 
         ########################################################
+        
         if isinstance(y, pd.Series):
             targets = y.name
+            if targets is None:
+                targets = []
         else:
             targets = []
         if self.base_estimator is None:
@@ -399,7 +413,11 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         else:
                             if self.verbose:
                                 print('    Selecting LGBM Regressor as base estimator...')
-                            self.base_estimator = LGBMRegressor(device=device, random_state=99)
+                            if gpu_exists:
+                                    self.base_estimator = XGBRegressor(n_estimators=250, 
+                                        n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
+                            else:
+                                self.base_estimator = XGBRegressor(n_jobs=-1, random_state=99)
                     else:
                         ### For multi-class problems use Label Propagation which is faster and better ##
                         if (X.dtypes==float).all() and len(self.features) <= features_limit:
@@ -444,7 +462,11 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         #self.base_estimator = ExtraTreesClassifier(n_estimators=250, max_depth=2,
                         #                random_state=0, class_weight=class_weights)
                         #self.model_name = 'rf'
-                        self.base_estimator = LGBMRegressor(n_estimators=250, random_state=99)
+                        if gpu_exists:
+                            self.base_estimator = XGBRegressor(n_estimators=250, 
+                                        n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
+                        else:
+                            self.base_estimator = XGBRegressor(n_estimators=250, n_jobs=-1, random_state=99)
                         self.model_name = 'lgb'
                     else:
                         #if self.weights:
@@ -564,6 +586,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             preds = model.predict(x_test)
 
             # Use best classification metric to measure performance of model
+
             if self.regression:
                 ### Use Regression predictions and convert them into classes here ##
                 preds = convert_regression_to_classes(preds, y_test)
@@ -759,7 +782,7 @@ def rand_search(model, X, y, model_name, pipe_flag=False, scoring=None, verbose=
 
     kfold = KFold(n_splits=5, random_state=100, shuffle=True)
     if verbose:
-        print("Finding best params for base estimator using random search...")
+        print("Finding best params for base estimator using RandomizedSearchCV...")
     clf = RandomizedSearchCV(model, params, n_iter=n_iter, scoring=scoring,
                          cv = kfold, n_jobs=-1, random_state=100)
     
@@ -769,7 +792,7 @@ def rand_search(model, X, y, model_name, pipe_flag=False, scoring=None, verbose=
         print("    best score is :" , clf.best_score_)
         #print("    best estimator is :" , clf.best_estimator_)
         print("    best Params is :" , clf.best_params_)
-        print("Time Taken for random search: %0.0f (seconds)" %(time.time()-start))
+        print("Time Taken for RandomizedSearchCV: %0.0f (seconds)" %(time.time()-start))
     return clf.best_estimator_
 ##################################################################################
 # Calculate class weight
@@ -930,6 +953,7 @@ def print_flatten_dict(dd, separator='_', prefix=''):
 
 def print_accuracy(target, y_test, y_preds, verbose=0):
     bal_scores = []
+    
     from sklearn.metrics import balanced_accuracy_score, classification_report
     if isinstance(target, str): 
         bal_score = balanced_accuracy_score(y_test,y_preds)
@@ -1233,7 +1257,7 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                                 self.model_name = 'other'
                             else:
                                 if self.verbose:
-                                    print('    Selecting LGBM Classifier as base estimator...')
+                                    print('    Selecting LGBM Regressor as base estimator...')
                                 self.base_estimator = LGBMRegressor(device=device, random_state=99)                                    
                         else:
                             if len(self.features) <= features_limit:
@@ -1242,13 +1266,25 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                                 self.base_estimator = BaggingRegressor(n_estimators=200, random_state=99)
                                 self.model_name = 'rf'
                             else:
-                                if self.verbose:
-                                    print('    Selecting LGBM Regressor as base estimator...')
-                                self.base_estimator = LGBMRegressor(device=device, random_state=99)                                    
+                                if gpu_exists:
+                                    if self.verbose:
+                                        print('    Selecting XGBRegressor with GPU as base estimator...')
+                                    self.base_estimator = XGBRegressor(n_estimators=250, 
+                                        n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
+                                else:
+                                    if self.verbose:
+                                        print('    Selecting LGBM Regressor as base estimator...')
+                                    self.base_estimator = LGBMRegressor(device=device, random_state=99)                                    
                     else:
-                        if self.verbose:
-                            print('    Selecting LGBM Regressor as base estimator...')
-                        self.base_estimator = LGBMRegressor(n_estimators=250)
+                        if gpu_exists:
+                            if self.verbose:
+                                print('    Selecting XGB Regressor with GPU as base estimator...')
+                            self.base_estimator = XGBRegressor(n_estimators=250, 
+                                n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
+                        else:
+                            if self.verbose:
+                                print('    Selecting LGBM Regressor as base estimator...')
+                            self.base_estimator = LGBMRegressor(n_estimators=250)
                 else:
                     self.model_name == 'other'
                 ### Remember we don't to HPT Tuning for Multi-label problems since it errors ####
@@ -1328,6 +1364,7 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
         ########################################################
         #####  This is for Single Label Classification problems 
         ########################################################
+        
         if isinstance(y, pd.Series):
             targets = y.name
         else:
@@ -1342,13 +1379,18 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                     self.base_estimator = BaggingRegressor(n_estimators=20)
                     self.model_name = 'bg'
                 else:
-                    if self.verbose:
-                        print('    Selecting LGBM Regressor as base estimator...')
-                    self.base_estimator = LGBMRegressor(device=device, random_state=99)
+                    if (X.dtypes==float).all():
+                            print('    Selecting Ridge as base_estimator. Feel free to send in your own estimator.')
+                            self.base_estimator = Ridge(normalize=False)
+                            self.model_name = 'other'
+                    else:
+                        if self.verbose:
+                            print('    Selecting LGBM Regressor as base estimator...')
+                        self.base_estimator = LGBMRegressor(device=device, random_state=99)
             else:
                 ### For Multi-class datasets you can use Regressors for numeric classes ####################
                 ### For multi-class problems use Label Propagation which is faster and better ##
-                if (X.dtypes==float).all() and len(self.features) <= features_limit:
+                if (X.dtypes==float).all():
                         print('    Selecting Ridge as base_estimator. Feel free to send in your own estimator.')
                         self.base_estimator = Ridge(normalize=False)
                         self.model_name = 'other'
@@ -1360,10 +1402,16 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                         self.model_name = 'bg'
                     else:
                         scoring = 'neg_mean_squared_error'
-                        if self.verbose:
-                            print('    Selecting LGBM Regressor as base estimator...')
                         ###   Extra Trees is not so great for large data sets - LGBM is better ####
-                        self.base_estimator = LGBMRegressor(n_estimators=250, random_state=99)
+                        if gpu_exists:
+                            if self.verbose:
+                                print('    Selecting XGBRegressor with GPU as base estimator...')
+                            self.base_estimator = XGBRegressor(n_estimators=250, 
+                                n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
+                        else:
+                            if self.verbose:
+                                print('    Selecting LGBM Regressor as base estimator...')
+                            self.base_estimator = LGBMRegressor(n_estimators=250, random_state=99) 
                         self.model_name = 'lgb'
         else:
             self.model_name = 'other'
