@@ -70,10 +70,11 @@ As of June 2022, thanks to [arturdaraujo](https://github.com/arturdaraujo), feat
  !pip install xlrd --ignore-installed --no-deps 
 ```
 
-##Step 2: Next, install Pillow since Kaggle has an incompatible version<br>
+##Step 2: Next, install Pillow since Kaggle has an incompatible version. Also you need lazytransform.<br>
 
 ```
  !pip install Pillow==9.0.0
+ !pip install lazytransform
 ```
 
 ## What is featurewiz?
@@ -185,6 +186,7 @@ To install from PyPi:
 conda create -n <your_env_name> python=3.7 anaconda
 conda activate <your_env_name> # ON WINDOWS: `source activate <your_env_name>`
 pip install featurewiz --ignore-installed --no-deps
+pip install lazytransform
 or
 pip install git+https://github.com/AutoViML/featurewiz.git
 ```

@@ -1,5 +1,14 @@
 import numpy as np
 import pandas as pd
+np.random.seed(99)
+################################################################################
+import warnings
+warnings.filterwarnings("ignore")
+from sklearn.exceptions import DataConversionWarning
+warnings.filterwarnings(action='ignore', category=DataConversionWarning)
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+################################################################################
 import math
 from collections import Counter
 from sklearn.linear_model import Ridge, Lasso, RidgeCV
@@ -37,7 +46,7 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
 from sklearn.compose import ColumnTransformer
 from scipy.stats import uniform as sp_randFloat
 from scipy.stats import randint as sp_randInt
-
+from imbalanced_ensemble.ensemble import SelfPacedEnsembleClassifier
 from .featurewiz import get_class_distribution
 
 class SuloClassifier(BaseEstimator, ClassifierMixin):
@@ -53,12 +62,12 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
     It is fully compatible with scikit-learn pipelines and other models.
     """
     def __init__(self, base_estimator=None, n_estimators=None, pipeline=True, weights=False, 
-                                       regression=False, verbose=0):
+                                       imbalanced=False, verbose=0):
         self.n_estimators = n_estimators
         self.base_estimator = base_estimator
         self.pipeline = pipeline
         self.weights = weights
-        self.regression = regression
+        self.imbalanced = imbalanced
         self.verbose = verbose
         self.models = []
         self.multi_label =  False
@@ -85,8 +94,8 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         # Use KFold for understanding the performance
         if self.weights:
             print('Remember that using class weights will wrongly skew predict_probas from any classifier')
-        if self.regression:
-            class_weights = []
+        if self.imbalanced:
+            class_weights = None
         else:
             class_weights = get_class_weights(y, verbose=0)
         ### Remember that putting class weights will totally destroy predict_probas ###
@@ -103,9 +112,8 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         ### don't change this metric and eval metric - it gives error if you change it ##
         eval_metric = 'auc'
         row_limit = 10000
-        if self.regression:
-            self.regression_min_max = get_max_min_from_y(y)
-            print('    Min and max classes of y = %s' %self.regression_min_max)
+        if self.imbalanced:
+            print('    Imbalanced classes of y = %s' %find_rare_class(y, verbose=self.verbose))
         ################          P I P E L I N E        ##########################
         numeric_transformer = Pipeline(
             steps=[("imputer", SimpleImputer(strategy="mean", add_indicator=True)), ("scaler", StandardScaler())]
@@ -160,7 +168,9 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                 print('Number of estimators = %d' %self.n_estimators)
         self.model_name = 'lgb'
         num_splits = self.n_estimators
-        kfold = KFold(n_splits=num_splits, random_state=seed, shuffle=shuffleFlag)
+        num_repeats = 2
+        kfold = RepeatedKFold(n_splits=num_splits, random_state=seed, n_repeats=num_repeats)
+        num_iterations = int(num_splits * num_repeats)
         scoring = 'balanced_accuracy'
         print('    Number of estimators used in SuloClassifier = %s' %num_splits)
         ##### This is where we check if y is single label or multi-label ##
@@ -180,101 +190,81 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ##############################################################
                         ###   This is for Binary Classification problems only ########
                         ##############################################################
-                        if data_samples <= row_limit:
-                            if (X.dtypes==float).all() and len(self.features) <= features_limit:
-                                if self.verbose:
-                                    print('    Selecting Label Propagation since it will work great for this dataset...')
-                                    print('        however it will skew probabilities and show lower ROC AUC score than normal.')
-                                self.base_estimator =  LabelPropagation()
-                                self.model_name = 'lp'
-                            else:
-                                if len(self.features) <= features_limit:
-                                    if self.verbose:
-                                        print('    Selecting Bagging Classifier for this dataset...')
-                                    self.base_estimator = BaggingClassifier(n_estimators=150)
-                                    self.model_name = 'bg'
-                                else:
-                                    if self.verbose:
-                                        print('    Selecting LGBM Regressor as base estimator...')
-                                    self.base_estimator = LGBMClassifier(device=device, random_state=99)
+                        if self.imbalanced:
+                            self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                            self.model_name = 'other'
                         else:
-                            ### This is for large datasets in Binary classes ###########
-                            if self.verbose:
-                                print('    Selecting LGBM Regressor as base estimator...')
-                            if gpu_exists:
-                                self.base_estimator = XGBRegressor(n_estimators=250, 
-                                    n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
+                            ### make it a regular dictionary with weights for pos and neg classes ##
+                            class_weights = dict([v for k,v in class_weights.items()][0])
+                            if data_samples <= row_limit:
+                                if (X.dtypes==float).all() and len(self.features) <= features_limit:
+                                    if self.verbose:
+                                        print('    Selecting Label Propagation since it will work great for this dataset...')
+                                        print('        however it will skew probabilities and show lower ROC AUC score than normal.')
+                                    self.base_estimator =  LabelPropagation()
+                                    self.model_name = 'lp'
+                                else:
+                                    if len(self.features) <= features_limit:
+                                        if self.verbose:
+                                            print('    Selecting Bagging Classifier for this dataset...')
+                                        self.base_estimator = BaggingClassifier(n_estimators=150)
+                                        self.model_name = 'bg'
+                                    else:
+                                        if self.verbose:
+                                            print('    Selecting LGBM Regressor as base estimator...')
+                                        self.base_estimator = LGBMClassifier(device=device, random_state=99,
+                                                           class_weight=class_weights,
+                                                            )
                             else:
-                                self.base_estimator = LGBMClassifier(is_unbalance=True, 
-                                                    #max_depth=10, metric=metric,
-                                                    device=device,
-                                                    #num_class=self.max_number_of_classes,
-                                                    #n_estimators=100,  num_leaves=84, 
-                                                    #objective='binary',
-                                                    boosting_type ='goss', 
-                                                    #scale_pos_weight=None,
-                                                    random_state=99)
+                                ### This is for large datasets in Binary classes ###########
+                                if self.verbose:
+                                    print('    Selecting LGBM Regressor as base estimator...')
+                                if gpu_exists:
+                                    self.base_estimator = XGBClassifier(n_estimators=250, 
+                                        n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
+                                else:
+                                    self.base_estimator = LGBMClassifier(device=device, random_state=99, n_jobs=-1,
+                                                        #is_unbalance=True, 
+                                                        #max_depth=10, metric=metric,
+                                                        #num_class=self.max_number_of_classes,
+                                                        #n_estimators=100,  num_leaves=84, 
+                                                        #objective='binary',
+                                                        #boosting_type ='goss', 
+                                                        #scale_pos_weight=scale_pos_weight,
+                                                       class_weight=class_weights,
+                                                        )
                     else:
                         #############################################################
                         ###   This is for Multi Classification problems only ########
                         ### Make sure you don't put any class weights here since it won't work in multi-labels ##
                         ##############################################################
-                        if data_samples <= row_limit:
-                            if self.regression:
+                        if self.imbalanced:
+                            if self.verbose:
+                                print('    Selecting Self Paced ensemble classifier since imbalanced flag is set...')
+                            self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                            self.model_name = 'other'
+                        else:
+                            if data_samples <= row_limit:
                                 if len(self.features) <= features_limit:
                                     if self.verbose:
-                                        print('    Selecting Extra Trees Regressor since regression flag is set...')
-                                    self.base_estimator = ExtraTreesRegressor(n_estimators=200, random_state=99)
+                                        print('    Selecting Extra Trees Classifier for small datasets...')
+                                    self.base_estimator = ExtraTreesClassifier(n_estimators=200, random_state=99)
                                     self.model_name = 'rf'
-                                    scoring = 'neg_mean_squared_error'
                                 else:
-                                    if self.verbose:
-                                        print('    Selecting LGBM Regressor as base estimator...')
                                     self.base_estimator = LGBMRegressor(device=device, random_state=99)                                    
                             else:
-                                #### For large datasets with Multiple Classes XGB is a good choice for Regressors ##
-                                #self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
-                                #                    max_depth=10, 
-                                #                    device=device,
-                                #                    #metric='multi_logloss',
-                                #                    #num_class=self.max_number_of_classes,
-                                #                    #objective='multiclass',
-                                #                    n_estimators=100,  num_leaves=84, 
-                                #                    boosting_type ='goss', scale_pos_weight=None,
-                                #                        class_weight=None, verbose=-1)
                                 if (X.dtypes==float).all() and len(self.features) <= features_limit:
                                     print('    Selecting Label Propagation since it works great for multiclass problems...')
                                     print('        however it will skew probabilities a little so be aware of this')
                                     self.base_estimator =  LabelPropagation()
                                     self.model_name = 'lp'
                                 else:
-                                    if self.verbose:
-                                        print('    Selecting LGBM Classifier as base estimator...')
-                                    self.base_estimator = LGBMClassifier(device=device, random_state=99)
-                        else:
-                            if self.regression:
-                                if self.verbose:
-                                    print('    Selecting XGB Regressor as base estimator...')
-                                if gpu_exists:
-                                    self.base_estimator = XGBRegressor(n_estimators=250, 
-                                        n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
-                                else:
-                                    self.base_estimator = XGBRegressor(n_estimators=250, n_jobs=-1)
-                                scoring = 'neg_mean_squared_error'
-                            else:
-                                if self.verbose:
-                                    print('    Selecting LGBM Classifier as base estimator...')
-                                self.base_estimator = LGBMClassifier(bagging_seed=1337,
-                                                   data_random_seed=1337,
-                                                   drop_seed=1337,
-                                                   feature_fraction_seed=1337,
-                                                   max_depth=3,
-                                                   n_estimators=150, seed=1337,
-                                                   device=device,
-                                                   verbose=-1)
+                                    self.base_estimator = LGBMClassifier(device=device, random_state=99, n_jobs=-1,)
                 else:
                     self.model_name == 'other'
                 ### Remember we don't to HPT Tuning for Multi-label problems since it errors ####
+                if self.verbose and self.model_name=='lgb':
+                    print('    Selecting LGBM Classifier as base estimator...')
                 for i, (train_index, test_index) in enumerate(kfold.split(X)):
                     start_time = time.time()
                     # Split data into train and test based on folds          
@@ -297,23 +287,22 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         #print('    hyper tuned base estimator = %s' %self.base_estimator)
                         if self.max_number_of_classes <= 1:
                             est_list = [ClassifierChain(self.base_estimator, order=None, cv=3, random_state=i) 
-                                        for i in range(num_splits)] 
+                                        for i in range(num_iterations)] 
                             if self.verbose:
                                 print('Fitting a %s for %s targets with MultiOutputClassifier. This will take time...' %(
                                             str(self.base_estimator).split("(")[0],y.shape[1]))
                         else:
-                            if self.regression:
-                                scoring = 'neg_mean_squared_error'
+                            if self.imbalanced:
                                 if self.verbose:
-                                    print('    Fitting with RegressorChain since regression flag is set...')
-                                est_list = [RegressorChain(self.base_estimator, order=None, random_state=i)
-                                            for i in range(num_splits)] 
+                                    print('    Training with ClassifierChain since multi_label dataset. This will take time...')
+                                est_list = [ClassifierChain(self.base_estimator, order=None, random_state=i)
+                                            for i in range(num_iterations)] 
                             else:
                                 ### You must use multioutputclassifier since it is the only one predicts probas correctly ##
                                 est_list = [MultiOutputClassifier(self.base_estimator)#, order="random", random_state=i) 
-                                            for i in range(num_splits)] 
+                                            for i in range(num_iterations)] 
                                 if self.verbose:
-                                    print('Fitting a %s for %s targets with MultiOutputClassifier. This will take time...' %(
+                                    print('Training a %s for %s targets with MultiOutputClassifier. This will take time...' %(
                                                 str(self.base_estimator).split("(")[0],y.shape[1]))
 
                     # Initialize model with your supervised algorithm of choice
@@ -342,11 +331,10 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
 
 
                     # Use best classification metric to measure performance of model
-                    if self.regression:
+                    if self.imbalanced:
                         ### Use Regression predictions and convert them into classes here ##
-                        preds = convert_regression_to_classes(preds, y_test)
-                        score = rmse(y_test, preds)
-                        print("    Fold %s: Average OOF Error (lower is better): %0.3f" %(i+1, score))
+                        score = print_sulo_accuracy(y_test, preds, y_probas="")
+                        print("    Fold %s: Average OOF Score (higher is better): %0.3f" %(i+1, score))
                     else:
                         score = print_accuracy(targets, y_test, preds, verbose=self.verbose)
                         print("    Fold %s: Average OOF Score: %0.0f%%" %(i+1, 100*score))
@@ -360,8 +348,8 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                 # Compute average score
                 averageAccuracy = sum(self.scores)/len(self.scores)
                 if self.verbose:
-                    if self.regression:
-                        print("Average RMSE score of %s-model SuloClassifier: %0.3f" %(
+                    if self.imbalanced:
+                        print("Average Balanced Accuracy score of %s-model SuloClassifier: %0.3f" %(
                                         self.n_estimators, averageAccuracy))
                     else:                        
                         print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(
@@ -384,40 +372,37 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             if data_samples <= row_limit:
                 ### For small datasets use RFC for Binary Class   ########################
                 if number_of_classes <= 1:
-                    ### For binary-class problems use RandomForest or the faster ET Classifier ######
-                    if (X.dtypes==float).all() and len(self.features) <= features_limit:
-                        print('    Selecting Label Propagation since it will work great for this dataset...')
-                        print('        however it will skew probabilities and show lower ROC AUC score than normal.')
-                        self.base_estimator =  LabelPropagation()
-                        self.model_name = 'lp'
+                    if self.imbalanced:
+                        if self.verbose:
+                            print('    Selecting Self Paced ensemble classifier as base estimator...')
+                        self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                        self.model_name = 'other'
                     else:
-                        if len(self.features) <= features_limit:
-                            if self.verbose:
-                                print('    Selecting Bagging Classifier for this dataset...')
-                            ### The Bagging classifier outperforms ETC most of the time ####
-                            self.base_estimator = BaggingClassifier(n_estimators=20)
-                            self.model_name = 'bg'
+                        ### For binary-class problems use RandomForest or the faster ET Classifier ######
+                        if (X.dtypes==float).all() and len(self.features) <= features_limit:
+                            print('    Selecting Label Propagation since it will work great for this dataset...')
+                            print('        however it will skew probabilities and show lower ROC AUC score than normal.')
+                            self.base_estimator =  LabelPropagation()
+                            self.model_name = 'lp'
                         else:
-                            if self.verbose:
-                                print('    Selecting LGBM Classifier as base estimator...')
-                            self.base_estimator = LGBMClassifier(device=device, random_state=99)
+                            if len(self.features) <= features_limit:
+                                if self.verbose:
+                                    print('    Selecting Bagging Classifier for this dataset...')
+                                ### The Bagging classifier outperforms ETC most of the time ####
+                                self.base_estimator = BaggingClassifier(n_estimators=20)
+                                self.model_name = 'bg'
+                            else:
+                                if self.verbose:
+                                    print('    Selecting LGBM Classifier as base estimator...')
+                                self.base_estimator = LGBMClassifier(device=device, random_state=99, n_jobs=-1,
+                                                        scale_pos_weight=scale_pos_weight,)
                 else:
                     ### For Multi-class datasets you can use Regressors for numeric classes ####################
-                    if self.regression:
-                        if len(self.features) <= features_limit:
-                            scoring = 'neg_mean_squared_error'
-                            if self.verbose:
-                                print('    Selecting Extra Trees Regressor as base estimator...')
-                            self.base_estimator = ExtraTreesRegressor(n_estimators=200, random_state=99)
-                            self.model_name = 'rf'
-                        else:
-                            if self.verbose:
-                                print('    Selecting LGBM Regressor as base estimator...')
-                            if gpu_exists:
-                                    self.base_estimator = XGBRegressor(n_estimators=250, 
-                                        n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
-                            else:
-                                self.base_estimator = XGBRegressor(n_jobs=-1, random_state=99)
+                    if self.imbalanced:
+                        if self.verbose:
+                            print('    Selecting Self Paced ensemble classifier as base estimator...')
+                        self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                        self.model_name = 'other'
                     else:
                         ### For multi-class problems use Label Propagation which is faster and better ##
                         if (X.dtypes==float).all() and len(self.features) <= features_limit:
@@ -434,54 +419,67 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                             else:
                                 if self.verbose:
                                     print('    Selecting LGBM Classifier as base estimator...')
-                                self.base_estimator = LGBMClassifier(device=device, random_state=99)
-                        #self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
-                        #                        max_depth=10, metric='multi_logloss',
-                        #                        device=device,
-                        #                        n_estimators=130, num_class=number_of_classes, num_leaves=84, objective='multiclass',
-                        #                        boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
+                                self.base_estimator = LGBMClassifier(device=device, random_state=99, n_jobs=-1,
+                                                #is_unbalance=False,
+                                                #learning_rate=0.3,
+                                                #max_depth=10,
+                                                metric='multi_logloss',
+                                                #n_estimators=130, num_leaves=84,
+                                                num_class=number_of_classes, objective='multiclass',
+                                                #boosting_type ='goss', 
+                                                #scale_pos_weight=None,
+                                                class_weight=class_weights
+                                                )
             else:
                 ### For large datasets use LGBM or Regressors as well ########################
                 if number_of_classes <= 1:
-                    if self.verbose:
-                        print('    Selecting LGBM Classifier for this dataset...')
-                    #self.base_estimator = LGBMClassifier(n_estimators=250, random_state=99, 
-                    #            boosting_type ='goss', scale_pos_weight=scale_pos_weight)
-                    self.base_estimator = LGBMClassifier(is_unbalance=True, learning_rate=0.3, 
-                                            max_depth=10, metric=metric,
-                                            device=device,
-                                            n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='binary',
-                                            boosting_type ='goss', scale_pos_weight=None)
+                    if self.imbalanced:
+                        if self.verbose:
+                            print('    Selecting Self Paced ensemble classifier as base estimator...')
+                        self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                        self.model_name = 'other'
+                    else:
+                        if self.verbose:
+                            print('    Selecting LGBM Classifier for this dataset...')
+                        #self.base_estimator = LGBMClassifier(n_estimators=250, random_state=99, 
+                        #            boosting_type ='goss', scale_pos_weight=scale_pos_weight)
+                        self.base_estimator = LGBMClassifier(device=device, random_state=99, n_jobs=-1,
+                                                #is_unbalance=True,
+                                                #learning_rate=0.3, 
+                                                #max_depth=10, 
+                                                #metric=metric,
+                                                #n_estimators=230, num_leaves=84, 
+                                                #num_class=number_of_classes,
+                                                #objective='binary',
+                                                #boosting_type ='goss', 
+                                                scale_pos_weight=scale_pos_weight
+                                                )
                 else:
                     ### For Multi-class datasets you can use Regressors for numeric classes ####################
-                    if self.regression:
-                        scoring = 'neg_mean_squared_error'
+                    if self.imbalanced:
                         if self.verbose:
-                            print('    Selecting LGBM Regressor as base estimator...')
-                        ###   Extra Trees is not so great for large data sets - LGBM is better ####
-                        #self.base_estimator = ExtraTreesClassifier(n_estimators=250, max_depth=2,
-                        #                random_state=0, class_weight=class_weights)
-                        #self.model_name = 'rf'
-                        if gpu_exists:
-                            self.base_estimator = XGBRegressor(n_estimators=250, 
-                                        n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
-                        else:
-                            self.base_estimator = XGBRegressor(n_estimators=250, n_jobs=-1, random_state=99)
-                        self.model_name = 'lgb'
+                            print('    Selecting Self Paced ensemble classifier as base estimator...')
+                        self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                        self.model_name = 'other'
                     else:
                         #if self.weights:
                         #    class_weights = None
                         if self.verbose:
                             print('    Selecting LGBM Classifier as base estimator...')
-                        self.base_estimator = LGBMClassifier(is_unbalance=False, learning_rate=0.3,
-                                                max_depth=10, metric='multi_logloss',
-                                                device=device,
-                                                n_estimators=230, num_class=number_of_classes, num_leaves=84, objective='multiclass',
-                                                boosting_type ='goss', scale_pos_weight=None,class_weight=class_weights)
+                        self.base_estimator = LGBMClassifier(device=device, random_state=99, n_jobs=-1,
+                                                #is_unbalance=False, learning_rate=0.3,
+                                                #max_depth=10, 
+                                                metric='multi_logloss',
+                                                #n_estimators=230, num_leaves=84,
+                                                num_class=number_of_classes, objective='multiclass',
+                                                #boosting_type ='goss', 
+                                                scale_pos_weight=None,
+                                                class_weight=class_weights
+                                                )
         else:
             self.model_name = 'other'
 
-        est_list = num_splits*[self.base_estimator]
+        est_list = num_iterations*[self.base_estimator]
         
         ### if there is a need to do SMOTE do it here ##
         smote = False
@@ -536,7 +534,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         else:
                             print('No HPT tuning performed since number of features is too large...')
 
-                est_list = num_splits*[self.base_estimator]
+                est_list = num_iterations*[self.base_estimator]
                 #print('    base estimator = %s' %self.base_estimator)
             
             ### SMOTE processing #####
@@ -587,11 +585,10 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
 
             # Use best classification metric to measure performance of model
 
-            if self.regression:
+            if self.imbalanced:
                 ### Use Regression predictions and convert them into classes here ##
-                preds = convert_regression_to_classes(preds, y_test)
-                score = rmse(y_test, preds)
-                print("    Fold %s: Average OOF Error (lower is better): %0.3f" %(i+1, score))
+                score = print_sulo_accuracy(y_test, preds, y_probas="")
+                print("    Fold %s: Average OOF Score (higher is better): %0.3f" %(i+1, score))
             else:
                 #score = balanced_accuracy_score(y_test, preds)
                 score = print_accuracy(targets, y_test, preds, verbose=self.verbose)
@@ -601,10 +598,10 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         # Compute average score
         averageAccuracy = sum(self.scores)/len(self.scores)
         if self.verbose:
-            if self.regression:
-                print("Average RMSE of %s-model SuloClassifier: %0.3f" %(self.n_estimators, averageAccuracy))
+            if self.imbalanced:
+                print("Average Balanced Accuracy of %s-model SuloClassifier: %0.3f" %(num_iterations, 100*averageAccuracy))
             else:
-                print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(self.n_estimators, 100*averageAccuracy))
+                print("Average Balanced Accuracy of %s-model SuloClassifier: %0.0f%%" %(num_iterations, 100*averageAccuracy))
 
         # Finally, check out the total time taken
         end = time.time()
@@ -620,8 +617,6 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             ypre = np.array([model.predict(X) for model in self.models ])
             y_predis = np.average(ypre, axis=0, weights=weights)
             y_preds = np.round(y_predis,0).astype(int)
-            if self.regression:
-                y_preds = convert_regression_to_classes(y_preds, self.regression_min_max)
             return y_preds
         y_predis = np.column_stack([model.predict(X) for model in self.models ])
         ### This weights the model's predictions according to OOB scores obtained
@@ -635,24 +630,34 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             else:
                 y_predis = np.average(y_predis, weights=weights, axis=1)
                 y_predis = np.round(y_predis,0).astype(int)
-        if self.regression:
-            y_predis = convert_regression_to_classes( y_predis, self.regression_min_max)
+        if self.imbalanced:
+            y_predis = copy.deepcopy(y_predis)
         return y_predis
     
     def predict_proba(self, X):
-        if self.regression:
-            print('If regression flag is set, then no probabilities can be obtained.')
-            return X
         weights = self.scores
         y_probas = [model.predict_proba(X) for model in self.models ]
         y_probas = return_predict_proba(y_probas)
         return y_probas
+
+    def print_pipeline(self):
+        from sklearn import set_config
+        set_config(display="text")
+        return self.modelformer
+
+    def plot_pipeline(self):
+        from sklearn import set_config
+        set_config(display="diagram")
+        return self
 
     def plot_importance(self, max_features=10):
         import lightgbm as lgbm
         from xgboost import plot_importance
         model_name = self.model_name
         feature_names = self.features
+        if self.multi_label:
+            print('No feature importances available for multi_label problems')
+            return
         if  model_name == 'lgb' or model_name == 'xgb':
             for i, model in enumerate(self.models):
                 if self.pipeline:
@@ -695,7 +700,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             print('No feature importances available for this algorithm. Returning...')
             return
 #####################################################################################################
-from sklearn.model_selection import StratifiedKFold, KFold
+from sklearn.model_selection import StratifiedKFold, KFold, RepeatedKFold
 from sklearn.model_selection import RandomizedSearchCV
 def rand_search(model, X, y, model_name, pipe_flag=False, scoring=None, verbose=0):
     start = time.time()
@@ -779,8 +784,8 @@ def rand_search(model, X, y, model_name, pipe_flag=False, scoring=None, verbose=
         ### Since we don't know what model will be sent, we cannot tune it ##
         params = {}
         return model
-
-    kfold = KFold(n_splits=5, random_state=100, shuffle=True)
+    ### You must leave Random State as None since shuffle is False. Otherwise, error! 
+    kfold = KFold(n_splits=5, random_state=None, shuffle=False)
     if verbose:
         print("Finding best params for base estimator using RandomizedSearchCV...")
     clf = RandomizedSearchCV(model, params, n_iter=n_iter, scoring=scoring,
@@ -1033,7 +1038,10 @@ def print_sulo_accuracy(y_test, y_preds, y_probas=''):
             if y_probas.ndim <= 1:
                 print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas[:,1]))
             else:
-                print('Multi-class ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas, multi_class="ovr"))
+                if y_probas.shape[1] == 2:
+                    print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas[:,1]))
+                else:
+                    print('Multi-class ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas, multi_class="ovr"))
         bal_scores.append(bal_score)
         print(classification_report(y_test,y_preds))
     elif y_test.ndim >= 2:
@@ -1223,11 +1231,13 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                 self.n_estimators = min(5, int(1.5*np.log10(data_samples)))
             else:
                 self.n_estimators = min(5, int(1.2*np.log10(data_samples)))
-        self.model_name = 'lgb'
         num_splits = self.n_estimators
-        kfold = KFold(n_splits=num_splits, random_state=seed, shuffle=shuffleFlag)
+        self.model_name = 'lgb'
+        num_repeats = 2
+        kfold = RepeatedKFold(n_splits=num_splits, random_state=seed, n_repeats=num_repeats)
+        num_iterations = int(num_splits * num_repeats)
         scoring = 'neg_mean_squared_error'
-        print('    Number of estimators used in SuloRegressor = %s' %num_splits)
+        print('    Number of estimators used in SuloRegressor = %s' %num_iterations)
         ##### This is where we check if y is single label or multi-label ##
         if isinstance(y, pd.DataFrame):
             if self.log_transform:
@@ -1311,7 +1321,7 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                         if self.verbose:
                             print('    Fitting with RegressorChain...')
                         est_list = [RegressorChain(self.base_estimator, order=None, random_state=i)
-                                    for i in range(num_splits)] 
+                                    for i in range(num_iterations)] 
 
                     # Initialize model with your supervised algorithm of choice
                     model = est_list[i]
@@ -1416,7 +1426,7 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
         else:
             self.model_name = 'other'
 
-        est_list = num_splits*[self.base_estimator]
+        est_list = num_iterations*[self.base_estimator]
         
         ### if there is a need to do SMOTE do it here ##
         smote = False
@@ -1471,7 +1481,7 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                         else:
                             print('No HPT tuning performed since number of features is too large...')
 
-                est_list = num_splits*[self.base_estimator]
+                est_list = num_iterations*[self.base_estimator]
                 #print('    base estimator = %s' %self.base_estimator)
             
             ### SMOTE processing #####
@@ -1523,7 +1533,7 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
         # Compute average score
         averageAccuracy = sum(self.scores)/len(self.scores)
         if self.verbose:
-            print("Average RMSE of %s-model SuloRegressor: %0.3f" %(self.n_estimators, averageAccuracy))
+            print("Average RMSE of %s-model SuloRegressor: %0.3f" %(num_iterations, averageAccuracy))
 
         # Finally, check out the total time taken
         end = time.time()
