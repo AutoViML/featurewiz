@@ -879,11 +879,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         param['updater'] = 'grow_gpu_hist' #'prune'
         param['predictor'] = 'gpu_predictor'
         param['num_parallel_tree'] = 1
-        gpuid = 0
         print('    Tuning XGBoost using GPU hyper-parameters. This will take time...')
     else:
         param = copy.deepcopy(cpu_params)
-        gpuid = None
         print('    Tuning XGBoost using CPU hyper-parameters. This will take time...')
     #################################################################################
     #############   D E T E C T  SINGLE OR MULTI-LABEL PROBLEM      #################
@@ -1264,7 +1262,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         import gc
         client.run(gc.collect) 
         #train_p = client.persist(train_p)
-    print('    XGBoost version using %s as tree method: %s' %(xgb.__version__, tree_method))
+    print('    XGBoost version: %s' %xgb.__version__)
     ### This is to convert the target labels to proper numeric columns ######
     ### check if they are not starting from zero ##################
     if dask_xgboost_flag:
@@ -1307,7 +1305,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             if settings.modeltype == 'Regression':
                 objective = 'reg:squarederror'
                 params = {'objective': objective, 
-                                'tree_method': tree_method, 'gpu_id': gpuid,
+                                #'tree_method': tree_method,
                                    "silent":True, "verbosity": 0, 'min_child_weight': 0.5}
             else:
                 #### This is for Classifiers only ##########                    
@@ -1315,14 +1313,14 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     objective = 'binary:logistic'
                     num_class = 1
                     params = {'objective': objective, 'num_class': num_class,
-                                'tree_method': tree_method, 'gpu_id': gpuid,
+                                #'tree_method': tree_method,
                                     "silent":True,  "verbosity": 0,  'min_child_weight': 0.5}
                 else:
                     objective = 'multi:softmax'
                     num_class  =  dataname[target].nunique()[0]
                     # Use GPU training algorithm if needed
                     params = {'objective': objective, 
-                                'tree_method': tree_method, 'gpu_id': gpuid,
+                                #'tree_method': tree_method,
                                 "silent":True, "verbosity": 0,   'min_child_weight': 0.5, 'num_class': num_class}
             ############################################################################################################
             ######### This is where we find out whether to use single or multi-label for xgboost #######################
@@ -1355,9 +1353,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     except Exception as error_msg:
                         print('Regular XGBoost is crashing due to: %s' %error_msg)
                         if settings.modeltype == 'Regression':
-                            params = {'tree_method': cpu_tree_method, 'gpu_id': None}
+                            params = {'tree_method': cpu_tree_method}
                         else:
-                            params = {'tree_method': cpu_tree_method,'num_class': num_class, 'gpu_id': None}
+                            params = {'tree_method': cpu_tree_method,'num_class': num_class}
                         print(error_msg)
                         bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
                 else:
@@ -1376,7 +1374,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                             params = {'tree_method': cpu_tree_method}
                         else:
                             params = {'tree_method': cpu_tree_method,'num_class': num_class}
-                        dtrain = xgb.DMatrix(X_train, label=y_train, feature_names=cols_sel)
                         bst = xgb.dask.train(client=client, params=params, dtrain=dtrain, num_boost_round=num_rounds)
                         print(error_msg)
             ################################################################################
@@ -3009,17 +3006,14 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self.category_encoders=category_encoders
         self.dask_xgboost_flag=dask_xgboost_flag
         self.nrows=nrows
-        self.X_sel = None
+        #self.X_sel = None
 
     def fit(self, X, y):
         start_time = time.time()
         if isinstance(X, np.ndarray):
             print('X input must be a dataframe since we use column names to build data pipelines. Returning')
-            return X, y
+            return {}, {}
         X_index = X.index
-        if isinstance(y, np.ndarray):
-            print('   y input is an numpy array and hence convert into a series or dataframe and re-try.')
-            return X, y
         y_index = y.index
         if (X_index == y_index).all():
             df = pd.concat([X, y], axis=1)
@@ -3029,9 +3023,6 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         ### Now you can process the X and y datasets ####
         if isinstance(y, pd.Series):
             target = y.name
-            if target is None:
-                print('   y input is a pandas series with no name. Convert it and re-try.')
-                return X, y                
         elif isinstance(y, pd.DataFrame):
             target = y.columns.tolist()
         elif isinstance(X, np.ndarray):
@@ -3047,15 +3038,10 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         print('    Time taken to create entire pipeline = %s second(s)' %difftime)
         # column of labels
         self.features = features
-        self.X_sel = X_sel
         return self
 
     def transform(self, X):
-        try:
-            return X[self.features]
-        except:
-            print('seince X does not have selected features in it, returning %d transformed features' %len(self.features))
-            return self.X_sel
+        return X[self.features]
 ###################################################################################################
 def EDA_remove_special_chars(df):
     """

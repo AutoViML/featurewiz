@@ -1,14 +1,6 @@
 import pandas as pd
 import numpy as np
 np.random.seed(99)
-################################################################################
-import warnings
-warnings.filterwarnings("ignore")
-from sklearn.exceptions import DataConversionWarning
-warnings.filterwarnings(action='ignore', category=DataConversionWarning)
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-#################################################################################
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import KFold
 from sklearn.model_selection import GridSearchCV
@@ -54,6 +46,8 @@ from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
 import xgboost as xgb
 import matplotlib.pyplot as plt
 
+import warnings
+warnings.filterwarnings("ignore")
 import copy
 #################################################################################
 #### Regression or Classification type problem
@@ -415,9 +409,6 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     num_boost_round = 400
     if isinstance(Y_XGB, pd.Series):
         targets = [Y_XGB.name]
-    elif isinstance(Y_XGB, np.ndarray):
-        print('   y input is an numpy array and hence convert into a series or dataframe and re-try.')
-        return
     else:
         targets = Y_XGB.columns.tolist()
     if len(targets) == 1:
@@ -911,9 +902,6 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     start_time = time.time()
     if isinstance(Y_XGB, pd.Series):
         targets = [Y_XGB.name]
-    elif isinstance(Y_XGB, np.ndarray):
-        print('   y input is an numpy array and hence convert into a series or dataframe and re-try.')
-        return
     else:
         targets = Y_XGB.columns.tolist()
     Y_XGB_index = Y_XGB.index
@@ -1250,11 +1238,8 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
     top_num = 10
     if isinstance(Y_XGB, pd.Series):
         targets = [Y_XGB.name]
-    elif isinstance(Y_XGB, pd.DataFrame):
+    if isinstance(Y_XGB, pd.DataFrame):
         targets = Y_XGB.columns.tolist()
-    elif isinstance(Y_XGB, np.ndarray):
-        print('   y input is an numpy array and hence convert into a series or dataframe and re-try.')
-        return
     else:
         print('Dont use complex LightGBM models for single label problems. Try simple_LightGBM_model instead.')
         return
@@ -1450,9 +1435,6 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
     num_boost_round = 400
     if isinstance(Y_XGB, pd.Series):
         targets = [Y_XGB.name]
-    elif isinstance(Y_XGB, np.ndarray):
-        print('   y input is an numpy array and hence convert into a series or dataframe and re-try.')
-        return
     else:
         targets = Y_XGB.columns.tolist()
     if len(targets) == 1:
