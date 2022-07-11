@@ -841,8 +841,8 @@ class DateTime_Transformer(BaseEstimator, TransformerMixin):
     ################################################################################################
     Usage:
           ds = DateTime_Transformer(ts_column=col)
-          ds.fit_transform(train) ## this will give your transformed values as a dataframe
-          ds.transform(test) ### this will give your transformed values as a dataframe
+          train = ds.fit_transform(train) ## this will give your transformed values as a dataframe
+          test = ds.transform(test) ### this will give your transformed values as a dataframe
               
     Usage in Column Transformers and Pipelines:
           No. It cannot be used in pipelines since it need to produce two columns for the next stage in pipeline.
@@ -871,7 +871,8 @@ class DateTime_Transformer(BaseEstimator, TransformerMixin):
         else:
             #### There is no way to transform dataframes since you will get a nested renamer error if you try ###
             ### But if it is a one-dimensional dataframe, convert it into a Series
-            print('    X is a DataFrame...')
+            #print('    X is a DataFrame...')
+            pass
         X_trans, self.cols_added = FE_create_time_series_features(X, self.ts_column, ts_adds_in=[])
         self.fitted = True
         self.train = True
@@ -1244,7 +1245,7 @@ from pandas.api.types import is_datetime64_any_dtype
 from sklearn.base import BaseEstimator, TransformerMixin 
 from lightgbm import LGBMRegressor
 import copy
-from lazytransform import LazyTransformer
+#from lazytransform import LazyTransformer
 from sklearn.impute import KNNImputer, SimpleImputer
 from tqdm import tqdm
 from sklearn.metrics import r2_score
@@ -1540,6 +1541,7 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
     def transform(self, X, y=None, **fit_params):
         X = copy.deepcopy(X)
         change_to_imputing = False
+        print('Input X shape = %s' %(X.shape,))
         if y is None:
             ### Since y is not available we have to search for prior_y and see!
             for i in range(self.lags):
@@ -1565,29 +1567,35 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                     col_select = col_select[0]
                     if  X_joined[each_target].isnull().all():
                         print('    No prior targets available for combination of columns in test vs train')
-                        print('        changing to imputing target values for %s...' %rsuffix)
+                        print('        changing method to imputing target values for %s...' %rsuffix)
                         change_to_imputing = True
                         break
                     else:
                         if X_joined[each_target].isnull().any():
-                            print('    Error: for some reason there are NaNs in %s' %each_target)
+                            print('    Error: for some reason there are NaNs in %s. Hence changing to imputing method' %each_target)
                             change_to_imputing = True
                         else:
                             X[col_select] = X_joined[each_target].values
             #### don't change the next line. It is meant to check whether to do imputing ##
             if change_to_imputing:
                 print('Imputing prior values for target using lazytransform and targeted group means...')
-                lazy = LazyTransformer(model=None, encoders='auto', scalers=None, 
-                                       date_to_string=False, transform_target=False,
-                                       imbalanced=False, save=False, combine_rare=False, 
-                                       verbose=0)
+                #lazy = LazyTransformer(model=None, encoders='auto', scalers=None, 
+                #                       date_to_string=False, transform_target=False,
+                #                       imbalanced=False, save=False, combine_rare=False, 
+                #                       verbose=0)
                 col_adds = self.X_adds.columns.tolist()
                 X_old = self.convert_X_to_datetime(self.X_prior)
                 X_new = self.convert_X_to_datetime(X)
                 ## we are going to turn the prior columns as y to predict future priors
                 y_old = self.X_adds
-                X_old, _ = lazy.fit_transform(X_old, y_old)
-                X_new = lazy.transform(X_new)
+                ## we must convert date_col into date-time features before we convert object vars
+                ds = DateTime_Transformer(ts_column=self.date_col)
+                X_old = ds.fit_transform(X_old) ## this will give your transformed values as a dataframe
+                X_new = ds.transform(X_new) ### this will give your transformed values as a dataframe
+                ## Now we can convert all object columns to numeric ######
+                #X_old, _ = lazy.fit_transform(X_old, y_old)
+                X_old, X_new, _ = FE_convert_all_object_columns_to_numeric(X_old, X_new)
+                #X_new = lazy.transform(X_new)
                 print('Imputing begins with input and output shapes = %s %s %s' %(X_old.shape, y_old.shape, X_new.shape,))
                 y_new = self.self_imputer(X_old, y_old, X_new)
                 ### This is where we combine both imputing and prior_y values ###
@@ -1600,6 +1608,7 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                             X[col_add] = y_new[col_add].values
                     else:
                         X[col_add] = y_new[col_add].values
+                print('Time Series Lagging Transformation completed with new X shape = %s' %(X.shape,))
                 return X
         else:
             ### In this case, y is available and can add prior day columns ##
@@ -1637,7 +1646,7 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
         # if fit_transform is done, then fitted is False since test is next ##
         self.fitted = False
         self.X_adds = X[all_target_col_adds]
-        print('    X transformed shape = %s' %(X.shape,))
+        print('Time Series Lagging Transformation completed with new X shape = %s' %(X.shape,))
         return X
     
     def fit_transform(self, X, y, **fit_params):
@@ -1767,3 +1776,85 @@ def infer_date_time_format(list_dates):
         print('Error in inferring date time format. Returning...')
     return date_time_fmts
 #################################################################################################
+###########################################################################################
+############## CONVERSION OF STRING COLUMNS TO NUMERIC using MY_LABELENCODER #########
+#######################################################################################
+def FE_convert_all_object_columns_to_numeric(train, test="", features=[]):
+    """
+    FE stands for Feature Engineering - it means this function performs feature engineering
+    ######################################################################################
+    This is a utility that converts string columns to numeric using MY_LABEL ENCODER.
+    Make sure test and train have the same number of columns. If you have target in train,
+    remove it before sending it through this utility. Otherwise, might blow up during test transform.
+    The beauty of My_LabelEncoder is it handles NA's and future values in test that are not in train.
+    #######################################################################################
+    Inputs:
+    train : pandas dataframe
+    test: (optional) pandas dataframe
+
+    Outputs:
+    train: this is the transformed DataFrame
+    test: (optional) this is the transformed test dataframe if given.
+    ######################################################################################
+    """
+    
+    train = copy.deepcopy(train)
+    test = copy.deepcopy(test)
+    #### This is to fill all numeric columns with a missing number ##########
+    nums = train.select_dtypes('number').columns.tolist()
+    nums = [x for x in nums if x in features]
+    #### We don't want to look for ID columns and deleted columns ########
+    if len(nums) == 0:
+        pass
+    else:
+
+        if train[nums].isnull().sum().sum() > 0:
+            null_cols = np.array(nums)[train[nums].isnull().sum()>0].tolist()
+            for each_col in null_cols:
+                new_missing_col = each_col + '_Missing_Flag'
+                train[new_missing_col] = 0
+                train.loc[train[each_col].isnull(),new_missing_col]=1
+                ### Remember that fillna only works at dataframe level! ###
+                train[[each_col]] = train[[each_col]].fillna(-9999)
+                if not train[each_col].dtype in [np.float64,np.float32,np.float16]:
+                    train[each_col] = train[each_col].astype(int)
+                if not isinstance(test, str):
+                    if test is None:
+                        pass
+                    else:
+                        new_missing_col = each_col + '_Missing_Flag'
+                        test[new_missing_col] = 0
+                        test.loc[test[each_col].isnull(),new_missing_col]=1
+                        test[each_col] = test[each_col].fillna(-9999)
+                        if not test[each_col].dtype in [np.float64,np.float32,np.float16]:
+                            test[each_col] = test[each_col].astype(int)
+    ###### Now we convert all object columns to numeric ##########
+    lis = []
+    error_columns = []
+    
+    lis = train.select_dtypes('object').columns.tolist() + train.select_dtypes('category').columns.tolist()
+    if not isinstance(test, str):
+        if test is None:
+            pass
+        else:
+            lis_test = test.select_dtypes('object').columns.tolist() + test.select_dtypes('category').columns.tolist()
+            if len(left_subtract(lis, lis_test)) > 0:
+                ### if there is an extra column in train that is not in test, then remove it from consideration
+                lis = copy.deepcopy(lis_test)
+    if not (len(lis)==0):
+        for everycol in lis:
+            MLB = My_LabelEncoder()
+            try:
+                train[everycol] = MLB.fit_transform(train[everycol])
+                if not isinstance(test, str):
+                    if test is None:
+                        pass
+                    else:
+                        test[everycol] = MLB.transform(test[everycol])
+            except:
+                print('    error converting %s column from string to numeric. Continuing...' %everycol)
+                error_columns.append(everycol)
+                continue
+    
+    return train, test, error_columns
+###############################################################################################

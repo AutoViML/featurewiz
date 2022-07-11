@@ -164,15 +164,13 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                 self.n_estimators = min(5, int(1.5*np.log10(data_samples)))
             else:
                 self.n_estimators = min(10, int(1.5*np.log10(data_samples)))
-            if self.verbose:
-                print('Number of estimators = %d' %self.n_estimators)
         self.model_name = 'lgb'
         num_splits = self.n_estimators
         num_repeats = 2
         kfold = RepeatedKFold(n_splits=num_splits, random_state=seed, n_repeats=num_repeats)
         num_iterations = int(num_splits * num_repeats)
         scoring = 'balanced_accuracy'
-        print('    Number of estimators used in SuloClassifier = %s' %num_splits)
+        print('    Number of estimators used in SuloClassifier = %s' %num_iterations)
         ##### This is where we check if y is single label or multi-label ##
         if isinstance(y, pd.DataFrame):
             ###############################################################
@@ -481,13 +479,6 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
 
         est_list = num_iterations*[self.base_estimator]
         
-        ### if there is a need to do SMOTE do it here ##
-        smote = False
-        #list_classes = return_minority_classes(y)
-        #if not list_classes.empty:
-        #    smote = True
-        #### For now, don't do SMOTE since it is making things really slow ##
-        
         # Perform CV
         for i, (train_index, test_index) in enumerate(kfold.split(X)):
             # Split data into train and test based on folds          
@@ -501,9 +492,6 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
             else:
                 x_train, x_test = X[train_index], X[test_index]
 
-            # Convert the data into numpy arrays
-            #if not isinstance(x_train, np.ndarray):
-            #    x_train, x_test = x_train.values, x_test.values
             
             ##   small datasets processing #####
             if i == 0:
@@ -536,43 +524,6 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
 
                 est_list = num_iterations*[self.base_estimator]
                 #print('    base estimator = %s' %self.base_estimator)
-            
-            ### SMOTE processing #####
-            if i == 0:
-                if smote:
-                    print('Performing SMOTE...')
-                    if self.verbose:
-                        print('    x_train shape before SMOTE = %s' %(x_train.shape,))
-                    
-            if smote:
-                # Get the class distribution for perfoming relative sampling in the next line
-                ### It does not appear that class weights work well in SMOTE - hence avoid ###
-                #class_weighted_rows = get_class_distribution(y_train, verbose)
-                
-                try:
-                    if number_of_classes <= 1:
-                        sm = ADASYN(n_neighbors=5, random_state=seed, )
-                                    #sampling_strategy=class_weighted_rows)
-                    else:
-                        sm = SMOTETomek(random_state=42)
-                        #sm = SMOTE(k_neighbors=5, random_state=seed,)
-                                    #sampling_strategy=class_weighted_rows)
-                    
-                    x_train, y_train = sm.fit_resample(x_train, y_train)
-                    if i == 0:
-                        print('    x_train shape after SMOTE = %s' %(x_train.shape,))
-                except:
-                    if number_of_classes <= 1:
-                        sm = SMOTETomek(random_state=42,)
-                        #sm = ADASYN(n_neighbors=2, random_state=seed, )
-                                    #sampling_strategy=class_weighted_rows)
-                    else:
-                        sm = SMOTE(k_neighbors=2, random_state=seed,)
-                                    #sampling_strategy=class_weighted_rows)
-                    
-                    x_train, y_train = sm.fit_resample(x_train, y_train)                    
-                    if i == 0 and smote:
-                        print('    x_train shape after SMOTE = %s' %(x_train.shape,))
             
             # Initialize model with your supervised algorithm of choice
             model = est_list[i]
@@ -621,6 +572,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         y_predis = np.column_stack([model.predict(X) for model in self.models ])
         ### This weights the model's predictions according to OOB scores obtained
         #### In single label, targets can be object or string, so weights cannot be applied always ##
+        return y_predis
         if y_predis.dtype == object or y_predis.dtype == bool:
             ### in the case of predictions that are strings, no need for weights ##
             y_predis = stats.mode(y_predis, axis=1)[0].ravel()

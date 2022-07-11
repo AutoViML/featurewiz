@@ -42,7 +42,7 @@ from .encoders import FrequencyEncoder
 from .sulov_method import FE_remove_variables_using_SULOV_method
 from .classify_method import classify_columns, EDA_find_remove_columns_with_infinity
 from .ml_models import analyze_problem_type, get_sample_weight_array, check_if_GPU_exists
-from .my_encoders import Groupby_Aggregator, My_LabelEncoder_Pipe
+from .my_encoders import Groupby_Aggregator, My_LabelEncoder_Pipe, My_LabelEncoder
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe, FE_create_time_series_features
 from . import settings
 settings.init()
@@ -78,7 +78,7 @@ from dask.distributed import Client, progress
 import psutil
 import json
 from sklearn.model_selection import train_test_split
-
+from .my_encoders import FE_convert_all_object_columns_to_numeric
 #######################################################################################################
 def classify_features(dfte, depVar, verbose=0):
     dfte = copy.deepcopy(dfte)
@@ -362,164 +362,7 @@ def return_factorized_dict(ls):
     if -1 in factos:
         categs = np.insert(categs,np.where(factos==-1)[0][0],np.nan)
     return dict(zip(categs,factos))
-###########################################################################################
-############## CONVERSION OF STRING COLUMNS TO NUMERIC using MY_LABELENCODER #########
-#######################################################################################
-def FE_convert_all_object_columns_to_numeric(train, test="", features=[]):
-    """
-    FE stands for Feature Engineering - it means this function performs feature engineering
-    ######################################################################################
-    This is a utility that converts string columns to numeric using MY_LABEL ENCODER.
-    Make sure test and train have the same number of columns. If you have target in train,
-    remove it before sending it through this utility. Otherwise, might blow up during test transform.
-    The beauty of My_LabelEncoder is it handles NA's and future values in test that are not in train.
-    #######################################################################################
-    Inputs:
-    train : pandas dataframe
-    test: (optional) pandas dataframe
-
-    Outputs:
-    train: this is the transformed DataFrame
-    test: (optional) this is the transformed test dataframe if given.
-    ######################################################################################
-    """
-    
-    train = copy.deepcopy(train)
-    test = copy.deepcopy(test)
-    #### This is to fill all numeric columns with a missing number ##########
-    nums = train.select_dtypes('number').columns.tolist()
-    nums = [x for x in nums if x in features]
-    #### We don't want to look for ID columns and deleted columns ########
-    if len(nums) == 0:
-        pass
-    else:
-
-        if train[nums].isnull().sum().sum() > 0:
-            null_cols = np.array(nums)[train[nums].isnull().sum()>0].tolist()
-            for each_col in null_cols:
-                new_missing_col = each_col + '_Missing_Flag'
-                train[new_missing_col] = 0
-                train.loc[train[each_col].isnull(),new_missing_col]=1
-                ### Remember that fillna only works at dataframe level! ###
-                train[[each_col]] = train[[each_col]].fillna(-9999)
-                if not train[each_col].dtype in [np.float64,np.float32,np.float16]:
-                    train[each_col] = train[each_col].astype(int)
-                if not isinstance(test, str):
-                    if test is None:
-                        pass
-                    else:
-                        new_missing_col = each_col + '_Missing_Flag'
-                        test[new_missing_col] = 0
-                        test.loc[test[each_col].isnull(),new_missing_col]=1
-                        test[each_col] = test[each_col].fillna(-9999)
-                        if not test[each_col].dtype in [np.float64,np.float32,np.float16]:
-                            test[each_col] = test[each_col].astype(int)
-    ###### Now we convert all object columns to numeric ##########
-    lis = []
-    error_columns = []
-    
-    lis = train.select_dtypes('object').columns.tolist() + train.select_dtypes('category').columns.tolist()
-    if not isinstance(test, str):
-        if test is None:
-            pass
-        else:
-            lis_test = test.select_dtypes('object').columns.tolist() + test.select_dtypes('category').columns.tolist()
-            if len(left_subtract(lis, lis_test)) > 0:
-                ### if there is an extra column in train that is not in test, then remove it from consideration
-                lis = copy.deepcopy(lis_test)
-    if not (len(lis)==0):
-        for everycol in lis:
-            MLB = My_LabelEncoder()
-            try:
-                train[everycol] = MLB.fit_transform(train[everycol])
-                if not isinstance(test, str):
-                    if test is None:
-                        pass
-                    else:
-                        test[everycol] = MLB.transform(test[everycol])
-            except:
-                print('    error converting %s column from string to numeric. Continuing...' %everycol)
-                error_columns.append(everycol)
-                continue
-    
-    return train, test, error_columns
 ###################################################################################
-from sklearn.base import TransformerMixin, BaseEstimator
-from collections import defaultdict
-class My_LabelEncoder(TransformerMixin):
-    """
-    ################################################################################################
-    ######  This Label Encoder class works just like sklearn's Label Encoder!  #####################
-    #####  You can label encode any column in a data frame using this new class. But unlike sklearn,
-    the beauty of this function is that it can take care of NaN's and unknown (future) values.
-    It uses the same fit() and fit_transform() methods of sklearn's LabelEncoder class.
-    ################################################################################################
-    ##################### This is the best working version - don't mess with it! ###################
-    Usage:
-          MLB = My_LabelEncoder()
-          train[column] = MLB.fit_transform(train[column])
-          test[column] = MLB.transform(test[column])
-    """
-    def __init__(self):
-        self.transformer = defaultdict(str)
-        self.inverse_transformer = defaultdict(str)
-
-    def fit(self,testx):
-        if isinstance(testx, pd.Series):
-            pass
-        elif isinstance(testx, np.ndarray):
-            testx = pd.Series(testx)
-        else:
-            return testx
-        outs = np.unique(testx.factorize()[0])
-        ins = testx.value_counts(dropna=False).index
-        #if -1 in outs:
-        #   it already has nan if -1 is in outs. No need to add it.
-        #    ins.insert(0,np.nan)
-        self.transformer = dict(zip(ins,outs.tolist()))
-        self.inverse_transformer = dict(zip(outs.tolist(),ins))
-        return self
-
-    def transform(self, testx):
-        if isinstance(testx, pd.Series):
-            pass
-        elif isinstance(testx, np.ndarray):
-            testx = pd.Series(testx)
-        else:
-            return testx
-        ### now convert the input to transformer dictionary values
-        ins = np.unique(testx.factorize()[1]).tolist()
-        missing = [x for x in ins if x not in self.transformer.keys()]
-        if len(missing) > 0:
-            for each_missing in missing:
-                max_val = np.max(list(self.transformer.values())) + 1
-                self.transformer[each_missing] = max_val
-                self.inverse_transformer[max_val] = each_missing
-        outs = testx.map(self.transformer).values
-        testk = testx.map(self.transformer)
-        if testx.dtype not in [np.int16, np.int32, np.int64, float, bool, object]:
-            if testx.isnull().sum().sum() > 0:
-                fillval = self.transformer[np.nan]
-                testk = testk.cat.add_categories([fillval])
-                testk = testk.fillna(fillval)
-                testk = testk.astype(int)
-                return testk
-            else:
-                testk = testk.astype(int)
-                return testk
-        else:
-            return outs
-
-    def inverse_transform(self, testx):
-        ### now convert the input to transformer dictionary values
-        if isinstance(testx, pd.Series):
-            outs = testx.map(self.inverse_transformer).values
-        elif isinstance(testx, np.ndarray):
-            outs = pd.Series(testx).map(self.inverse_transformer).values
-        else:
-            outs = testx[:]
-        return outs
-##################################################################################
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
 from sklearn.feature_selection import SelectKBest
 from .databunch import DataBunch
@@ -1216,7 +1059,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         ### only regular xgboost with multi-output can work well in multi-label settings #
         dask_xgboost_flag = False 
     bst_models = []
-    start_time2 = time.time()
+    
     #########   This is for DASK Dataframes XGBoost training ####################
     try:
         xgb.set_config(verbosity=0)
@@ -1244,7 +1087,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         print('Since %s category encoding is done, dropping original categorical vars from predictors...' %feature_gen)
         preds = left_subtract(preds, catvars)
     train_p = train[preds]
-    if train_p.shape[1] < 10:
+    if train_p.shape[1] <= 10:
         iter_limit = 2
     else:
         iter_limit = int(train_p.shape[1]/5+0.5)
@@ -1272,10 +1115,10 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         y_train = train[target]
     else:
         y_train = dataname[target]
-    #### Now we process the numeric  values through DASK XGBoost repeatedly ###################
-    
+    #### Now we process the numeric  values through DASK XGBoost repeatedly ###################    
     try:
         for i in range(0,train_p.shape[1],iter_limit):
+            start_time2 = time.time()
             imp_feats = []
             if train_p.shape[1]-i < iter_limit:
                 X_train = train_p.iloc[:,i:]

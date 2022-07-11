@@ -7,7 +7,7 @@
 ################################################################################
 # Version
 from .__version__ import __version__
-from .featurewiz import featurewiz, FE_convert_all_object_columns_to_numeric
+from .featurewiz import featurewiz
 from .featurewiz import FE_split_one_field_into_many, FE_add_groupby_features_aggregated_to_dataframe
 from .featurewiz import FE_start_end_date_time_features
 from .featurewiz import classify_features
@@ -24,7 +24,7 @@ from .ml_models import simple_XGBoost_model, simple_LightGBM_model, complex_XGBo
 from .sulo_models import SuloClassifier, SuloRegressor, get_class_weights, get_scale_pos_weight, print_sulo_accuracy
 from .my_encoders import My_LabelEncoder, Groupby_Aggregator, My_LabelEncoder_Pipe, Ranking_Aggregator, DateTime_Transformer
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe, FE_create_time_series_features, Binning_Transformer
-from .my_encoders import TSLagging_Transformer
+from .my_encoders import TSLagging_Transformer, FE_convert_all_object_columns_to_numeric
 from .sulov_method import FE_remove_variables_using_SULOV_method
 from .featurewiz import FE_transform_numeric_columns_to_bins, FE_create_interaction_vars
 from .stacking_models import Stacking_Classifier, Blending_Regressor, Stacking_Regressor, stacking_models_list
