@@ -848,8 +848,9 @@ class DateTime_Transformer(BaseEstimator, TransformerMixin):
           No. It cannot be used in pipelines since it need to produce two columns for the next stage in pipeline.
           See if you can change it to fit an sklearn pipeline on your own. I'd be curious to know how.
     """
-    def __init__(self, ts_column):
+    def __init__(self, ts_column, verbose=0):
         self.ts_column = ts_column
+        self.verbose = verbose
         self.cols_added = []
         self.fitted = False
         self.X_transformed = None
@@ -873,7 +874,7 @@ class DateTime_Transformer(BaseEstimator, TransformerMixin):
             ### But if it is a one-dimensional dataframe, convert it into a Series
             #print('    X is a DataFrame...')
             pass
-        X_trans, self.cols_added = FE_create_time_series_features(X, self.ts_column, ts_adds_in=[])
+        X_trans, self.cols_added = FE_create_time_series_features(X, self.ts_column, ts_adds_in=[], verbose=self.verbose)
         self.fitted = True
         self.train = True
         self.X_transformed = X_trans
@@ -895,7 +896,7 @@ class DateTime_Transformer(BaseEstimator, TransformerMixin):
         return self.X_transformed
 ######################################################################################################
 import copy
-def _create_ts_features(df, tscol):
+def _create_ts_features(df, tscol, verbose=0):
     """
     This takes in input a dataframe and a date variable.
     It then creates time series features using the pandas .dt.weekday kind of syntax.
@@ -985,7 +986,8 @@ def _create_ts_features(df, tscol):
             dt_adds.append(tscol+'_month_typeofday_cross')
     except:
         print('    Error in creating date time derived features. Continuing...')
-    print('    created %d columns from time series %s column' %(len(dt_adds),tscol))
+    if verbose:
+        print('    created %d columns from time series %s column' %(len(dt_adds),tscol))
     return df, dt_adds
 ################################################################
 from dateutil.relativedelta import relativedelta
@@ -996,7 +998,7 @@ def compute_age(year_string):
     age = relativedelta(today, year_string)
     return age.years
 #################################################################
-def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
+def FE_create_time_series_features(dft, ts_column, ts_adds_in=[], verbose=0):
     """
     FE means FEATURE ENGINEERING - That means this function will create new features
     #######        B E W A R E  : H U G E   N U M B E R   O F  F E A T U R E S  ###########
@@ -1077,7 +1079,8 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
                     dtf = dtf.drop(col, axis=1)
                     ts_adds.remove(col)
             removed_ts_cols = left_subtract(ts_adds_copy, ts_adds)
-            print('        dropped %d time series added columns due to zero variance' %len(removed_ts_cols))
+            if verbose:
+                print('        dropped %d time series added columns due to zero variance' %len(removed_ts_cols))
             rem_ts_cols = ts_adds
             dtf = dtf[rem_cols+rem_ts_cols]
         else:
@@ -1091,14 +1094,15 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[]):
         if reset_index:
             dtf = dtf.set_index(ts_column)
         elif ts_column in dtf.columns:
-            print('        dropping %s column after time series done' %ts_column)
+            if verbose:
+                print('        dropping %s column after time series done' %ts_column)
             dtf = dtf.drop(ts_column, axis=1)
         else:
             pass
-        print('    After dropping zero variance cols, shape of data: %s' %(dtf.shape,))
+        if verbose:
+            print('    After dropping some zero variance cols, shape of data: %s' %(dtf.shape,))
     except Exception as e:
-        print(e)
-        print('Error in Processing %s column for date time features. Continuing...' %ts_column)
+        print('Error in Processing %s column due to %s for date time features. Continuing...' %(ts_column, e))
     return dtf, rem_ts_cols
 ######################################################################################
 from pandas.api.types import is_numeric_dtype
@@ -1278,18 +1282,19 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
         ## Not more than 3 lagged values allowed ##
         self.lags = max(3, lags)
         if isinstance(date_column, list):
+            print('Only one date column accepted. Taking the first from the list of columns given: %s' %date_column[0])
             self.date_col = date_column[0]
         else:
             self.date_col = date_column
         if isinstance(hier_vars, list):
             if len(hier_vars) == 0:
-                print('No hierarchical vars given. Continuing without it but results may not be accurate...')
+                print('No hierarchical vars given. Continuing without but results may not be accurate...')
                 self.hier_vars = []
             else:
                 self.hier_vars = hier_vars
         elif isinstance(hier_vars, str):
             if hier_vars == '':
-                print('No hierarchical vars given. Continuing without it but results may not be accurate...')
+                print('No hierarchical vars given. Continuing without but results may not be accurate...')
                 self.hier_vars = []
             else:
                 self.hier_vars = [hier_vars]
@@ -1354,7 +1359,8 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                     self.date_col = X.name
                     X = pd.DataFrame(X)
                 else:
-                    print('Converting %s into pandas date-time type...' %self.date_col)
+                    if self.verbose:
+                        print('Converting %s into pandas date-time type...' %self.date_col)
                     X = pd.DataFrame(X)
                     self.date_col = X.columns.tolist()[0]
             else:
@@ -1363,7 +1369,8 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
         elif isinstance(X, pd.DataFrame):
             if self.date_col in X.columns.tolist():
                 if not is_datetime64_any_dtype(X[self.date_col]):
-                    print('Converting %s into pandas date-time type...' %self.date_col)
+                    if self.verbose:
+                        print('Converting %s into pandas date-time type...' %self.date_col)
             else:
                 print('%s is not found in X. Check your input and try again' %self.date_col)
                 return X
@@ -1375,7 +1382,8 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                 X[[self.date_col]] = X[[self.date_col]].fillna(method='bfill')
                 ## Check if it has an index or a column with the name of train time series column ####
                 if is_datetime64_any_dtype(X[self.date_col]):
-                    print('    since %s is already datetime column, continuing...' %self.date_col)
+                    if self.verbose:
+                        print('    since %s is already datetime column, continuing...' %self.date_col)
                     self.str_format = ''
                 else:
                     ### since date_col is a string you need to use values ###
@@ -1398,8 +1406,9 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                         print('    Type of time series column %s is float or unknown. Must be string or datetime. Please check input and try again.' %self.date_col)
                         return 
                     self.str_format = str_format
-            except:
-                print('    Trying to convert time series column %s into index erroring. Please check input and try again.' %self.date_col)
+            except Exception as e:
+                print('    Error: Converting time series column %s into ts index due to %s. Please check input and try again.' %(self.date_col, e))
+                return X
         elif type(X) == dask.dataframe.core.DataFrame:
             str_format = ''
             if self.date_col in X.columns:
@@ -1408,14 +1417,16 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                 X.index = dd.to_datetime(X[self.date_col].compute())
                 X[self.date_col] = dd.to_datetime(X[self.date_col].compute())
             else:
-                print(f"    (Error) Model to be used for prediction 'ML'. Hence, input X must have a column (or index) called '{self.date_col}' corresponding to the original ts_index column passed during training. No predictions will be made.")
-                return None
+                if self.verbose:
+                    print(f"    Error: Unable to detect column (or index) called '{self.date_col}' in dataset. Continuing...")
+                return X
         else:
-            print('    Unable to detect type of input data X. Please check your input and try again')                        
-            return
+            if self.verbose:
+                print('    Unable to detect type of input data X. Please check your input and try again')                        
+            return X
         return X
 
-    def change_to_index(self, X):
+    def change_datecolumn_to_index(self, X):
         X = copy.deepcopy(X)
         if isinstance(X, pd.Series) or isinstance(X, pd.DataFrame):
             try:
@@ -1437,8 +1448,8 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                         ### since there is no format to the date column, leave it out
                         ts_index = pd.to_datetime(X.pop(self.date_col))
                     X.index = ts_index
-            except:
-                print('    Trying to convert time series column %s into index erroring. Please check input and try again.' %self.date_col)
+            except Exception as e:
+                print('    Error: Converting time series column %s into ts index due to %s. Please check input and try again.' %(self.date_col, e))
         elif type(X) == dask.dataframe.core.DataFrame:
             if self.date_col in X.columns:
                 print('    %s column exists in dask data frame...' %self.date_col)
@@ -1446,11 +1457,9 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                 X.index = dd.to_datetime(X[self.date_col].compute())
                 X = X.drop(self.date_col, axis=1)
             else:
-                print(f"    (Error) Model to be used for prediction 'ML'. Hence, input X must have a column (or index) called '{self.date_col}' corresponding to the original ts_index column passed during training. No predictions will be made.")
-                return None
+                print(f"    Error: input X must have a column (or index) called '{self.date_col}'.")
         else:
             print('    Unable to detect type of input data X. Please check your input and try again')                        
-            return
         return X
     
     def self_imputer(self, X_train, y_train, X_test):
@@ -1465,7 +1474,8 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
         hier_vars = self.hier_vars
         for i, column in enumerate(cols):
             start_time = time.time()
-            print('Using a self imputer based on group means for imputing missing values in %s...' %column)
+            if self.verbose:
+                print('Using a self imputer based on group means for imputing missing values in %s...' %column)
             ### Since X_train might have some NaN's ##
             X_train_new = X_train[(y_train[column].isna()==False)]
             y_train_new = y_train[(y_train[column].isna()==False)]
@@ -1497,7 +1507,8 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                 dfx = dfx[[column]+season_vars]
                 dfxd = dfx.drop_duplicates(subset=season_vars, keep='last')
                 if dfxd[column].isnull().all():
-                    print('    Getting NaNs when trying to create lagged vars. Hence abandoned.')
+                    if self.verbose:
+                        print('    There are NaNs in data when trying to create lagged vars. Fix the NaNs and try again.')
                     return np.zeros((X_test.shape[0], y_train_new.shape[1]))
                 X_test1 = pd.merge(X_test, dfxd,on=season_vars, how='left')
                 pred = X_test1[column].values
@@ -1517,10 +1528,12 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                 del dfxd
             ### Make sure that whatever vars came in as integers return back as integers!
             if int_changes:
-                print('    ## target is integer dtype ###')
+                if self.verbose:
+                    print('    ## target is integer dtype ###')
                 pred = pd.Series(pred).fillna(0).values.astype(np.int32).values
             preds.append(pred)
-            print('    time taken for imputing = %0.0f seconds' %((time.time()-start_time)))
+            if self.verbose:
+                print('    time taken for imputing = %0.0f seconds' %((time.time()-start_time)))
         y_preds = np.array(preds)
         ### You need to flip it to make it right shape ##
         y_preds = y_preds.T
@@ -1541,7 +1554,7 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
     def transform(self, X, y=None, **fit_params):
         X = copy.deepcopy(X)
         change_to_imputing = False
-        print('Input X shape = %s' %(X.shape,))
+        print('Input X shape = %s. Beginning Time Series lagging transformation...' %(X.shape,))
         if y is None:
             ### Since y is not available we have to search for prior_y and see!
             for i in range(self.lags):
@@ -1566,8 +1579,9 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                     col_select = [x for x in cols_select if x.endswith(rsuffix)]
                     col_select = col_select[0]
                     if  X_joined[each_target].isnull().all():
-                        print('    No prior targets available for combination of columns in test vs train')
-                        print('        changing method to imputing target values for %s...' %rsuffix)
+                        if self.verbose:
+                            print('    No prior targets available for combination of columns in test vs train')
+                            print('        changing method to imputing target values for %s...' %rsuffix)
                         change_to_imputing = True
                         break
                     else:
@@ -1578,7 +1592,8 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                             X[col_select] = X_joined[each_target].values
             #### don't change the next line. It is meant to check whether to do imputing ##
             if change_to_imputing:
-                print('Imputing prior values for target using lazytransform and targeted group means...')
+                if self.verbose:
+                    print('Imputing prior values for target using targeted group means...')
                 #lazy = LazyTransformer(model=None, encoders='auto', scalers=None, 
                 #                       date_to_string=False, transform_target=False,
                 #                       imbalanced=False, save=False, combine_rare=False, 
@@ -1596,7 +1611,8 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                 #X_old, _ = lazy.fit_transform(X_old, y_old)
                 X_old, X_new, _ = FE_convert_all_object_columns_to_numeric(X_old, X_new)
                 #X_new = lazy.transform(X_new)
-                print('Imputing begins with input and output shapes = %s %s %s' %(X_old.shape, y_old.shape, X_new.shape,))
+                if self.verbose:
+                    print('Imputing begins with input and output shapes = %s %s %s' %(X_old.shape, y_old.shape, X_new.shape,))
                 y_new = self.self_imputer(X_old, y_old, X_new)
                 ### This is where we combine both imputing and prior_y values ###
                 for col_add in col_adds:
@@ -1608,7 +1624,7 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                             X[col_add] = y_new[col_add].values
                     else:
                         X[col_add] = y_new[col_add].values
-                print('Time Series Lagging Transformation completed with new X shape = %s' %(X.shape,))
+                print('    completed with new X shape = %s' %(X.shape,))
                 return X
         else:
             ### In this case, y is available and can add prior day columns ##
@@ -1616,7 +1632,7 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
             ### find target variables to transform ###
             y = self.get_names_of_targets(y)
             df = self.convert_X_to_datetime(X)
-            df = self.change_to_index(df)
+            df = self.change_datecolumn_to_index(df)
         int_vars  = y.select_dtypes(include='integer').columns.tolist()
         # Notice that we will create a lagged columns from name vars
         all_target_col_adds = []
@@ -1646,7 +1662,7 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
         # if fit_transform is done, then fitted is False since test is next ##
         self.fitted = False
         self.X_adds = X[all_target_col_adds]
-        print('Time Series Lagging Transformation completed with new X shape = %s' %(X.shape,))
+        print('    completed with new X shape = %s' %(X.shape,))
         return X
     
     def fit_transform(self, X, y, **fit_params):

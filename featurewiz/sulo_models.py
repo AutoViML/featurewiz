@@ -1189,7 +1189,7 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
         kfold = RepeatedKFold(n_splits=num_splits, random_state=seed, n_repeats=num_repeats)
         num_iterations = int(num_splits * num_repeats)
         scoring = 'neg_mean_squared_error'
-        print('    Number of estimators used in SuloRegressor = %s' %num_iterations)
+        print('    Num. estimators = %s (will be larger than n_estimators since kfold is repeated twice)' %num_iterations)
         ##### This is where we check if y is single label or multi-label ##
         if isinstance(y, pd.DataFrame):
             if self.log_transform:
@@ -1318,7 +1318,7 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                 averageAccuracy = sum(self.scores)/len(self.scores)
                 if self.verbose:
                     print("Average RMSE score of %s-model SuloRegressor: %0.3f" %(
-                                    self.n_estimators, averageAccuracy))
+                                    num_iterations, averageAccuracy))
                 end = time.time()
                 timeTaken = end - start
                 print("Time Taken overall: %0.0f (seconds)" %(timeTaken))
@@ -1337,7 +1337,7 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                 if len(self.features) <= features_limit:
                     if self.verbose:
                         print('    Selecting Bagging Regressor for this dataset...')
-                    ### The Bagging classifier outperforms ETC most of the time ####
+                    ### The Bagging Regresor outperforms ETC most of the time ####
                     self.base_estimator = BaggingRegressor(n_estimators=20)
                     self.model_name = 'bg'
                 else:
@@ -1350,31 +1350,40 @@ class SuloRegressor(BaseEstimator, RegressorMixin):
                             print('    Selecting LGBM Regressor as base estimator...')
                         self.base_estimator = LGBMRegressor(device=device, random_state=99)
             else:
-                ### For Multi-class datasets you can use Regressors for numeric classes ####################
-                ### For multi-class problems use Label Propagation which is faster and better ##
-                if (X.dtypes==float).all():
-                        print('    Selecting Ridge as base_estimator. Feel free to send in your own estimator.')
-                        self.base_estimator = Ridge(normalize=False)
-                        self.model_name = 'other'
-                else:
-                    if len(self.features) <= features_limit:
+                ### For large datasets Better to use LGBM
+                if data_samples >= 1e5:
+                    if gpu_exists:
                         if self.verbose:
-                            print('    Selecting Bagging Regressor for this dataset...')
-                        self.base_estimator = BaggingRegressor(n_estimators=20)
-                        self.model_name = 'bg'
+                            print('    Selecting XGBRegressor with GPU as base estimator...')
+                        self.base_estimator = XGBRegressor(n_jobs=-1,tree_method = 'gpu_hist',
+                            gpu_id=0, predictor="gpu_predictor")
                     else:
-                        scoring = 'neg_mean_squared_error'
-                        ###   Extra Trees is not so great for large data sets - LGBM is better ####
-                        if gpu_exists:
+                        self.base_estimator = LGBMRegressor(random_state=99) 
+                else:
+                    ### For smaller than Big Data, use Label Propagation which is faster and better ##
+                    if (X.dtypes==float).all():
+                            print('    Selecting Ridge as base_estimator. Feel free to send in your own estimator.')
+                            self.base_estimator = Ridge(normalize=False)
+                            self.model_name = 'other'
+                    else:
+                        if len(self.features) <= features_limit:
                             if self.verbose:
-                                print('    Selecting XGBRegressor with GPU as base estimator...')
-                            self.base_estimator = XGBRegressor(n_estimators=250, 
-                                n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
+                                print('    Selecting Bagging Regressor for this dataset...')
+                            self.base_estimator = BaggingRegressor(n_estimators=20)
+                            self.model_name = 'bg'
                         else:
-                            if self.verbose:
-                                print('    Selecting LGBM Regressor as base estimator...')
-                            self.base_estimator = LGBMRegressor(n_estimators=250, random_state=99) 
-                        self.model_name = 'lgb'
+                            scoring = 'neg_mean_squared_error'
+                            ###   Extra Trees is not so great for large data sets - LGBM is better ####
+                            if gpu_exists:
+                                if self.verbose:
+                                    print('    Selecting XGBRegressor with GPU as base estimator...')
+                                self.base_estimator = XGBRegressor(n_estimators=250, 
+                                    n_jobs=-1,tree_method = 'gpu_hist',gpu_id=0, predictor="gpu_predictor")
+                            else:
+                                if self.verbose:
+                                    print('    Selecting LGBM Regressor as base estimator...')
+                                self.base_estimator = LGBMRegressor(n_estimators=250, random_state=99) 
+                            self.model_name = 'lgb'
         else:
             self.model_name = 'other'
 

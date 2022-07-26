@@ -290,7 +290,7 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
                             'n_estimators': 400,
                     }
 
-    lgb.set_params(**lgbm_params)
+    lgbm.set_params(**lgbm_params)
     if multi_label:
         if modeltype == 'Regression':
             lgb = MultiOutputRegressor(lgb)
@@ -1426,7 +1426,6 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
     This is a simple lightGBM model that works only on single label problems.
     """
     from tqdm import tqdm
-    import lightgbm as lgb
     X_index = X_train.index
     if isinstance(y_train, np.ndarray):
         y_train = pd.Series(y_train, index=X_index)
@@ -1485,9 +1484,9 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
     gpu_exists = check_if_GPU_exists()
     if modeltype == 'Regression':
         if gpu_exists:
-            lgbm = lgb.LGBMRegressor(device="gpu")
+            lgbmx = lgbm.LGBMRegressor(device="gpu")
         else:
-            lgbm = lgb.LGBMRegressor()
+            lgbmx = lgbm.LGBMRegressor()
         objective = 'regression' 
         metric = 'rmse'
         is_unbalance = False
@@ -1496,9 +1495,9 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
     else:
         if modeltype =='Binary_Classification':
             if gpu_exists:
-                lgbm = lgb.LGBMClassifier(device="gpu")
+                lgbmx = lgbm.LGBMClassifier(device="gpu")
             else:
-                lgbm = lgb.LGBMClassifier()
+                lgbmx = lgbm.LGBMClassifier()
             objective = 'binary'
             metric = 'auc'
             is_unbalance = True
@@ -1507,9 +1506,9 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
             num_class = 1
         else:
             if gpu_exists:
-                lgbm = lgb.LGBMClassifier(device="gpu")
+                lgbmx = lgbm.LGBMClassifier(device="gpu")
             else:
-                lgbm = lgb.LGBMClassifier()
+                lgbmx = lgbm.LGBMClassifier()
             objective = 'multiclass'
             #objective = 'multiclassova'
             metric = 'multi_logloss'
@@ -1556,7 +1555,7 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
                         'n_estimators': n_estimators,
                 }
 
-    lgbm_copy = copy.deepcopy(lgbm)
+    lgbm_copy = copy.deepcopy(lgbmx)
     lgb_importances = pd.DataFrame()
     lgb_oof = np.zeros(X_train.shape[0])
     lgb_pred = np.zeros(X_test.shape[0])
@@ -1573,8 +1572,9 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
             scoring = 'balanced_accuracy'
             score_name = 'balanced_accuracy'            
     print('Starting Hyper Param tuning of %s lightGBM model. This will take time...' %model_label)
-    lgbm.set_params(**lgbm_params)
-    model = RandomizedSearchCV(lgbm,
+    lgbmx.set_params(**lgbm_params)
+
+    model = RandomizedSearchCV(lgbmx,
                param_distributions = rand_params,
                n_iter = 5,
                return_train_score = True,
@@ -1606,19 +1606,20 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
         repeat_strats = RepeatedStratifiedKFold(n_splits=num_splits, n_repeats=num_repeats, random_state=SEED)
     #### This is where we repeatedly make training and predictions ######################
     for fold, (trn_idx, val_idx) in enumerate(repeat_strats.split(X=X_train, y=y_train)):
+        start_time = time.time()
         xx_train, yy_train = X_train.iloc[trn_idx], y_train.iloc[trn_idx]
         xx_valid, yy_valid = X_train.iloc[val_idx], y_train.iloc[val_idx]
         
-        es = lgb.early_stopping(
+        es = lgbm.early_stopping(
             stopping_rounds=early_stopping_rounds,
             first_metric_only=True,
             verbose=verbose,
         )
-
-        le = lgb.log_evaluation(
-            period=verbose,
-            show_stdv=verbose
-        )
+        
+        #le = lgbm.log_evaluation(
+        #    period=verbose,
+        #    show_stdv=verbose
+        #)
         ########## Now train the model ###########
         lgbm_copy.set_params(**lgbm_params)
         lgbm_copy.set_params(**best_params)
@@ -1626,17 +1627,18 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
         if i == 0:
             print('    Training hyper-tuned', model)
         i += 1
+        
         model.fit(
             xx_train, 
             yy_train,
             eval_set=[(xx_valid, yy_valid)],
             eval_names=['train', 'valid'],
             eval_metric=metric,
-            callbacks=[es, le],
+            callbacks=[es],
         )
-
+        
         fi_tmp = pd.DataFrame()
-        fi_tmp['feature'] = model.feature_name_
+        fi_tmp['feature'] = xx_train.columns.tolist()
         fi_tmp['importance'] = model.feature_importances_
         fi_tmp['fold'] = fold
         fi_tmp['seed'] = SEED
@@ -1660,22 +1662,30 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
                 scores.append(auc)
                 print(f"    iteration {i}: Macro F1 score: {auc:.2f}")
             
-    elapsed = time.time() - start
+    elapsed = time.time() - start_time
     
     if modeltype == 'Regression':
         auc = np.sqrt(mean_squared_error(y_train, lgb_oof))
-        print(f"Average Train RMSE: {auc:6f}, elapsed time: {elapsed:.2f}sec")
+        print(f"Average Train RMSE: {auc:6f}, elapsed time: {elapsed:.0f} seconds")
     else:
         if modeltype =='Binary_Classification':
             auc = roc_auc_score(y_train, lgb_oof)
-            print(f"Average Train AUC: {auc:6f}, elapsed time: {elapsed:.2f}sec")
+            print(f"Average Train AUC: {auc:6f}, elapsed time: {elapsed:.0f} seconds")
         else:
             auc = f1_score(y_train, lgb_oof, average="macro")
-            print(f"Average Train Macro F1 score: {auc:6f}, elapsed time: {elapsed:.2f}sec")
+            print(f"Average Train Macro F1 score: {auc:6f}, elapsed time: {elapsed:.0f} seconds")
 
     #### Now change the probas to fit within 0 and 1 #######
     MM = MinMaxScaler()
-
+    print('Fitting model on entire train dataset...')
+    start_time = time.time()
+    model = copy.deepcopy(lgbm_copy)
+    model.fit(
+        X_train, 
+        y_train,
+        )
+    elapsed = time.time() - start_time
+    print(f"    Training time: {elapsed:.0f} seconds")
     order = list(lgb_importances.groupby("feature").mean().sort_values("importance", ascending=False).index)
     plt.figure(figsize=(12, 4), tight_layout=True)
     sns.barplot(x="importance", y="feature", data=lgb_importances, order=order[:15])
