@@ -1318,43 +1318,68 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             ## Don't drop the old target since there is only one target here ###
             pass
         else:
-            ### You just move the values from the new names to the old feature names ##
-            dataname[important_features] = dataname[old_important_features]
-
-        old_target = copy.deepcopy(target)
+            if len(old_important_features) == len(important_features):
+                ### You just move the values from the new names to the old feature names ##
+                dataname[important_features] = dataname[old_important_features]
+                if isinstance(test_data, str) or test_data is None:
+                    pass
+                else:
+                    #### if there is test data transfer values to it ###
+                    test_data[important_features] = test_data[old_important_features]
+            else:
+                ### first try to return with the new important features, if that fails return with old features
+                try:
+                    print('There are special chars in column names. Please remove them and try again.')
+                    if isinstance(test_data, str) or test_data is None:
+                        return important_features, dataname[important_features]
+                    else:
+                        return dataname[important_features], test_data[important_features]
+                except:
+                    print('There are special chars in column names. Returning with important features and train.')
+                    if isinstance(test_data, str) or test_data is None:
+                        return old_important_features, dataname[old_important_features]
+                    else:
+                        return dataname[old_important_features], test_data[old_important_features]   
         
+        old_target = copy.deepcopy(target)
         if isinstance(target, str):
             target = item_replacer(target, target)
+            targets = [target]
         else:
             target = [item_replacer(n, n) for n in target]
+            targets = copy.deepcopy(target)
 
         if old_target == target:
             ## Don't drop the old target since there is only one target here ###
             pass
         else:
             ### you don't need drop the cols that have changed since only a few are selected #######
-            dataname[target] = dataname[old_target]
-        #### This is where we check whether to return test data or not ######
-        if isinstance(test_data, str) or test_data is None:
-            if feature_gen or feature_type:
-                ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
-                dataname = pd.concat([train_ids, dataname], axis=1)
-            return important_features, dataname[important_features+target]
-        else:
-            if feature_gen or feature_type:
-                ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
-                dataname = pd.concat([train_ids, dataname], axis=1)
-                test_data = pd.concat([test_ids, test_data], axis=1)
-            #### now change the values from new feature names to old feature names ###
-            test_data[important_features] = test_data[old_important_features]
-            ### You select the features with the same old names as before #######
             if isinstance(target, str):
-                if target in list(test_data): ### see if target exists in this test data
-                    return dataname[important_features+[target]], test_data[important_features+[target]]
-                else:
-                    return dataname[important_features+[target]], test_data[important_features]
+                dataname[target] = dataname[old_target]
             else:
-                return dataname[important_features+target], test_data[important_features]
+                copy_targets = copy.deepcopy(targets)
+                copy_old = copy.deepcopy(old_target)
+                for each_target, each_old_target in zip(copy_targets, copy_old):
+                    dataname[each_target] = dataname[each_old_target]
+
+        #### This is where we check whether to return test data or not ######
+        try:
+            if isinstance(test_data, str) or test_data is None:
+                if feature_gen or feature_type:
+                    ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
+                    dataname = pd.concat([train_ids, dataname], axis=1)
+                return important_features, dataname[important_features+target]
+            else:
+                ## This is for test data existing ####
+                if feature_gen or feature_type:
+                    ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
+                    dataname = pd.concat([train_ids, dataname], axis=1)
+                    test_data = pd.concat([test_ids, test_data], axis=1)
+                ### You select the features with the same old names as before #######
+                return dataname[important_features+targets], test_data[important_features]
+        except:
+            print('Warning: Returning with important features and train. Please re-check your outputs.')
+            return important_features, dataname[important_features+targets]
 ################################################################################
 def remove_highly_correlated_vars_fast(df, corr_limit=0.70):
     """
@@ -2842,6 +2867,11 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
     def __init__(self, corr_limit=0.70, verbose=2, sep=',', 
         header=0, feature_engg='', category_encoders='',
         dask_xgboost_flag=False, nrows=None):
+        print("""wiz = FeatureWiz(verbose=1)
+        X_train_selected = wiz.fit_transform(X_train, y_train)
+        X_test_selected = wiz.transform(X_test)
+        wiz.features  ### provides a list of selected features ###            
+        """)
         self.features = None
         self.corr_limit= corr_limit
         self.verbose=verbose

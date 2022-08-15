@@ -46,7 +46,6 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
 from sklearn.compose import ColumnTransformer
 from scipy.stats import uniform as sp_randFloat
 from scipy.stats import randint as sp_randInt
-from imbalanced_ensemble.ensemble import SelfPacedEnsembleClassifier
 from .featurewiz import get_class_distribution
 
 class SuloClassifier(BaseEstimator, ClassifierMixin):
@@ -189,7 +188,12 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         ###   This is for Binary Classification problems only ########
                         ##############################################################
                         if self.imbalanced:
-                            self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                            try:
+                                from imbalanced_ensemble.ensemble import SelfPacedEnsembleClassifier
+                                self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                            except:
+                                print('pip install imbalanced_ensemble and re-run this again.')
+                                return self
                             self.model_name = 'other'
                         else:
                             ### make it a regular dictionary with weights for pos and neg classes ##
@@ -239,7 +243,12 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                         if self.imbalanced:
                             if self.verbose:
                                 print('    Selecting Self Paced ensemble classifier since imbalanced flag is set...')
-                            self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                                try:
+                                    from imbalanced_ensemble.ensemble import SelfPacedEnsembleClassifier
+                                    self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                                except:
+                                    print('pip install imbalanced_ensemble and re-run this again.')
+                                    return self
                             self.model_name = 'other'
                         else:
                             if data_samples <= row_limit:
@@ -331,7 +340,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     # Use best classification metric to measure performance of model
                     if self.imbalanced:
                         ### Use Regression predictions and convert them into classes here ##
-                        score = print_sulo_accuracy(y_test, preds, y_probas="")
+                        score = print_sulo_accuracy(y_test, preds, y_probas="", verbose=self.verbose)
                         print("    Fold %s: Average OOF Score (higher is better): %0.3f" %(i+1, score))
                     else:
                         score = print_accuracy(targets, y_test, preds, verbose=self.verbose)
@@ -373,7 +382,11 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     if self.imbalanced:
                         if self.verbose:
                             print('    Selecting Self Paced ensemble classifier as base estimator...')
-                        self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                            try:
+                                from imbalanced_ensemble.ensemble import SelfPacedEnsembleClassifier
+                                self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                            except:
+                                print('pip install imbalanced_ensemble and re-run this again.')
                         self.model_name = 'other'
                     else:
                         ### For binary-class problems use RandomForest or the faster ET Classifier ######
@@ -399,7 +412,12 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     if self.imbalanced:
                         if self.verbose:
                             print('    Selecting Self Paced ensemble classifier as base estimator...')
-                        self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                        try:
+                            from imbalanced_ensemble.ensemble import SelfPacedEnsembleClassifier
+                            self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                        except:
+                            print('pip install imbalanced_ensemble and re-run this again.')
+                            return self
                         self.model_name = 'other'
                     else:
                         ### For multi-class problems use Label Propagation which is faster and better ##
@@ -434,7 +452,12 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     if self.imbalanced:
                         if self.verbose:
                             print('    Selecting Self Paced ensemble classifier as base estimator...')
-                        self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                        try:
+                            from imbalanced_ensemble.ensemble import SelfPacedEnsembleClassifier
+                            self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                        except:
+                            print('pip install imbalanced_ensemble and re-run this again.')
+                            return self
                         self.model_name = 'other'
                     else:
                         if self.verbose:
@@ -457,7 +480,12 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
                     if self.imbalanced:
                         if self.verbose:
                             print('    Selecting Self Paced ensemble classifier as base estimator...')
-                        self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                        try:
+                            from imbalanced_ensemble.ensemble import SelfPacedEnsembleClassifier
+                            self.base_estimator = SelfPacedEnsembleClassifier(n_jobs=-1, random_state=99)
+                        except:
+                            print('pip install imbalanced_ensemble and re-run this again.')
+                            return self
                         self.model_name = 'other'
                     else:
                         #if self.weights:
@@ -538,7 +566,7 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
 
             if self.imbalanced:
                 ### Use Regression predictions and convert them into classes here ##
-                score = print_sulo_accuracy(y_test, preds, y_probas="")
+                score = print_sulo_accuracy(y_test, preds, y_probas="", verbose=self.verbose)
                 print("    Fold %s: Average OOF Score (higher is better): %0.3f" %(i+1, score))
             else:
                 #score = balanced_accuracy_score(y_test, preds)
@@ -572,7 +600,6 @@ class SuloClassifier(BaseEstimator, ClassifierMixin):
         y_predis = np.column_stack([model.predict(X) for model in self.models ])
         ### This weights the model's predictions according to OOB scores obtained
         #### In single label, targets can be object or string, so weights cannot be applied always ##
-        return y_predis
         if y_predis.dtype == object or y_predis.dtype == bool:
             ### in the case of predictions that are strings, no need for weights ##
             y_predis = stats.mode(y_predis, axis=1)[0].ravel()
@@ -979,7 +1006,7 @@ from sklearn.metrics import roc_auc_score
 import copy
 from sklearn.metrics import balanced_accuracy_score, classification_report
 import pdb
-def print_sulo_accuracy(y_test, y_preds, y_probas=''):
+def print_sulo_accuracy(y_test, y_preds, y_probas='', verbose=0):
     bal_scores = []
     ####### Once you have detected what problem it is, now print its scores #####
     if y_test.ndim <= 1: 
@@ -995,7 +1022,8 @@ def print_sulo_accuracy(y_test, y_preds, y_probas=''):
                 else:
                     print('Multi-class ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas, multi_class="ovr"))
         bal_scores.append(bal_score)
-        print(classification_report(y_test,y_preds))
+        if verbose:
+            print(classification_report(y_test,y_preds))
     elif y_test.ndim >= 2:
         if y_test.shape[1] == 1:
             bal_score = balanced_accuracy_score(y_test,y_preds)
@@ -1006,7 +1034,8 @@ def print_sulo_accuracy(y_test, y_preds, y_probas=''):
                     print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas, multi_class="ovr"))
                 else:
                     print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas[:,1]))
-            print(classification_report(y_test,y_preds))
+            if verbose:
+                print(classification_report(y_test,y_preds))
         else:
             if isinstance(y_probas, str):
                 ### This is for multi-label problems without probas ####
@@ -1014,7 +1043,8 @@ def print_sulo_accuracy(y_test, y_preds, y_probas=''):
                     bal_score = balanced_accuracy_score(y_test.values[:,each_i],y_preds[:,each_i])
                     bal_scores.append(bal_score)
                     print('    Bal accu %0.0f%%' %(100*bal_score))
-                    print(classification_report(y_test.values[:,each_i],y_preds[:,each_i]))
+                    if verbose:
+                        print(classification_report(y_test.values[:,each_i],y_preds[:,each_i]))
             else:
                 ##### This is only for multi_label_multi_class problems
                 num_targets = y_test.shape[1]
@@ -1047,9 +1077,11 @@ def print_sulo_accuracy(y_test, y_preds, y_probas=''):
                                 bal_score = roc_auc_score(y_test.values[:,each_i],y_probas[each_i])
                     print('Target number %s: ROC AUC score %0.0f%%' %(each_i+1,100*bal_score))
                     bal_scores.append(bal_score)
-                    print(classification_report(y_test.values[:,each_i],y_preds[:,each_i]))
+                    if verbose:
+                        print(classification_report(y_test.values[:,each_i],y_preds[:,each_i]))
     final_score = np.mean(bal_scores)
-    print("final average accuracy score = %0.2f" %final_score)
+    if verbose:
+        print("final average balanced accuracy score = %0.2f" %final_score)
     return final_score
 ##############################################################################
 import os

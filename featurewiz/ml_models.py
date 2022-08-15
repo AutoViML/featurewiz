@@ -289,8 +289,8 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
                            'class_weight': class_weight,
                             'n_estimators': 400,
                     }
-
-    lgbm.set_params(**lgbm_params)
+    ### Don't change the next line. It has to be lgb to refer to the model!!
+    lgb.set_params(**lgbm_params)
     if multi_label:
         if modeltype == 'Regression':
             lgb = MultiOutputRegressor(lgb)
@@ -429,11 +429,11 @@ def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     modeltype, _ = analyze_problem_type(Y_XGB, targets)
     ### XGBoost #####
     if modeltype == 'Binary_Classification':
-        print('# XGBoost is a good choice since it is better for binary classification problems.')
+        print('# XGBoost is a good choice since it is best for binary classification problems.')
     elif modeltype == 'Multi_Classification':
-        print('# Avoid XGBoost for this problem since LightGBM is better for multi-class than XGBoost.')
+        print('# XGBoost is a poor choice for this problem since LightGBM is better for multi-class')
     else:
-        print('# Simple XGBoost is a better choice compared to complex_XGBoost_model for Regression problems.')
+        print('# Simple XGBoost is better than Complex_XGBoost for Regression problems')
 
     columns =  X_XGB.columns
     ###################################################################################
