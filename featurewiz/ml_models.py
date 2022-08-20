@@ -368,13 +368,15 @@ def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, mod
         return model
 ##############################################################################################
 import os
-def check_if_GPU_exists():
+def check_if_GPU_exists(verbose=0):
     try:
         os.environ['NVIDIA_VISIBLE_DEVICES']
-        print('GPU active on this device')
+        if verbose:
+            print('GPU active on this device')
         return True
     except:
-        print('No GPU active on this device')
+        if verbose:
+            print('No GPU active on this device')
         return False
 #############################################################################################
 def complex_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
@@ -955,7 +957,7 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     #########     G P U     P R O C E S S I N G      B E G I N S    ############
     ###### This is where we set the CPU and GPU parameters for XGBoost
     if GPU_flag:
-        GPU_exists = check_if_GPU_exists()
+        GPU_exists = check_if_GPU_exists(verbose)
     else:
         GPU_exists = False
     #####   Set the Scoring Parameters here based on each model and preferences of user ###
@@ -1481,7 +1483,7 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
     #'class_weight':[None, 'balanced']
         }
 
-    gpu_exists = check_if_GPU_exists()
+    gpu_exists = check_if_GPU_exists(verbose=1)
     if modeltype == 'Regression':
         if gpu_exists:
             lgbmx = lgbm.LGBMRegressor(device="gpu")

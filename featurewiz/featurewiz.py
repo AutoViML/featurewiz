@@ -487,7 +487,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ##########   dataname will be the name of the pandas version of train data      ######
     ##########           train will be the Dask version of train data               ######
     ######################################################################################
-    print('**INFO: featurewiz can now read feather formatted files. Loading train data...')
     if isinstance(dataname, str):
         #### This is where we get a filename as a string as an input #################
         if re.search(r'(.ftr)', dataname) or re.search(r'(.feather)', dataname):
@@ -496,8 +495,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             dataname = pd.read_feather(dataname, use_threads=True)
             train = load_dask_data(dataname, sep)
         else:
-            print("""**INFO: to increase file loading performance, convert huge `csv` files to `feather` format""")
-            print("""**INFO: Use `df.reset_index(drop=True).to_feather("path/to/save/file.ftr")` to save file in feather format**""")
+            if verbose:
+                print("""**INFO: to increase file loading performance, convert huge `csv` files to `feather` format""")
+                print("""**INFO: Use `df.reset_index(drop=True).to_feather("path/to/save/file.ftr")` to save file in feather format**""")
             if dask_xgboost_flag:
                 try:
                     print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
@@ -580,8 +580,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 test_data = pd.read_feather(test_data, use_threads=True)
                 test = load_dask_data(test_data, sep)
             else:
-                print("""**INFO: to increase file loading performance, convert huge `csv` files to `feather` format using `df.to_feather("path/to/save/file.feather")`**""")
-                print('**INFO: featurewiz can now read feather formatted files...***')
+                if verbose:
+                    print("""**INFO: to increase file loading performance, convert huge `csv` files to `feather` format using `df.to_feather("path/to/save/file.feather")`**""")
+                    print('**INFO: featurewiz can now read feather formatted files...***')
                 ### only if test_data is a filename load this #####
                 print('Loading test data filename = %s...' %test_data)
                 if dask_xgboost_flag:
@@ -689,7 +690,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     kf = KFold(n_splits=n_splits)
     #########     G P U     P R O C E S S I N G      B E G I N S    ############
     ###### This is where we set the CPU and GPU parameters for XGBoost
-    GPU_exists = check_if_GPU_exists()
+    GPU_exists = check_if_GPU_exists(verbose)
     n_workers = get_cpu_worker_count()
     #####   Set the Scoring Parameters here based on each model and preferences of user ###
     cpu_params = {}
@@ -723,11 +724,13 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         param['predictor'] = 'gpu_predictor'
         param['num_parallel_tree'] = 1
         gpuid = 0
-        print('    Tuning XGBoost using GPU hyper-parameters. This will take time...')
+        if verbose:
+            print('    Tuning XGBoost using GPU hyper-parameters. This will take time...')
     else:
         param = copy.deepcopy(cpu_params)
         gpuid = None
-        print('    Tuning XGBoost using CPU hyper-parameters. This will take time...')
+        if verbose:
+            print('    Tuning XGBoost using CPU hyper-parameters. This will take time...')
     #################################################################################
     #############   D E T E C T  SINGLE OR MULTI-LABEL PROBLEM      #################
     #################################################################################
@@ -742,8 +745,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             settings.multi_label = True
     #### You need to make sure only Single Label problems are handled in target encoding!
     if settings.multi_label:
-        print('Turning off Target encoding for multi-label problems like this data set...')
-        print('    since Feature Engineering module cannot handle Multi Label Targets, turnoff target_enc_cat_features to False')
+        if verbose:
+            print('Turning off Target encoding for multi-label problems like this data set...')
+            print('    since Feature Engineering module cannot handle Multi Label Targets, turnoff target_enc_cat_features to False')
         target_enc_cat_features = False
     else:
         ## If target is specified in feature_gen then use it to Generate target encoded features
@@ -787,7 +791,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             print('Removing %s columns(s) which are in both cols to be deleted and cat vars given as input' %cols_in_both)
     cols_to_remove = features_dict['cols_delete'] + idcols + features_dict['discrete_string_vars']
     preds = [x for x in list(dataname) if x not in target+cols_to_remove]
-    print('    After removing redundant variables from further processing, features left = %d' %len(preds))
+    if verbose:
+        print('    After removing redundant variables from further processing, features left = %d' %len(preds))
     numvars = dataname[preds].select_dtypes(include = 'number').columns.tolist()
     ######   F I N D I N G    C A T  V A R S   H E R E  ##################################
     if len(numvars) > max_nums:
@@ -818,9 +823,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 test_data = FE_create_interaction_vars(test_data, catvars)
                 test = FE_create_interaction_vars(test, catvars)
         else:
-            print('No interactions created for categorical vars since number less than 2')
+            if verbose:
+                print('No interactions created for categorical vars since number less than 2')
     else:
-        print('No interactions created for categorical vars since feature engg does not specify it')
+        if verbose:
+            print('No interactions created for categorical vars since feature engg does not specify it')
     ##### Now we need to re-set the catvars again since we have created new features #####
     rem_vars = copy.deepcopy(catvars)
     ########## Now we need to select the right model to run repeatedly ####
@@ -1028,7 +1035,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ####### This is where you draw how featurewiz works when the verbose = 2 ###########
     print('Time taken for SULOV method = %0.0f seconds' %(time.time()-start_time1))
     #### Now we create interaction variables between categorical features ########
-    print('    Adding %s categorical variables to reduced numeric variables  of %d' %(
+    if verbose:
+        print('    Adding %s categorical variables to reduced numeric variables  of %d' %(
                                 len(important_cats),len(final_list)))
     if  isinstance(final_list,np.ndarray):
         final_list = final_list.tolist()
@@ -1071,17 +1079,18 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     #################################################################################################
     if dask_xgboost_flag:
         ### we reload the dataframes into dask since columns may have been dropped ##
-        print('    using DASK XGBoost')  
+        if verbose:
+            print('    using DASK XGBoost')  
         train = load_dask_data(dataname, sep)
         if not test_data is None:
             test = load_dask_data(test_data, sep)
     else:
         ### we reload the dataframes into dask since columns may have been dropped ##
-        print('    using regular XGBoost') 
+        if verbose:
+            print('    using regular XGBoost') 
         train = copy.deepcopy(dataname)
         test = copy.deepcopy(test_data)
     ########  Conversion completed for train and test data ##########
-    print('Train and Test loaded into Dask dataframes successfully after feature_engg completed')
    #### If Category Encoding took place, these cat variables are no longer needed in Train. So remove them!
     if feature_gen or feature_type:
         print('Since %s category encoding is done, dropping original categorical vars from predictors...' %feature_gen)
@@ -1093,7 +1102,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         iter_limit = int(train_p.shape[1]/5+0.5)
     print('Current number of predictors = %d ' %(train_p.shape[1],))
     if dask_xgboost_flag:
-        print('    Dask version = %s' %dask.__version__)
+        if verbose:
+            print('    Dask version = %s' %dask.__version__)
         ### You can remove dask_ml here since you don't do any split of train test here ##########
         #from dask_ml.model_selection import train_test_split
         ### check available memory and allocate at least 1GB of it in the Client in DASK #############################
@@ -1107,7 +1117,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         import gc
         client.run(gc.collect) 
         #train_p = client.persist(train_p)
-    print('    XGBoost version using %s as tree method: %s' %(xgb.__version__, tree_method))
+    if verbose:
+        print('    XGBoost version using %s as tree method: %s' %(xgb.__version__, tree_method))
     ### This is to convert the target labels to proper numeric columns ######
     ### check if they are not starting from zero ##################
     if dask_xgboost_flag:
@@ -1142,7 +1153,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 ### If there is just one variable left, then just skip it #####
                 continue
             else:
-                print('        using %d variables...' %(train_p.shape[1]-i))
+                if verbose:
+                    print('        using %d variables...' %(train_p.shape[1]-i))
             
             #########   This is where we check target type ##########
             if not y_train.dtypes[0] in [np.float16, np.float32, np.float64, np.int8,np.int16,np.int32,np.int64]:
@@ -1254,10 +1266,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             important_features += pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
             #######  order this in the same order in which they were collected ######
             important_features = list(OrderedDict.fromkeys(important_features))
-            if dask_xgboost_flag:
-                print('            Time taken for DASK XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
-            else:
-                print('            Time taken for regular XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
+            if verbose:
+                if dask_xgboost_flag:
+                    print('            Time taken for DASK XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
+                else:
+                    print('            Time taken for regular XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
         #### plot all the feature importances in a grid ###########
         if verbose >= 2:
             if settings.multi_label:
@@ -1272,7 +1285,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             print('Regular XGBoost is crashing due to %s. Returning with currently selected features...' %e)
         important_features = copy.deepcopy(preds)
     ######    E    N     D      O  F      X  G  B  O  O  S  T    S E L E C T I O N ####################
-    print('            Total time taken for XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
+    print('    Completed XGBoost feature selection in %0.0f seconds' %(time.time()-start_time2))
     if len(idcols) > 0:
         print('    Alert: No ID variables %s are included in selected features' %idcols)
     print("#######################################################################################")
@@ -1284,14 +1297,17 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         print('Selected %d important features. Too many to print...' %len(important_features))
     numvars = [x for x in numvars if x in important_features]
     important_cats = [x for x in important_cats if x in important_features]
-    print('\n    Time taken for feature selection = %0.0f seconds' %(time.time()-start_time))
+    print('Total Time taken for featurewiz selection = %0.0f seconds' %(time.time()-start_time))
     #### Now change the feature names back to original feature names ################
     item_replacer = col_name_mapper.get  # For faster gets.
     ##########################################################################
     ### You select the features with the same old names as before here #######
     ##########################################################################
     ## In one case, column names get changed in train but not in test since it test is not available.
-    print('Returning 2 dataframes: dataname and test_data with %d important features.' %len(important_features))
+    if isinstance(test_data, str) or test_data is None:
+        print('Output contains a list of %s important features and a train dataframe' %len(important_features))
+    else:
+        print('Output contains two dataframes: train and test with %d important features.' %len(important_features))
     if feature_gen or feature_type:
         if isinstance(test_data, str) or test_data is None:
             ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.

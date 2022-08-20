@@ -69,7 +69,8 @@ def classify_columns(df_preds, verbose=0):
     print('#######################################################################################')
     print('######################## C L A S S I F Y I N G  V A R I A B L E S  ####################')
     print('#######################################################################################')
-    print('Classifying variables in data set...')
+    if verbose:
+        print('Classifying variables in data set...')
     #### Cat_Limit defines the max number of categories a column can have to be called a categorical colum
     cat_limit = 35
     float_limit = 15 #### Make this limit low so that float variables below this limit become cat vars ###
@@ -305,16 +306,15 @@ def classify_columns(df_preds, verbose=0):
     
     len_sum_all_cols = reduce(add,[len(v) for v in sum_all_cols.values()])
     if len_sum_all_cols == orig_cols_total:
-        print('    %d Predictors classified...' %orig_cols_total)
+        if verbose:
+            print('    %d Predictors classified...' %orig_cols_total)
         #print('        This does not include the Target column(s)')
     else:
         print('No of columns classified %d does not match %d total cols. Continuing...' %(
                    len_sum_all_cols, orig_cols_total))
         ls = sum_all_cols.values()
         flat_list = [item for sublist in ls for item in sublist]
-        if len(left_subtract(list(train),flat_list)) == 0:
-            print(' Missing columns = None')
-        else:
-            print(' Missing columns = %s' %left_subtract(list(train),flat_list))
+        if len(left_subtract(list(train),flat_list)) > 0:
+            print('    Error: some columns missing from classification are: %s' %left_subtract(list(train),flat_list))
     return sum_all_cols
 ####################################################################################
