@@ -1249,7 +1249,6 @@ from pandas.api.types import is_datetime64_any_dtype
 from sklearn.base import BaseEstimator, TransformerMixin 
 from lightgbm import LGBMRegressor
 import copy
-#from lazytransform import LazyTransformer
 from sklearn.impute import KNNImputer, SimpleImputer
 from tqdm import tqdm
 from sklearn.metrics import r2_score
@@ -1594,10 +1593,6 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
             if change_to_imputing:
                 if self.verbose:
                     print('Imputing prior values for target using targeted group means...')
-                #lazy = LazyTransformer(model=None, encoders='auto', scalers=None, 
-                #                       date_to_string=False, transform_target=False,
-                #                       imbalanced=False, save=False, combine_rare=False, 
-                #                       verbose=0)
                 col_adds = self.X_adds.columns.tolist()
                 X_old = self.convert_X_to_datetime(self.X_prior)
                 X_new = self.convert_X_to_datetime(X)
@@ -1608,9 +1603,7 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                 X_old = ds.fit_transform(X_old) ## this will give your transformed values as a dataframe
                 X_new = ds.transform(X_new) ### this will give your transformed values as a dataframe
                 ## Now we can convert all object columns to numeric ######
-                #X_old, _ = lazy.fit_transform(X_old, y_old)
                 X_old, X_new, _ = FE_convert_all_object_columns_to_numeric(X_old, X_new)
-                #X_new = lazy.transform(X_new)
                 if self.verbose:
                     print('Imputing begins with input and output shapes = %s %s %s' %(X_old.shape, y_old.shape, X_new.shape,))
                 y_new = self.self_imputer(X_old, y_old, X_new)

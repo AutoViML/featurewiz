@@ -52,6 +52,9 @@ import warnings
 warnings.filterwarnings("ignore")
 from sklearn.exceptions import DataConversionWarning
 warnings.filterwarnings(action='ignore', category=DataConversionWarning)
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+################################################################################
 def warn(*args, **kwargs):
     pass
 warnings.warn = warn

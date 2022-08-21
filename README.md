@@ -3,33 +3,23 @@
 ![banner](featurewiz_logos.png)
 <p>
 
-## Update (June 2022)
+## Update (August 2022)
 <ol>
-<li><b>featurewiz as of version 0.1.70 has two high performance estimators named "SuloClassifier" and "SuloRegressor"</b> that you can use for multi-label multi-class and Imbalanced data problems. The two estimators are sklearn estimators designed for highly complex datasets. They can also handle multi-label targets and are fully scikit-learn compatible with the same "fit and predict" syntax. </li>
-Take a look at the benchmarking results notebook here for SuloClassifier: 
-
-![Notebook](https://github.com/AutoViML/featurewiz/blob/main/examples/SuloClassifier_Benchmarking_Results.ipynb)
-
-![SuloClassifier](SuloClassifier.png)
-
-We ran a similar benchmarking result in SuloRegressor against XGBoost and LightGBM Regressors and it held its own against them. Take a look at the benchmarking result:
-
-![Notebook](https://github.com/AutoViML/featurewiz/blob/main/examples/SuloRegressor_Benchmarking_Results.ipynb)
-
-![SuloRegressor](SuloRegressor.png)
-
+<li><b>featurewiz now has a "silent" mode which you can set using the "verbose=0" option.</b> It will run silently with no charts or graphs and very minimal verbose output. Hope this helps!<br></li>
+</ol>
 ## Update (May 2022)
 <ol>
 <li><b>featurewiz as of version 0.1.50 or higher has multiple high performance models</b> that you can use to build highly performant models once you have completed feature selection. These models are based on LightGBM and XGBoost and have even Stacking and Blending ensembles. You can find them as functions starting with "simple_" and "complex_" under featurewiz. All the best!<br></li>
-
+</ol>
 ## Update (March 2022)
 <ol>
 <li><b>featurewiz as of version 0.1.04 or higher can read `feather-format` files at blazing speeds.</b> See example below on how to convert your CSV files to feather. Then you can feed those '.ftr' files to featurewiz and it will read it 10-100X faster!<br></li>
+</ol>
 
 ![feather_example](feather_example.jpg)
-
+<ol>
 <li><b>featurewiz now runs at blazing speeds thanks to using GPU's by default.</b> So if you are running a large data set on Colab and/or Kaggle, make sure you turn on the GPU kernels. featurewiz will automatically detect that GPU is turned on and will utilize XGBoost using GPU-hist. That will ensure it will crunch your datasets even faster. I have tested it with a very large data set and it reduced the running time from 52 mins to 1 minute! That's a 98% reduction in running time using GPU compared to CPU!<br></li>
-
+</ol>
 ## Update (Jan 2022)
 <ol>
 <li><b>FeatureWiz as of version 0.0.90 or higher is a scikit-learn compatible feature selection transformer.</b> You can perform fit and predict as follows. You will get a Transformer that can select the top variables from your dataset. You can also use it in sklearn pipelines as a Transformer.</li>
