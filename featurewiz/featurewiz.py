@@ -1052,6 +1052,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         important_cats = left_subtract(important_cats, error_columns)
         if len(error_columns) > 0:
             print('    removing %s object columns that could not be converted to numeric' %len(error_columns))
+            preds = list(set(preds)-set(error_columns))
         else:
             print('    there were no mixed data types or object columns that errored. Data is all numeric...')
         dataname.drop(error_columns, axis=1, inplace=True)
