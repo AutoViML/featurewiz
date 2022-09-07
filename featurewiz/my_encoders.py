@@ -1863,7 +1863,7 @@ def FE_convert_all_object_columns_to_numeric(train, test="", features=[]):
                     if test is None:
                         pass
                     else:
-                        test_result = MLB.fit_transform(train[everycol])
+                        test_result = MLB.fit_transform(test[everycol])
                         if isinstance(test_result, tuple):
                             test_result = test_result[0]
                         
