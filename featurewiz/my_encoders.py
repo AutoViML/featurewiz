@@ -56,7 +56,6 @@ class My_LabelEncoder(BaseEstimator, TransformerMixin):
     def fit(self,testx, y=None):
         ### Do not change this since Rare class combiner requires this test ##
         if isinstance(testx, tuple):
-            y = testx[1]
             testx = testx[0]
         ### Now you can check if the parts of tuple are dataframe series, etc.
         if isinstance(testx, pd.Series):
@@ -1854,14 +1853,24 @@ def FE_convert_all_object_columns_to_numeric(train, test="", features=[]):
         for everycol in lis:
             MLB = My_LabelEncoder()
             try:
-                train[everycol] = MLB.fit_transform(train[everycol])
+                train_result = MLB.fit_transform(train[everycol])
+                if isinstance(train_result, tuple):
+                    train_result = train_result[0]
+
+                train[everycol] = train_result
+                
                 if not isinstance(test, str):
                     if test is None:
                         pass
                     else:
-                        test[everycol] = MLB.transform(test[everycol])
-            except:
-                print('    error converting %s column from string to numeric. Continuing...' %everycol)
+                        test_result = MLB.transform(test[everycol])
+                        if isinstance(test_result, tuple):
+                            test_result = test_result[0]
+                        
+                        test[everycol] = test_result
+                        
+            except Exception as e:
+                print(f'    error converting {everycol} column from string to numeric, deteail : {e}. Continuing...')
                 error_columns.append(everycol)
                 continue
     
