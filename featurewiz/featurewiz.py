@@ -534,11 +534,6 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             else:
                 dataname = copy.deepcopy(train)
     print('    Loaded train data. Shape = %s' %(dataname.shape,))
-    if dataname.shape[0] >= 1e6:
-        ### we are going to set a hard limit of 900K for nows since some datasets are huge and break
-        nrows = 900000
-        dataname = dataname.sample(n=nrows, replace=False)
-        print(' setting a hard limit of 900K samples for train since some it is huge and breaks pandas...')
 
     ##################    L O A D    T E S T   D A T A      ######################
     dataname = remove_duplicate_cols_in_dataset(dataname)
