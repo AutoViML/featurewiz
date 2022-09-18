@@ -60,11 +60,10 @@ As of June 2022, thanks to [arturdaraujo](https://github.com/arturdaraujo), feat
  !pip install xlrd --ignore-installed --no-deps 
 ```
 
-##Step 2: Next, install Pillow since Kaggle has an incompatible version. Also you need lazytransform.<br>
+##Step 2: Next, install Pillow since Kaggle has an incompatible version. <br>
 
 ```
  !pip install Pillow==9.0.0
- !pip install lazytransform
 ```
 
 ## What is featurewiz?

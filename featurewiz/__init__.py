@@ -7,7 +7,7 @@
 ################################################################################
 # Version
 from .__version__ import __version__
-from .featurewiz import featurewiz
+from .featurewiz import featurewiz, create_fourier_features
 from .featurewiz import FE_split_one_field_into_many, FE_add_groupby_features_aggregated_to_dataframe
 from .featurewiz import FE_start_end_date_time_features
 from .featurewiz import classify_features
@@ -27,7 +27,7 @@ from .my_encoders import TSLagging_Transformer, FE_convert_all_object_columns_to
 from .sulov_method import FE_remove_variables_using_SULOV_method
 from .featurewiz import FE_transform_numeric_columns_to_bins, FE_create_interaction_vars
 from .stacking_models import Stacking_Classifier, Blending_Regressor, Stacking_Regressor, stacking_models_list
-from .featurewiz import EDA_binning_numeric_column_displaying_bins, FE_add_lagged_targets_by_date_category
+from .featurewiz import EDA_binning_numeric_column_displaying_bins
 from .featurewiz import FE_convert_mixed_datatypes_to_string, FE_drop_rows_with_infinity
 from .featurewiz import EDA_find_remove_columns_with_infinity, FE_split_list_into_columns
 from .featurewiz import EDA_remove_special_chars, EDA_make_column_names_unique, FE_remove_commas_in_numerics

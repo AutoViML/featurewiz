@@ -177,92 +177,92 @@ import time
 from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_classif
 from sklearn.feature_selection import SelectKBest
 ##################################################################################
-def load_file_dataframe(dataname, sep=",", header=0, verbose=0, nrows=None,parse_dates=False):
+def load_file_dataframe(dataname, sep=",", header=0, verbose=0, 
+                    nrows=None, parse_dates=False, target=''):
     start_time = time.time()
+    ### This is where you have to make sure target is not empty #####
+    if isinstance(target, str):
+        if len(target) == 0:
+            modelt = 'Clustering'
+            print('featurewiz does not work on clustering or unsupervised problems. Returning...')
+            return dataname
+        else:
+            modelt, _ = analyze_problem_type(dataname[target], target)
+    else:
+        ### Target is a list or None ############
+        if target is None or len(target) == 0:
+            modelt = 'Clustering'
+            print('featurewiz does not work on clustering or unsupervised problems. Returning...')
+            return dataname
+        else:
+            modelt, _ = analyze_problem_type(dataname[target], target)
+
     ###########################  This is where we load file or data frame ###############
     if isinstance(dataname,str):
         if dataname == '':
             print('    No file given. Continuing...')
             return None
         #### this means they have given file name as a string to load the file #####
-        codex_flag = False
         codex = ['ascii', 'utf-8', 'iso-8859-1', 'cp1252', 'latin1']
         ## this is the total number of rows in df  ###
-        try:
-            max_rows = lenopenreadlines(dataname)
-        except:
-            ### if for some reason, it errors, just set a default size to read file
-            max_rows = 10000
-        if nrows is None: ### this means get all rows -> don't skip any one
-            skip_function = None  ## will not skip any rows
-        else:
-            get_rows = max_rows  ## this is the number of rows we want to sample from the df
-            rem_rows = max_rows-get_rows  ## this will be the number of rows we need to skip
-            skip_function = random.sample(range(max_rows), rem_rows)  ## will generate a random list of rows to skip
+        ###############################################################################
         if dataname != '' and dataname.endswith(('csv')):
             try:
                 ### You can read the entire data into pandas first and then stratify split it ##
-                ###   If you don't stratify it, then 
+                ###   If you don't stratify it, then you will have less classes than 2 error ###
                 dfte = pd.read_csv(dataname, sep=sep, header=header, encoding=None, 
                                 parse_dates=parse_dates)
-                if not nrows is None:
-                    if nrows < dfte.shape[0]:
-                        print('    max_rows_analyzed is smaller than dataset shape %d...' %dfte.shape[0])
-                        dfte = dfte.sample(nrows, replace=False, random_state=99)
-                        print('        randomly sampled %d rows from read CSV file' %nrows)
-                if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
-                    print('You have duplicate column names in your data set. Removing duplicate columns now...')
-                    dfte = dfte[list(dfte.columns[~dfte.columns.duplicated(keep='first')])]
-                return dfte
+                print('    pandas default encoder does not work for this file. Trying other encoders...')
             except:
-                codex_flag = True
-            if codex_flag:
                 for code in codex:
                     try:
-                        dfte = pd.read_csv(dataname, sep=sep, header=header, encoding=None, nrows=nrows,
-                                        skiprows=skip_function, parse_dates=parse_dates) 
+                        dfte = pd.read_csv(dataname, sep=sep, header=header, 
+                                        encoding=code, parse_dates=parse_dates)
+                        break
                     except:
-                        print('    pandas %s encoder does not work for this file. Continuing...' %code)
                         continue
+            ######### If the file is not loadable, then give an error message #########
+            try:
+                print('    Shape of your Data Set loaded: %s' %(dfte.shape,))
+            except:
+                print('    File not loadable. Please check your file path or encoding format and try again.')
+                return dataname
         elif dataname.endswith(('xlsx','xls','txt')):
             #### It's very important to get header rows in Excel since people put headers anywhere in Excel#
-            if nrows is None:
-                dfte = pd.read_excel(dataname,header=header, parse_dates=parse_dates)
-            else:
-                dfte = pd.read_excel(dataname,header=header, nrows=nrows, parse_dates=parse_dates)
-            print('    Shape of your Data Set loaded: %s' %(dfte.shape,))
-            return dfte
+            dfte = pd.read_excel(dataname,header=header, parse_dates=parse_dates)
         elif dataname.endswith(('gzip', 'bz2', 'zip', 'xz')):
             print('    Reading compressed file...')
             try:
                 #### Dont use skip_function in zip files #####
                 compression = 'infer'
-                dfte = pd.read_csv(dataname, sep=sep, header=header, encoding=None, nrows=nrows,
+                dfte = pd.read_csv(dataname, sep=sep, header=header, encoding=None,
                                 compression=compression, parse_dates=parse_dates) 
-                return dfte
             except:
                 print('    Could not read compressed file. Please unzip and try again...')
-                return None
-    elif isinstance(dataname,pd.DataFrame):
-        
-        #### this means they have given a dataframe name to use directly in processing #####
-        if nrows is None:
-            dfte = copy.deepcopy(dataname)
-        else:
-            if nrows < dataname.shape[0]:
-                print('    Since nrows is smaller than dataset, loading random sample of %d rows into pandas...' %nrows)
-                dfte = dataname.sample(n=nrows, replace=False, random_state=99)
-            else:
-                dfte = copy.deepcopy(dataname)
-        print('    Shape of your Data Set loaded: %s' %(dfte.shape,))
-        if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
-            print('You have duplicate column names in your data set. Removing duplicate columns now...')
-            
-            dfte = dfte[list(dfte.columns[~dfte.columns.duplicated(keep='first')])]
-        return dfte
+                return dataname
+    elif isinstance(dataname,pd.DataFrame):        
+        dfte = copy.deepcopy(dataname)
     else:
         print('Dataname input must be a filename with path to that file or a Dataframe')
         return None
+    ######################### This is where you sample rows ############################
+    #### this means they now have a dataframe and you must sample it correctly #####
+    #### Now that you have read the file, you must sample it ############
+    ####################################################################################
+    if not nrows is None:
+        if nrows < dfte.shape[0]:
+            if modelt == 'Regression':
+                dfte = dfte[:nrows]
+                print('        sequentially select %s max_rows from dataset %d...' %(nrows, dfte.shape[0]))
+            else:
+                test_size = 1 - (nrows/dfte.shape[0])
+                print('        stratified split %d rows from given %s' %(nrows, dfte.shape[0]))
+                dfte, _ = train_test_split(dfte, test_size=test_size, stratify=dfte[target],
+                                shuffle=True, random_state=99)
+    if len(np.array(list(dfte))[dfte.columns.duplicated()]) > 0:
+        print('You have duplicate column names in your data set. Removing duplicate columns now...')
+        dfte = dfte[list(dfte.columns[~dfte.columns.duplicated(keep='first')])]
+    return dfte
 ##########################################################################################
 ##### This function loads a time series data and sets the index as a time series
 def load_dask_data(filename, sep, ):
@@ -512,7 +512,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     print('File could not be loaded into dask. Check the path or filename and try again')
                     return None
             else:
-                train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
+                #### There is no dask flag so load it into a regular pandas dataframe ####
+                train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, 
+                                    nrows=nrows, target=target)
                 if (train.memory_usage().sum()/1000000) > mem_limit:
                     dataname = reduce_mem_usage(train)
                 else:
@@ -528,7 +530,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 dataname = reduce_mem_usage(dataname)
             train = load_dask_data(dataname, sep)
         else:
-            train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows)
+            train = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, 
+                            nrows=nrows, target=target)
             if (train.memory_usage().sum()/1000000) > mem_limit:
                 dataname = reduce_mem_usage(train)
             else:
@@ -561,10 +564,31 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             targets = [item_replacer(n, n) for n in targets]
             target = targets[0]
         else:
-            target = [item_replacer(n, n) for n in target]
+            targets = copy.deepcopy(target)
+            target = [item_replacer(n, n) for n in targets]
 
     train_index = dataname.index
     
+    if isinstance(target, str):
+        if len(target) == 0:
+            cols_list = list(dataname)
+            settings.modeltype = 'Clustering'
+            print('featurewiz does not work on clustering or unsupervised problems. Returning...')
+            return old_col_names, dataname
+        else:
+            settings.modeltype, _ = analyze_problem_type(dataname[target], target)
+            cols_list = left_subtract(list(dataname),target)
+    else:
+        ### Target is a list or None ############
+        if target is None or len(target) == 0:
+            cols_list = list(dataname)
+            settings.modeltype = 'Clustering'
+            print('featurewiz does not work on clustering or unsupervised problems. Returning...')
+            return old_col_names, dataname
+        else:
+            settings.modeltype, _ = analyze_problem_type(dataname[target], target)
+            cols_list = left_subtract(list(dataname),target)
+
     ######################################################################################
     ##################    L O A D      T E S T     D A T A   #############################
     ##########   test_data will be the name of the pandas version of test data      #####
@@ -586,7 +610,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 if dask_xgboost_flag:
                     print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
                     ### nrows does not apply to test data in the case of featurewiz ###############
-                    test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, nrows=None)
+                    test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose,
+                                     nrows=None, target=target)
                     ### sometimes, test_data returns None if there is an error. ##########
                     if test_data is not None:
                         test_data = reduce_mem_usage(test_data)
@@ -594,7 +619,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                         test = load_dask_data(test_data, sep)
                 else:
                     #### load the entire test dataframe - there is no limit applicable there #########
-                    test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose)
+                    test_data = load_file_dataframe(test_data, sep=sep, header=header, 
+                                    verbose=verbose, nrows=None, target=target)
                     test = copy.deepcopy(test_data)
         else:
             print('No test data filename given...')
@@ -602,7 +628,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             test = None
     else:
         print('loading the entire test dataframe - there is no nrows limit applicable #########')
-        test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose)
+        test_data = load_file_dataframe(test_data, sep=sep, header=header, 
+                        verbose=verbose, nrows=None, target=target)
         test = copy.deepcopy(test_data)
     ### sometimes, test_data returns None if there is an error. ##########
     if test_data is not None:
@@ -651,8 +678,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         print('Caution: Since there are date-time variables in datatset, it is best to load them using pandas')
         dask_xgboost_flag = False ### Set the dask flag to be False since it is now becoming Pandas dataframe 
         date_time_vars = features_dict['date_vars']
-        dataname = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, nrows=nrows,
-                             parse_dates=date_time_vars)
+        dataname = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, 
+                            nrows=nrows, parse_dates=date_time_vars, target=target)
         if (dataname.memory_usage().sum()/1000000) > mem_limit:
             dataname = reduce_mem_usage(dataname)
         train = load_dask_data(dataname, sep)
@@ -660,7 +687,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             ### You must load the entire test data - there is no limit there ##################
             ### test_data is the pandas dataframe object and test is dask dataframe object ##
             test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, 
-                                 parse_dates=date_time_vars)
+                                 nrows=nrows, parse_dates=date_time_vars, target=target)
             test = copy.deepcopy(test_data)
         else:
             test_data = None
@@ -789,6 +816,8 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             print('Removing %s columns(s) which are in both cols to be deleted and cat vars given as input' %cols_in_both)
     cols_to_remove = features_dict['cols_delete'] + idcols + features_dict['discrete_string_vars']
     preds = [x for x in list(dataname) if x not in target+cols_to_remove]
+    ###   This is where we sort the columns to make sure that the order of columns doesn't matter in selection ###########
+    preds = np.sort(preds)
     if verbose:
         print('    After removing redundant variables from further processing, features left = %d' %len(preds))
     numvars = dataname[preds].select_dtypes(include = 'number').columns.tolist()
@@ -830,12 +859,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     rem_vars = copy.deepcopy(catvars)
     ########## Now we need to select the right model to run repeatedly ####
     
-    if target is None or len(target) == 0:
-        cols_list = list(dataname)
-        settings.modeltype, _ = 'Clustering'
-    else:
-        settings.modeltype, _ = analyze_problem_type(dataname[target], target)
-        cols_list = left_subtract(list(dataname),target)
+    if settings.modeltype != 'Regression':
         ##########################################################################
         ###########   L A B E L    E N C O D I N G   O F   T A R G E T   #########
         ##########################################################################
@@ -844,31 +868,30 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         cat_targets = dataname[target].select_dtypes(include='object').columns.tolist() + dataname[target].select_dtypes(include='category').columns.tolist()
         copy_targets = copy.deepcopy(targets)
         for each_target in copy_targets:
-            if cat_targets or sorted(np.unique(dataname[each_target].values))[0] != 0:
-                print('    target labels need to be converted...')
-                target_conversion_flag = True
+                if cat_targets or sorted(np.unique(dataname[each_target].values))[0] != 0:
+                    print('    target labels need to be converted...')
+                    target_conversion_flag = True
         ### check if they are not starting from zero ##################
-        if settings.modeltype != 'Regression':
-            copy_targets = copy.deepcopy(target)
-            for each_target in copy_targets:
-                if target_conversion_flag:
-                    mlb = My_LabelEncoder()
-                    dataname[each_target] = mlb.fit_transform(dataname[each_target])
-                    try:
-                        ## After converting train, just load it into dask again ##
-                        train[each_target] = dd.from_pandas(dataname[each_target], npartitions=n_workers)
-                    except:
-                        print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
-                    if test_data is not None:
-                        if each_target in test_data.columns:
-                            test_data[each_target] = mlb.transform(test_data[each_target])
-                            try:
-                                ## After converting test, just load it into dask again ##
-                                test[each_target] = dd.from_pandas(test_data[each_target], npartitions=n_workers)
-                            except:
-                                print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
-                    print('Completed label encoding of target variable = %s' %each_target)
-                    print('How model predictions need to be transformed for %s:\n\t%s' %(each_target, mlb.inverse_transformer))
+        copy_targets = copy.deepcopy(target)
+        for each_target in copy_targets:
+            if target_conversion_flag:
+                mlb = My_LabelEncoder()
+                dataname[each_target] = mlb.fit_transform(dataname[each_target])
+                try:
+                    ## After converting train, just load it into dask again ##
+                    train[each_target] = dd.from_pandas(dataname[each_target], npartitions=n_workers)
+                except:
+                    print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
+                if test_data is not None:
+                    if each_target in test_data.columns:
+                        test_data[each_target] = mlb.transform(test_data[each_target])
+                        try:
+                            ## After converting test, just load it into dask again ##
+                            test[each_target] = dd.from_pandas(test_data[each_target], npartitions=n_workers)
+                        except:
+                            print('Could not convert dask dataframe target into numeric. Check your input. Continuing...')
+                print('Completed label encoding of target variable = %s' %each_target)
+                print('How model predictions need to be transformed for %s:\n\t%s' %(each_target, mlb.inverse_transformer))
 
     ######################################################################################
     ######    B E F O R E    U S I N G    D A T A B U N C H  C H E C K ###################
@@ -984,7 +1007,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ####  There a total of 5 iterations. Hence 5x10 means maximum 50 features will be selected.
     #####  If there are more than 50 variables, then maximum 25% of its variables will be selected
     if len(preds) <= 50:
-        top_num = 10
+        top_num = int(len(preds)*0.25)
     else:
         ### the maximum number of variables will 25% of preds which means we divide by 5 and get 5% here
         ### The five iterations result in 10% being chosen in each iteration. Hence max 50% of variables!
@@ -1022,8 +1045,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 print('    SULOV method is erroring. Continuing ...')
                 final_list = copy.deepcopy(numvars)
         else:
-                print('    Running faster SULOV method since data dimension %s m > 50 m. Continuing ...' %int(data_dim))
-                data_temp = dataname.sample(n=10000, replace=True, random_state=99)
+                print('    Running SULOV on smaller dataset sample since data size %s m > 50 m. Continuing ...' %int(data_dim))
+                if settings.modeltype != 'Regression':
+                    data_temp = dataname.sample(n=10000, replace=True, random_state=99)
+                else:
+                    data_temp = dataname[:10000]
                 final_list = FE_remove_variables_using_SULOV_method(data_temp,numvars,settings.modeltype,target,
                              corr_limit,verbose, dask_xgboost_flag)
                 del data_temp
@@ -1039,25 +1065,33 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if  isinstance(final_list,np.ndarray):
         final_list = final_list.tolist()
     preds = final_list+important_cats
-    print('Final list of selected vars after SULOV = %s' %len(preds))
+    print('Final list of selected %s vars after SULOV = %s' %(len(preds), preds))
     #######You must convert category variables into integers ###############    
-    print('Readying dataset for Recursive XGBoost by converting all features to numeric...')
+    print('Converting all features to numeric before sending to XGBoost...')
+    if isinstance(target, str):
+        dataname = dataname[preds+[target]]
+    else:
+        dataname = dataname[preds+target]
+    if not test_data is None:
+        test_data = test_data[preds]
     if len(important_cats) > 0:
         dataname, test_data, error_columns = FE_convert_all_object_columns_to_numeric(dataname,  test_data, preds)
         important_cats = left_subtract(important_cats, error_columns)
         if len(error_columns) > 0:
             print('    removing %s object columns that could not be converted to numeric' %len(error_columns))
             preds = list(set(preds)-set(error_columns))
+            dataname.drop(error_columns, axis=1, inplace=True)
         else:
             print('    there were no mixed data types or object columns that errored. Data is all numeric...')
-        dataname.drop(error_columns, axis=1, inplace=True)
-        print('Shape of train data after pruning = %s' %(dataname.shape,) )
+        print('Shape of train data after adding missing values flags = %s' %(dataname.shape,) )
+        preds = [x for x in list(dataname) if x not in targets]
         if not test_data is None:
             test_data.drop(error_columns, axis=1, inplace=True)
-            print('    Shape of test data after pruning = %s' %(test_data.shape,) )
+            print('    Shape of test data after adding missing values flags  = %s' %(test_data.shape,) )
     print('#######################################################################################')
     print('#####    R E C U R S I V E   X G B O O S T : F E A T U R E   S E L E C T I O N  #######')
     print('#######################################################################################')
+    
     important_features = []
     #######################################################################
     #####   This is for DASK XGB Regressor and XGB Classifier problems ####
@@ -1099,7 +1133,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         iter_limit = 2
     else:
         iter_limit = int(train_p.shape[1]/5+0.5)
-    print('Current number of predictors = %d ' %(train_p.shape[1],))
+    print('Current number of predictors before recursive XGBoost = %d ' %(train_p.shape[1],))
+    if verbose:
+        print('    Taking top %s features per iteration...' %top_num)
     if dask_xgboost_flag:
         if verbose:
             print('    Dask version = %s' %dask.__version__)
@@ -1311,7 +1347,10 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         if isinstance(test_data, str) or test_data is None:
             ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
             dataname = pd.concat([train_ids, dataname], axis=1)
-            return important_features, dataname[important_features+target]
+            if isinstance(target, str):
+                return important_features, dataname[important_features+[target]]
+            else:
+                return important_features, dataname[important_features+target]
         else:
             ### if feature engg is performed, id columns are dropped. Hence they must rejoin here.
             dataname = pd.concat([train_ids, dataname], axis=1)
@@ -2628,80 +2667,6 @@ def EDA_binning_numeric_column_displaying_bins(dft, target, bins=4, test=""):
                                                                   edges[i-1], edges[i]))
     return ls, edges, dft, test
 #########################################################################################
-from tqdm import tqdm
-def FE_add_lagged_targets_by_date_category(train2, target_col, date_col, category_col, test2):
-    """
-    ######    F E A T U R E    E N G G    F O R    T I M E    S E R I E S     D A T A  ############
-    This handy function adds the mean of lagged values for target column based on date and a category.
-    For each date in date column, it collects all target values prior to that date and calculates mean.
-    The collected target values are in same category as current category in each row.
-    This function enables a model to learn average of prior target (values) grouped by a category.
-    It also calculates same values for test using values in train data 9(by using it as look up tables)
-    1. In Train data, we select rows prior to the current row's date and match category. We calculate mean.
-    2. In Test, we select rows matching the category and any row prior to the current row's date. Again mean.
-    3. In both cases, if there is no match, we just select all rows prior to the current row's date and find their mean.
-    ###########################################################################
-    #### There is a mistake here. It should not calculate new values for test.
-    ####   It should take the values from train for the same category and date 
-    ###########################################################################
-    ############    I N P U T S    A N D      O U T P U T S     #####################################
-    Inputs:
-        train2: a training dataframe
-        target_col: name of target variable you want the mean of the lagged values before a certain date
-        date_col: name of the
-        category_col: name of category column prior target values are grouped by (and mean calculated)
-
-    Outputs:
-        new_col: new column in train and test
-        - representing average of prior target values by category before each date in a row
-    #################################################################################################
-    """
-    train2 = copy.deepcopy(train2)
-    test2 = copy.deepcopy(test2)
-    new_col = target_col+'_array'
-    train2[new_col] = 0
-    i = 0
-    train2 = train2.reset_index(drop=False)  # index column will be called 'index'
-    train2 = train2.set_index(pd.to_datetime(train2.pop(date_col)))
-    train2 = train2.sort_index()
-    for index, each_train in tqdm(train2.iterrows(), total=train2.shape[0]):
-        before_grp = train2.loc[train2.index < index]
-        prim = each_train[category_col]
-        mask = (before_grp[category_col] == prim)
-        if len(before_grp.loc[mask]) > 0:
-            price_val = before_grp.loc[mask,target_col].values.tolist()
-        else:
-            price_val = before_grp[target_col].values.tolist()
-        #price_val = f"{price_val}"
-        price_val = np.mean(price_val)
-        #print(' i = ', i+1, price_val)
-        train2.iloc[i,-1] = price_val
-        i += 1
-    ###########################################################################
-    #### There is a mistake here. It should not calculate new values for test.
-    ####   It should take the values from train for the same category and date 
-    ###########################################################################
-    if not isinstance(test2, str):
-        test2[new_col] = 0
-        i = 0
-        test2 = test2.reset_index(drop=False)  # index column will be called 'index'
-        test2 = test2.set_index(pd.to_datetime(test2.pop(date_col)))
-        test2 = test2.sort_index()
-        for index1, each_test in tqdm(test2.iterrows(), total=test2.shape[0]):
-            before_grp = train2.loc[train2.index < index1]
-            prim = each_test[category_col]
-            mask = (before_grp[category_col] == prim)
-            if len(before_grp.loc[mask]) > 0:
-                price_val = before_grp.loc[mask,target_col].values.tolist()
-            else:
-                price_val = before_grp[target_col].values.tolist()
-            price_val = np.mean(price_val)
-            test2.iloc[i,-1] = price_val
-            i += 1
-    return train2.set_index('index'), test2.set_index('index')
-#############################################################################################
-import numpy as np
-import pandas as pd
 from pathlib import Path
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -2808,10 +2773,10 @@ def FE_convert_mixed_datatypes_to_string(df):
 ##################################################################################
 def remove_duplicate_cols_in_dataset(df):
     df = copy.deepcopy(df)
-    cols = df.columns.tolist()
     number_duplicates = df.columns.duplicated().astype(int).sum()
+    duplicates = df.columns[df.columns.duplicated()]
     if  number_duplicates > 0:
-        print('Detected %d duplicate columns in dataset. Removing duplicates...' %number_duplicates)
+        print('Removing %d duplicate column(s) of %s' %(number_duplicates, duplicates))
         df = df.loc[:,~df.columns.duplicated()]
     return df
 ###########################################################################
@@ -2861,9 +2826,9 @@ def EDA_randomly_select_rows_from_dataframe(train_dataframe, targets, nrows_limi
         test_size = 0.9
     ###   Float variables are considered Regression #####################################
     modeltype, _ = analyze_problem_type(train_dataframe[copy_targets], copy_targets, verbose=0)
-    print('    loading a random sample of %d rows into pandas for EDA' %nrows_limit)
     ####### If it is a classification problem, you need to stratify and select sample ###
     if modeltype != 'Regression':
+        print('    loading a random sample of %d rows into pandas for EDA' %nrows_limit)
         for each_target in copy_targets:
             ### You need to remove rows that have very class samples - that is a problem while splitting train_small
             list_of_few_classes = train_dataframe[each_target].value_counts()[train_dataframe[each_target].value_counts()<=3].index.tolist()
@@ -2875,7 +2840,8 @@ def EDA_randomly_select_rows_from_dataframe(train_dataframe, targets, nrows_limi
             train_small = train_dataframe.sample(n=nrows_limit, replace=True, random_state=99)
     else:
         ### For Regression problems: load a small sample of data into a pandas dataframe ##
-        train_small = train_dataframe.sample(n=nrows_limit, replace=True, random_state=99)
+        print('    loading a sequential sample of %d rows into pandas for EDA' %nrows_limit)
+        train_small = train_dataframe[:nrows_limit]
     return train_small
 ################################################################################################
 class FeatureWiz(BaseEstimator, TransformerMixin):
@@ -2942,7 +2908,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         try:
             return X[self.features]
         except:
-            print('seince X does not have selected features in it, returning %d transformed features' %len(self.features))
+            print('Returning transformed dataframe with %d features' %len(self.features))
             return self.X_sel
 ###################################################################################################
 def EDA_remove_special_chars(df):
@@ -3012,5 +2978,45 @@ def FE_remove_commas_in_numerics(train, nums=[]):
             train[each_num] = train[each_num].map(lambda x: float("".join( x.split(",")))).values
     return train
 ####################################################################################
+def create_fourier_features(df, ts_column, id_column='', time_period='year'):
+    """
+    This module will add fourier transform features to any dataframe having a time column and an optional item column.
+    It will return a dataframe with Fourier features added.
+    Input:
+    df: dataframe
+    ts_column: date-time column. It must be in pandas date-time format. Otherwise error. 
+    id_column: item or product or store ID that is in the time series data.
+    time_period = year will produce yearly features. Any other value will produce features for 2 years. 
+    """
+    print('Before Fourier features engg, shape of df = %s' %(df.shape,))
+    try:
+        # Time period could be 1 year or 2 years
+        if time_period == 'year':
+            dayofbiyear = df[ts_column].dt.dayofyear  # 1 to 365    
+            ls = [2, 4]
+        else:
+            dayofbiyear = df[ts_column].dt.dayofyear + 365*(1-(df[ts_column].dt.year%2))  # 1 to 730
+            ls = [1, 2, 4]
+            
+        # k=1 -> 2 years, k=2 -> 1 year, k=4 -> 6 months
+        for k in ls:
+            if time_period == 'year':
+                df[f'sin{k}'] = np.sin(2 * np.pi * k * dayofbiyear / (1* 365))
+                df[f'cos{k}'] = np.cos(2 * np.pi * k * dayofbiyear / (1* 365))
+            else:
+                df[f'sin{k}'] = np.sin(2 * np.pi * k * dayofbiyear / (2* 365))
+                df[f'cos{k}'] = np.cos(2 * np.pi * k * dayofbiyear / (2* 365))
 
+            if id_column:
+                # Different items have different seasonality patterns
+                for product in df[id_column].unique():
+                    df[f'sin_{k}_{product}'] = df[f'sin{k}'] * (df[id_column] == product)
+                    df[f'cos_{k}_{product}'] = df[f'cos{k}'] * (df[id_column] == product)
+
+            df = df.drop([f'sin{k}', f'cos{k}'], axis=1)
+        print('After Fourier features engg, shape of df: %s' %(df.shape,))
+    except:
+        print('    Error occured in adding Fourier features. Returning df as is...')
+    return df
+##########################################################################################
 
