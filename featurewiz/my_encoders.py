@@ -1878,10 +1878,10 @@ def FE_convert_all_object_columns_to_numeric(train, test="", features=[]):
 ###############################################################################################
 from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
 import copy
-class Fourier_Transformer_Daily(BaseEstimator, TransformerMixin):
+class Fourier_Transformer(BaseEstimator, TransformerMixin):
     """
-    This Transformer class will add fourier transform features to daily time series data.
-        WARNING: You cannot use it for weekly or hourly or any other kind of time series data.
+    This Transformer class will add fourier transform features to daily and weekly time series data.
+        WARNING: You cannot use it for hourly or any other kind of time series data yet.
     The time series must have a time column and an (optional) group identifier column.
     It will return a dataset with Fourier transforms added for every day in a year and by group.
     WARNING: If your test data does not contain any items (group_ids) from train data, 
@@ -1894,14 +1894,23 @@ class Fourier_Transformer_Daily(BaseEstimator, TransformerMixin):
         Column must be in pandas date-time format. Otherwise will error. 
     id_column: string. default is "". group_id or product_id or store ID 
         that defines a group in the time series dataset.
-    time_period: string. default="1year". It will produce features for up to 1 year.
+    time_period: string. default="daily". It will produce features based on dayofyear.
+        Use "weekly" to produce features based on weekofyear. 
+    seasonality: string. default="1year". It will produce features for up to 1 year.
         Use "2years" value will produce features for 2 years (max). 
     verbose: default is 0. If set to 1, it will print more verbose output.
     """
-    def __init__(self, ts_column, id_column="", time_period="", verbose=0):
+    def __init__(self, ts_column, id_column="", time_period="daily", seasonality="1year", verbose=0):
         self.ts_column = ts_column
         self.id_column = id_column
         self.time_period = time_period
+        self.seasonality = seasonality
+        if isinstance(self.seasonality, str):
+            if self.seasonality == "":
+                self.seasonality = "1year"
+        if isinstance(self.time_period, str):
+            if self.time_period == "":
+                self.time_period = "daily"
         self.verbose = verbose
         self.fitted = False
         self.train = False
@@ -1944,26 +1953,39 @@ class Fourier_Transformer_Daily(BaseEstimator, TransformerMixin):
             return self.X_transformed
         ##### Then you should transform here ############
         # Time period could be 1year or 2year: otherwise it will assume 1 year.
-        if self.time_period == '1year':
-            self.dayofbiyear = X[self.ts_column].dt.dayofyear  # 1 to 365    
-            self.listofyears = [2, 4]
-        elif self.time_period == '2year':
-            self.dayofbiyear = X[self.ts_column].dt.dayofyear + 365*(1-(X[self.ts_column].dt.year%2))  # 1 to 730
-            self.listofyears = [1, 2, 4]
-        else:
-            self.time_period = "1year"
-            self.dayofbiyear = X[self.ts_column].dt.dayofyear  # 1 to 365    
-            self.listofyears = [2, 4]
+        if self.time_period == 'daily':
+            if self.seasonality == '1year':
+                self.dayofbiyear = X[self.ts_column].dt.dayofyear  # 1 to 365    
+                self.listofyears = [2, 4]
+            elif self.seasonality == '2year':
+                self.dayofbiyear = X[self.ts_column].dt.dayofyear + 365*(1-(X[self.ts_column].dt.year%2))  # 1 to 730
+                self.listofyears = [1, 2, 4]
+        elif self.time_period == 'weekly':
+            if self.seasonality == '1year':
+                self.dayofbiyear = X[self.ts_column].dt.weekofyear  # 1 to 365    
+                self.listofyears = [2, 4]
+            elif self.seasonality == '2year':
+                self.dayofbiyear = X[self.ts_column].dt.weekofyear + 52*(1-(X[self.ts_column].dt.year%2))  # 1 to 104
+                self.listofyears = [1, 2, 4]
         ##### You need to reset the number of days above for each dataset ###
         try:
+            print('    will create %s unique features...' %(len(self.products)*len(self.listofyears)*2))
             # k=1 -> 2 years, k=2 -> 1 year, k=4 -> 6 months
             for k in self.listofyears:
-                if self.time_period == '1year':
-                    X[f'sin{k}'] = np.sin(2 * np.pi * k * self.dayofbiyear / (1* 365))
-                    X[f'cos{k}'] = np.cos(2 * np.pi * k * self.dayofbiyear / (1* 365))
-                else:
-                    X[f'sin{k}'] = np.sin(2 * np.pi * k * self.dayofbiyear / (2* 365))
-                    X[f'cos{k}'] = np.cos(2 * np.pi * k * self.dayofbiyear / (2* 365))
+                if self.time_period == 'daily':
+                    if self.seasonality == '1year':
+                        X[f'sin{k}'] = np.sin(2 * np.pi * k * self.dayofbiyear / (1* 365))
+                        X[f'cos{k}'] = np.cos(2 * np.pi * k * self.dayofbiyear / (1* 365))
+                    else:
+                        X[f'sin{k}'] = np.sin(2 * np.pi * k * self.dayofbiyear / (2* 365))
+                        X[f'cos{k}'] = np.cos(2 * np.pi * k * self.dayofbiyear / (2* 365))
+                elif self.time_period == 'weekly':
+                    if self.seasonality == '1year':
+                        X[f'sin{k}'] = np.sin(2 * np.pi * k * self.dayofbiyear / (1* 52))
+                        X[f'cos{k}'] = np.cos(2 * np.pi * k * self.dayofbiyear / (1* 52))
+                    else:
+                        X[f'sin{k}'] = np.sin(2 * np.pi * k * self.dayofbiyear / (2* 52))
+                        X[f'cos{k}'] = np.cos(2 * np.pi * k * self.dayofbiyear / (2* 52))
 
                 if self.id_column:  ### only do this if they send in an ID column ####
                     #### we do this for Different items since each 
