@@ -2978,45 +2978,5 @@ def FE_remove_commas_in_numerics(train, nums=[]):
             train[each_num] = train[each_num].map(lambda x: float("".join( x.split(",")))).values
     return train
 ####################################################################################
-def create_fourier_features(df, ts_column, id_column='', time_period='year'):
-    """
-    This module will add fourier transform features to any dataframe having a time column and an optional item column.
-    It will return a dataframe with Fourier features added.
-    Input:
-    df: dataframe
-    ts_column: date-time column. It must be in pandas date-time format. Otherwise error. 
-    id_column: item or product or store ID that is in the time series data.
-    time_period = year will produce yearly features. Any other value will produce features for 2 years. 
-    """
-    print('Before Fourier features engg, shape of df = %s' %(df.shape,))
-    try:
-        # Time period could be 1 year or 2 years
-        if time_period == 'year':
-            dayofbiyear = df[ts_column].dt.dayofyear  # 1 to 365    
-            ls = [2, 4]
-        else:
-            dayofbiyear = df[ts_column].dt.dayofyear + 365*(1-(df[ts_column].dt.year%2))  # 1 to 730
-            ls = [1, 2, 4]
-            
-        # k=1 -> 2 years, k=2 -> 1 year, k=4 -> 6 months
-        for k in ls:
-            if time_period == 'year':
-                df[f'sin{k}'] = np.sin(2 * np.pi * k * dayofbiyear / (1* 365))
-                df[f'cos{k}'] = np.cos(2 * np.pi * k * dayofbiyear / (1* 365))
-            else:
-                df[f'sin{k}'] = np.sin(2 * np.pi * k * dayofbiyear / (2* 365))
-                df[f'cos{k}'] = np.cos(2 * np.pi * k * dayofbiyear / (2* 365))
 
-            if id_column:
-                # Different items have different seasonality patterns
-                for product in df[id_column].unique():
-                    df[f'sin_{k}_{product}'] = df[f'sin{k}'] * (df[id_column] == product)
-                    df[f'cos_{k}_{product}'] = df[f'cos{k}'] * (df[id_column] == product)
-
-            df = df.drop([f'sin{k}', f'cos{k}'], axis=1)
-        print('After Fourier features engg, shape of df: %s' %(df.shape,))
-    except:
-        print('    Error occured in adding Fourier features. Returning df as is...')
-    return df
-##########################################################################################
 

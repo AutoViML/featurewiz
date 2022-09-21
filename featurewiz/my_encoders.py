@@ -1876,3 +1876,120 @@ def FE_convert_all_object_columns_to_numeric(train, test="", features=[]):
     
     return train, test, error_columns
 ###############################################################################################
+from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
+import copy
+class Fourier_Transformer_Daily(BaseEstimator, TransformerMixin):
+    """
+    This Transformer class will add fourier transform features to daily time series data.
+        WARNING: You cannot use it for weekly or hourly or any other kind of time series data.
+    The time series must have a time column and an (optional) group identifier column.
+    It will return a dataset with Fourier transforms added for every day in a year and by group.
+    WARNING: If your test data does not contain any items (group_ids) from train data, 
+        then all columns will be zero in test data since it cannot learn from train data.
+        In that case, you are better off selecting another group that is common to both 
+        train and test data. The key to success is finding common groups within both!
+        
+    Input:
+    ts_column: string. Must be a date-time column. 
+        Column must be in pandas date-time format. Otherwise will error. 
+    id_column: string. default is "". group_id or product_id or store ID 
+        that defines a group in the time series dataset.
+    time_period: string. default="1year". It will produce features for up to 1 year.
+        Use "2years" value will produce features for 2 years (max). 
+    verbose: default is 0. If set to 1, it will print more verbose output.
+    """
+    def __init__(self, ts_column, id_column="", time_period="", verbose=0):
+        self.ts_column = ts_column
+        self.id_column = id_column
+        self.time_period = time_period
+        self.verbose = verbose
+        self.fitted = False
+        self.train = False
+        self.products = []
+        self.listofyears = []
+        self.dayofbiyear = None
+        
+    def fit(self, X, y=None):
+        X = copy.deepcopy(X)
+        ### Now you can check if the parts of tuple are dataframe series, etc.
+        if isinstance(X, tuple):
+            y = X[1]
+            X = X[0]
+        ### Now you can check if the parts of tuple are dataframe series, etc.
+        if isinstance(X, pd.Series):
+            if self.verbose:
+                print('X must be dataframe. Converting it to a pd.DataFrame.')
+            X = pd.DataFrame(X.values, columns=[X.name])
+        elif isinstance(X, np.ndarray):
+            if self.verbose:
+                print('X must be dataframe and cannot be numpy array. Returning...')
+            return self
+        else:
+            #### There is no way to transform dataframes in an sklearn pipeline  
+            ####    since you will get a nested renamer error if you try ###
+            #### But if it is a one-dimensional dataframe, you can convert into Series
+            if self.verbose:
+                print('X is a DataFrame...')
+            pass
+        ########## you must save the product uniques so that train and test have consistent columns ##
+        self.products = X[self.id_column].unique().tolist()
+        print('Before Fourier features engg, shape of data = %s' %(X.shape,))
+        self.fitted = True
+        return self
+
+    def transform(self, X, y=None):
+        X = copy.deepcopy(X)
+        if self.fitted and self.train:
+            self.train = False
+            return self.X_transformed
+        ##### Then you should transform here ############
+        # Time period could be 1year or 2year: otherwise it will assume 1 year.
+        if self.time_period == '1year':
+            self.dayofbiyear = X[self.ts_column].dt.dayofyear  # 1 to 365    
+            self.listofyears = [2, 4]
+        elif self.time_period == '2year':
+            self.dayofbiyear = X[self.ts_column].dt.dayofyear + 365*(1-(X[self.ts_column].dt.year%2))  # 1 to 730
+            self.listofyears = [1, 2, 4]
+        else:
+            self.time_period = "1year"
+            self.dayofbiyear = X[self.ts_column].dt.dayofyear  # 1 to 365    
+            self.listofyears = [2, 4]
+        ##### You need to reset the number of days above for each dataset ###
+        try:
+            # k=1 -> 2 years, k=2 -> 1 year, k=4 -> 6 months
+            for k in self.listofyears:
+                if self.time_period == '1year':
+                    X[f'sin{k}'] = np.sin(2 * np.pi * k * self.dayofbiyear / (1* 365))
+                    X[f'cos{k}'] = np.cos(2 * np.pi * k * self.dayofbiyear / (1* 365))
+                else:
+                    X[f'sin{k}'] = np.sin(2 * np.pi * k * self.dayofbiyear / (2* 365))
+                    X[f'cos{k}'] = np.cos(2 * np.pi * k * self.dayofbiyear / (2* 365))
+
+                if self.id_column:  ### only do this if they send in an ID column ####
+                    #### we do this for Different items since each 
+                    ####     has a different seasonality pattern
+                    for product in self.products:
+                        X[f'sin_{k}_{product}'] = X[f'sin{k}'] * (X[self.id_column] == product)
+                        X[f'cos_{k}_{product}'] = X[f'cos{k}'] * (X[self.id_column] == product)
+
+                X = X.drop([f'sin{k}', f'cos{k}'], axis=1)
+            print('After Fourier features engg, shape of data: %s' %(X.shape,))
+        except:
+            print('    Error occured in adding Fourier features. Check your inputs. Returning...')
+            self.train = False
+            self.X_transformed = X
+            return self.X_transformed
+        ##### This is where you set the end of training and return values ###
+        self.fitted = True
+        self.train = True
+        self.X_transformed = X
+        return self.X_transformed
+    
+        
+    def fit_transform(self, X, y=None):
+        X = copy.deepcopy(X)
+        self.fit(X)
+        self.transform(X)
+        self.train = False
+        return self.X_transformed
+#########################################################################################################
