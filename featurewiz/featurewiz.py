@@ -44,6 +44,8 @@ from .classify_method import classify_columns, EDA_find_remove_columns_with_infi
 from .ml_models import analyze_problem_type, get_sample_weight_array, check_if_GPU_exists
 from .my_encoders import Groupby_Aggregator, My_LabelEncoder_Pipe, My_LabelEncoder
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe, FE_create_time_series_features
+from .my_encoders import Column_Names_Transformer
+
 from . import settings
 settings.init()
 ################################################################################
@@ -178,24 +180,33 @@ from sklearn.feature_selection import chi2, mutual_info_regression, mutual_info_
 from sklearn.feature_selection import SelectKBest
 ##################################################################################
 def load_file_dataframe(dataname, sep=",", header=0, verbose=0, 
-                    nrows=None, parse_dates=False, target=''):
+                    nrows=None, parse_dates=False, target='', is_test_flag=False):
     start_time = time.time()
     ### This is where you have to make sure target is not empty #####
+    
     if isinstance(target, str):
-        if len(target) == 0:
-            modelt = 'Clustering'
-            print('featurewiz does not work on clustering or unsupervised problems. Returning...')
-            return dataname
+        if not is_test_flag:
+            if len(target) == 0:
+                modelt = 'Clustering'
+                print('featurewiz does not work on clustering or unsupervised problems. Returning...')
+                return dataname
+            else:
+                modelt, _ = analyze_problem_type(dataname[target], target)
         else:
-            modelt, _ = analyze_problem_type(dataname[target], target)
+            ### For test data, just check the target value which will be given as odeltype ##
+            modelt = copy.deepcopy(target)
     else:
         ### Target is a list or None ############
-        if target is None or len(target) == 0:
-            modelt = 'Clustering'
-            print('featurewiz does not work on clustering or unsupervised problems. Returning...')
-            return dataname
+        if not is_test_flag:
+            if target is None or len(target) == 0:
+                modelt = 'Clustering'
+                print('featurewiz does not work on clustering or unsupervised problems. Returning...')
+                return dataname
+            else:
+                modelt, _ = analyze_problem_type(dataname[target], target)
         else:
-            modelt, _ = analyze_problem_type(dataname[target], target)
+            ## For test data, the modeltype is given in the target variable 
+            modelt = copy.deepcopy(target)
 
     ###########################  This is where we load file or data frame ###############
     if isinstance(dataname,str):
@@ -278,7 +289,6 @@ def load_dask_data(filename, sep, ):
     else:
         ### If filename is not a string, it must be a dataframe and can be loaded
         dft =   dd.from_pandas(filename, npartitions=n_workers)
-        print('    Converted pandas dataframe into a Dask dataframe ...' )
     return dft
 ##################################################################################
 # Removes duplicates from a list to return unique values - USED ONLYONCE
@@ -545,10 +555,14 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     #dataname = FE_convert_mixed_datatypes_to_string(dataname)
     
     ######   XGBoost cannot handle special chars in column names ###########
-    old_col_names = dataname.columns.tolist()
-    new_col_names, special_char_flag = EDA_make_column_names_unique(dataname)
+    uniq = Column_Names_Transformer()
+    dataname = uniq.fit_transform(dataname)
+    new_col_names = uniq.new_column_names
+    old_col_names = uniq.old_column_names
+    special_char_flag = uniq.transformed_flag
+
+    ### Suppose you have changed the names, thenn you must load it in dask again ##    
     if special_char_flag:
-        dataname.columns = new_col_names
         if dask_xgboost_flag:
             train = load_dask_data(dataname, sep)
 
@@ -611,7 +625,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                     print('    Since dask_xgboost_flag is True, reducing memory size and loading into dask')
                     ### nrows does not apply to test data in the case of featurewiz ###############
                     test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose,
-                                     nrows=None, target=target)
+                                     nrows=None, target=settings.modeltype, is_test_flag=True)
                     ### sometimes, test_data returns None if there is an error. ##########
                     if test_data is not None:
                         test_data = reduce_mem_usage(test_data)
@@ -620,7 +634,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 else:
                     #### load the entire test dataframe - there is no limit applicable there #########
                     test_data = load_file_dataframe(test_data, sep=sep, header=header, 
-                                    verbose=verbose, nrows=None, target=target)
+                                    verbose=verbose, nrows=None, target=settings.modeltype, is_test_flag=True)
                     test = copy.deepcopy(test_data)
         else:
             print('No test data filename given...')
@@ -629,17 +643,19 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     else:
         print('loading the entire test dataframe - there is no nrows limit applicable #########')
         test_data = load_file_dataframe(test_data, sep=sep, header=header, 
-                        verbose=verbose, nrows=None, target=target)
+                        verbose=verbose, nrows=None, target=settings.modeltype, is_test_flag=True)
         test = copy.deepcopy(test_data)
     ### sometimes, test_data returns None if there is an error. ##########
+    
     if test_data is not None:
         test_data = remove_duplicate_cols_in_dataset(test_data)
         test_index = test_data.index
         print('    Loaded test data. Shape = %s' %(test_data.shape,))
-        #######  Once again remove the same in test data as well ###
-        new_col_test, special_char_flag_test = EDA_make_column_names_unique(test_data)
-        if special_char_flag_test:
-            test_data.columns = new_col_test
+        #######  Once again remove special chars in test data as well ###
+        test_data = uniq.transform(test_data)
+
+        ### Suppose you have changed the names, thenn you must load it in dask again ##    
+        if special_char_flag:
             if dask_xgboost_flag:
                 ### Re-load test into dask in case names have been changed ###
                 test = load_dask_data(test_data, sep)
@@ -687,7 +703,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             ### You must load the entire test data - there is no limit there ##################
             ### test_data is the pandas dataframe object and test is dask dataframe object ##
             test_data = load_file_dataframe(test_data, sep=sep, header=header, verbose=verbose, 
-                                 nrows=nrows, parse_dates=date_time_vars, target=target)
+                                 nrows=nrows, parse_dates=date_time_vars, target=settings.modeltype, is_test_flag=True )
             test = copy.deepcopy(test_data)
         else:
             test_data = None
@@ -697,6 +713,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
         if test_data is not None:
             test_index = test_data.index
 
+    
     ################   X G B O O S T      D E F A U L T S      ######################################
     #### If there are more than 30 categorical variables in a data set, it is worth reducing features.
     ####  Otherwise. XGBoost is pretty good at finding the best features whether cat or numeric !
@@ -1065,13 +1082,17 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if  isinstance(final_list,np.ndarray):
         final_list = final_list.tolist()
     preds = final_list+important_cats
-    print('Final list of selected %s vars after SULOV = %s' %(len(preds), preds))
+    if verbose and len(preds) <= 30:
+        print('Final list of selected %s vars after SULOV = %s' %(len(preds), preds))
+    else:
+        print('Finally %s vars selected after SULOV' %(len(preds)))
     #######You must convert category variables into integers ###############    
     print('Converting all features to numeric before sending to XGBoost...')
     if isinstance(target, str):
         dataname = dataname[preds+[target]]
     else:
         dataname = dataname[preds+target]
+    
     if not test_data is None:
         test_data = test_data[preds]
     if len(important_cats) > 0:
@@ -1184,7 +1205,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             if i == 0:
                 print('Number of booster rounds = %s' %num_rounds)
 
-            if train_p.shape[1]-i < 2:
+            if train_p.shape[1]-i <= top_num:
                 ### If there is just one variable left, then just skip it #####
                 continue
             else:
@@ -2927,29 +2948,6 @@ def EDA_remove_special_chars(df):
     df.columns = newls
     return df
 ###################################################################################################
-import random
-import collections
-import re
-import copy
-def EDA_make_column_names_unique(data_input):
-    special_char_flag = False
-    cols = data_input.columns.tolist()
-    copy_cols = copy.deepcopy(cols)
-    ser = pd.Series(cols)
-    ### This function removes all special chars from a list ###
-    remove_special_chars =  lambda x:re.sub('[^A-Za-z0-9_]+', '', x)
-    newls = ser.map(remove_special_chars).values.tolist()
-    ### there may be duplicates in this list - we need to make them unique by randomly adding strings to name ##
-    seen = [item for item, count in collections.Counter(newls).items() if count > 1]
-    new_cols = [x+str(random.randint(1,1000)) if x in seen else x for x in newls]
-    copy_new_cols = copy.deepcopy(new_cols)
-    copy_cols.sort()
-    copy_new_cols.sort()
-    if copy_cols != copy_new_cols:
-        print('    Some column names had special characters which were removed...')
-        special_char_flag = True
-    return new_cols, special_char_flag
-##########################################################################################
 def dask_xgboost_training(X_trainx, y_trainx, params):
     
     cluster = dask.distributed.LocalCluster()

@@ -569,6 +569,7 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
         return self
     
     def transform(self, X, **fit_params):
+        
         for i, each_catvar in enumerate(self.categoricals):
             if len(self.train_cols[each_catvar]) == 0:
                 ## skip this variable if it has no transformed variables
@@ -1252,47 +1253,50 @@ from sklearn.impute import KNNImputer, SimpleImputer
 from tqdm import tqdm
 from sklearn.metrics import r2_score
 from collections import defaultdict
-import dask
 import pdb
+from tqdm import tqdm
 class TSLagging_Transformer(BaseEstimator, TransformerMixin):
     """
-        ###### T I M E  S E R I E S  L A G G I N G   T R A N S F O R M E R  ############
-        ######   This is where we add Lags of Targets to Time Series data ##############
-        #### In a time series problems to predict sales, we need to add last week's, ###
-        #### last month's, last year's sales data as features to build a model.      ###
-        #### Otherwise the model will not be able to learn how to predict future sales #
-        #### from past sales. This is a very important feature engineering technique. ##
+        ################################################################################
+        ######### T I M E  S E R I E S  L A G G I N G   T R A N S F O R M E R  #########
+        ####        This is where we add Lags of Targets to Time Series data     #######
+        #### This only adds lags based on days. So if ou want 365 days lag, you set ####
+        #### lags = 365. The time series data can be in hourly, daly or weekly perdiods#
+        #### Lags help a model to learn how to predict future sales based on past data #
+        #### This is a very important feature engineering technique in time series data#
         ################################################################################
         Inputs:
         ----------------
         X: a dataframe with a time series (pandas date-time variable type) column in it.
-        namevars: columns that you want to lag in the data frame. Other columns will be untouched.
-        y: target variable(s) you intend to lag. It can be multi_label also
-        n_in: Number of lag periods as input (X).
-        n_out: Number of future periods (optional) as output for the taget variable (y).
-        dropT: Boolean - whether or not to drop columns at time 't'.
-        
+        y: target variable(s) you intend to lag. This can be multi_label target also.
+        date_column: name of the date column in your X dataframe. This is the time series index.
+        hier_vars: Names of hierarchical vars (optional) which will make model more accurate.
+
         Outputs:
         -----------------
         X: This is the transformed data frame with lagged targets added.
     """
+    try:
+        import dask
+    except:
+        print('Need to import dask for this function. Try again after installing dask.')
     def __init__(self, lags, date_column, hier_vars='', verbose=0):
-        ## Not more than 3 lagged values allowed ##
-        self.lags = max(3, lags)
+        ## Lags should be greater than 1 ####
+        self.lags = max(1, lags)
         if isinstance(date_column, list):
-            print('Only one date column accepted. Taking the first from the list of columns given: %s' %date_column[0])
+            print('Only one date column accepted. Taking the first col from list of cols given: %s' %date_column[0])
             self.date_col = date_column[0]
         else:
             self.date_col = date_column
         if isinstance(hier_vars, list):
             if len(hier_vars) == 0:
-                print('No hierarchical vars given. Continuing without but results may not be accurate...')
+                print('No hierarchical vars given. Continuing without it but results may not be accurate...')
                 self.hier_vars = []
             else:
                 self.hier_vars = hier_vars
         elif isinstance(hier_vars, str):
             if hier_vars == '':
-                print('No hierarchical vars given. Continuing without but results may not be accurate...')
+                print('No hierarchical vars given. Continuing without it but results may not be accurate...')
                 self.hier_vars = []
             else:
                 self.hier_vars = [hier_vars]
@@ -1479,7 +1483,7 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
             y_train_new = y_train[(y_train[column].isna()==False)]
             int_changes = is_integer_dtype(y_train)
             X_y_combined  = pd.concat([X_train_new, y_train_new[column]], axis=1)
-            season_vars = ['date_month','date_dayofmonth']
+            season_vars = [self.date_col+'_weekofyear',self.date_col+'_dayofyear']
             ### Sometimes, hier_vars such as store and item are not found in train and test same!
             no_hier_vars = False
             if len(self.hier_vars) == 0:
@@ -1518,6 +1522,7 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
                 dfxgroup_all = dfx.groupby(hier_vars).mean().reset_index()[hier_vars+[column]]
                 X_test1 = pd.merge(X_test,dfxgroup_all,on=hier_vars, how='left')
                 X_test2 = pd.merge(X_test1, dfxd, on=season_vars+hier_vars,how='left')
+                pred = X_test1[column].values
                 ### delete useless variables ###
                 del X_test1
                 del X_test2
@@ -1553,41 +1558,22 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
         X = copy.deepcopy(X)
         change_to_imputing = False
         print('Input X shape = %s. Beginning Time Series lagging transformation...' %(X.shape,))
+        drop_flag = True
         if y is None:
+            ### Just make sure you don't drop nan rows in test set ##########
+            drop_flag = False 
             ### Since y is not available we have to search for prior_y and see!
-            for i in range(self.lags):
-                if i == 0:
-                    no_of_days = 1
-                elif i == 1:
-                    no_of_days = 7
-                elif i == 2:
-                    no_of_days = 30
-                rsuffix = '_days_prior_'+str(no_of_days)
-                ### Adding 7 days will make the sales on a weekly basis correct such as Monday to Monday
-                y_join = copy.deepcopy(self.y_prior)
-                y_join.index = self.y_prior.index +  pd.Timedelta(days=+no_of_days)
-                y_join = y_join.reset_index()
-                X_joined = copy.deepcopy(X)
-                X_joined[self.date_col] = pd.to_datetime(X_joined[self.date_col])
-                X_joined = pd.merge(X_joined, y_join, on=[self.date_col]+self.hier_vars, how='left')
-                del y_join
-                target_select = [x for x in X_joined.columns if x in self.targets]
-                for each_target in target_select:
-                    cols_select = self.col_adds[each_target]
-                    col_select = [x for x in cols_select if x.endswith(rsuffix)]
-                    col_select = col_select[0]
-                    if  X_joined[each_target].isnull().all():
-                        if self.verbose:
-                            print('    No prior targets available for combination of columns in test vs train')
-                            print('        changing method to imputing target values for %s...' %rsuffix)
-                        change_to_imputing = True
-                        break
-                    else:
-                        if X_joined[each_target].isnull().any():
-                            print('    Error: for some reason there are NaNs in %s. Hence changing to imputing method' %each_target)
-                            change_to_imputing = True
-                        else:
-                            X[col_select] = X_joined[each_target].values
+            ### find target variables to transform ###
+            y_join = copy.deepcopy(self.y_prior)
+            if len(y_join) == 0:
+                ### If there is no prior y, then you have to change to imputing True
+                change_to_imputing = True
+            else:
+                ## No need to impute since prior y is available #######
+                change_to_imputing = False
+            y = self.get_names_of_targets(y_join)
+            df = self.convert_X_to_datetime(X)
+            df = self.change_datecolumn_to_index(df)
             #### don't change the next line. It is meant to check whether to do imputing ##
             if change_to_imputing:
                 if self.verbose:
@@ -1625,6 +1611,9 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
             y = self.get_names_of_targets(y)
             df = self.convert_X_to_datetime(X)
             df = self.change_datecolumn_to_index(df)
+            df_index = df.index
+            y.index = copy.deepcopy(df_index)
+        #### Once you define y as the prior_y or same y, you are all set #####
         int_vars  = y.select_dtypes(include='integer').columns.tolist()
         # Notice that we will create a lagged columns from name vars
         all_target_col_adds = []
@@ -1633,29 +1622,41 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
         ### we will only add lags to target variables here ###
         namevars = self.targets
         ### You have to add max. 3 columns to X using y variable shifted by 7, 30 and 365 days ###
-        for i in range(n_in):
-            if i == 0:
-                no_of_days = 1
-            elif i == 1:
-                no_of_days = 7
-            elif i == 2:
-                no_of_days = 30
-            else:
-                continue
-            rsuffix = '_days_prior_'+str(no_of_days)
-            for var in namevars:
-                addname = var + rsuffix
-                df[addname] = y[var].shift(no_of_days).values
-                if var in int_vars:
-                    int_changes.append(addname)
-                self.col_adds[var].append(addname)
-                all_target_col_adds.append(addname)
-                X[addname] = df[addname].values
+        no_of_days = self.lags
+        rsuffix = '_days_prior_'+str(no_of_days)
+        for var in namevars:
+            addname = var + rsuffix
+            for index, row in tqdm(df.iterrows(), total=df.shape[0]):
+                new_index = index - pd.Timedelta(days=no_of_days)
+                try:
+                    df.loc[index, addname] = y.loc[new_index, var]
+                except:
+                    df.loc[index, addname] = np.nan
+            if var in int_vars:
+                int_changes.append(addname)
+            self.col_adds[var].append(addname)
+            all_target_col_adds.append(addname)
+            X[addname] = df[addname].values
         # if fit_transform is done, then fitted is False since test is next ##
         self.fitted = False
+        self.y_prior = copy.deepcopy(y)
         self.X_adds = X[all_target_col_adds]
-        print('    completed with new X shape = %s' %(X.shape,))
-        return X
+        print('    completed transforms (with NaNs) shape = %s' %(X.shape,))
+        if drop_flag:
+            X = df.dropna(axis=0)
+            ### You have to make X and y with the same number of rows #######
+            y = y.loc[X.index]
+            X = X.reset_index(drop=False) ### put the time variable back in dataset ##
+            y = y.reset_index(drop=True)
+            print('    (after dropping NaNs), X shape = %s, y shape = %s' %(X.shape,y.shape))
+            return X, y
+        else:
+            ### Just make sure there are no NaNs by filling from both directions ##
+            X = X.fillna(method='ffill')
+            X = X.fillna(method='bfill')
+            print('    Null rows for ', X[all_target_col_adds].isnull().sum())
+            print('    After filling NaNs with ffill and bfill, shape = %s' %(X.shape,))
+            return X
     
     def fit_transform(self, X, y, **fit_params):
         X = copy.deepcopy(X)
@@ -2015,3 +2016,107 @@ class Fourier_Transformer(BaseEstimator, TransformerMixin):
         self.train = False
         return self.X_transformed
 #########################################################################################################
+from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
+import copy
+import pdb
+class Column_Names_Transformer(BaseEstimator, TransformerMixin):
+    """
+    This Transformer class will make your column names unique. 
+    Just fit on train data and transform on test data to make them same.
+        
+    Input:
+    train or X_train: a dataframe. Must have column names - should not be an array. 
+    """
+    def __init__(self, verbose=0):
+        self.verbose = verbose
+        self.old_column_names = []
+        self.new_column_names = []
+        self.rename_dict = {}
+        self.train = False
+        self.fitted = False
+        self.transformed_flag = False
+        
+    def fit(self, X):
+        X = copy.deepcopy(X)
+        ### Now you can check if the parts of tuple are dataframe series, etc.
+        if isinstance(X, tuple):
+            y = X[1]
+            X = X[0]
+        ### Now you can check if the parts of tuple are dataframe series, etc.
+        if isinstance(X, pd.Series):
+            if self.verbose:
+                print('X must be dataframe. Converting it to a pd.DataFrame.')
+            X = pd.DataFrame(X.values, columns=[X.name])
+        elif isinstance(X, np.ndarray):
+            if self.verbose:
+                print('X must be dataframe and cannot be numpy array. Returning...')
+            return self
+        else:
+            #### There is no way to transform dataframes in an sklearn pipeline  
+            ####    since you will get a nested renamer error if you try ###
+            #### But if it is a one-dimensional dataframe, you can convert into Series
+            if self.verbose:
+                print('X is a DataFrame...')
+            pass
+        ########## you must save the product uniques so that train and test have consistent columns ##
+        self.old_column_names = X.columns.tolist()
+        if self.verbose:
+            print('Before making column names unique, shape of data = %s' %(X.shape,))
+        self.new_column_names, self.transformed_flag = EDA_make_column_names_unique(X)
+        self.rename_dict = dict(zip(self.old_column_names, self.new_column_names))
+        self.fitted = True
+        return self
+
+    def transform(self, X, y=None):
+        
+        if self.fitted and self.train:
+            self.train = False
+            return self.X_transformed
+        ##### Then you should transform here ############
+        if self.verbose:
+            print('    will make features unique...')
+        try:
+            self.X_transformed = copy.deepcopy(X)
+            self.X_transformed.rename(columns=self.rename_dict, inplace=True)            
+        except:
+            print('    Error occured in making unique features. Check your inputs. Returning...')
+            self.train = False
+            self.X_transformed = X
+            return self.X_transformed
+        ##### This is where you set the end of training and return values ###
+        self.fitted = True
+        self.train = True
+        return self.X_transformed
+    
+        
+    def fit_transform(self, X, y=None):
+        X = copy.deepcopy(X)
+        self.fit(X)
+        self.transform(X)
+        self.train = False
+        return self.X_transformed
+################################################################################
+import random
+import collections
+import re
+import copy
+def EDA_make_column_names_unique(data_input):
+    special_char_flag = False
+    cols = data_input.columns.tolist()
+    copy_cols = copy.deepcopy(cols)
+    ser = pd.Series(cols)
+    ### This function removes all special chars from a list ###
+    remove_special_chars =  lambda x:re.sub('[^A-Za-z0-9_]+', '', x)
+    newls = ser.map(remove_special_chars).values.tolist()
+    ### there may be duplicates in this list - we need to make them unique by randomly adding strings to name ##
+    seen = [item for item, count in collections.Counter(newls).items() if count > 1]
+    new_cols = [x+str(random.randint(1,1000)) if x in seen else x for x in newls]
+    copy_new_cols = copy.deepcopy(new_cols)
+    copy_cols.sort()
+    copy_new_cols.sort()
+    if copy_cols != copy_new_cols:
+        print('    Some column names had special characters which were removed...')
+        special_char_flag = True
+    return new_cols, special_char_flag
+##########################################################################################
+
