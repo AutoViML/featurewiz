@@ -210,7 +210,7 @@ class Rare_Class_Combiner_Pipe(BaseEstimator, TransformerMixin ):
         ###   You will get back the last transformed category when you inverse transform it.
         each_catvar = X.name
         transformer_ = self.transformers[each_catvar]
-        reverse_transformer_ = dict([(y,x) for (x,y) in transformer_.items()])
+        reverse_transformer_ = {y: x for (x, y) in transformer_.items()}
         if self.zero_low_counts[each_catvar]:
             pass
         else:
