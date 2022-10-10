@@ -24,7 +24,7 @@ from .ml_models import simple_XGBoost_model, simple_LightGBM_model, complex_XGBo
 from .my_encoders import My_LabelEncoder, Groupby_Aggregator, My_LabelEncoder_Pipe, Ranking_Aggregator, DateTime_Transformer
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe, FE_create_time_series_features, Binning_Transformer
 from .my_encoders import TSLagging_Transformer, FE_convert_all_object_columns_to_numeric, Fourier_Transformer
-from .my_encoders import Column_Names_Transformer
+from .my_encoders import Column_Names_Transformer, Add_Lags_Transformer
 
 from .sulov_method import FE_remove_variables_using_SULOV_method
 from .featurewiz import FE_transform_numeric_columns_to_bins, FE_create_interaction_vars
@@ -43,9 +43,9 @@ else:
     module_type = 'Imported'
 version_number = __version__
 print("""%s %s version. Select nrows to a small number when running on huge datasets.
-output = featurewiz(dataname, target, corr_limit=0.70, verbose=2, sep=',', 
+output = featurewiz(dataname, target, corr_limit=0.90, verbose=2, sep=',', 
 		header=0, test_data='',feature_engg='', category_encoders='',
-		dask_xgboost_flag=False, nrows=None)
+		dask_xgboost_flag=False, nrows=None, skip_sulov=False)
 Create new features via 'feature_engg' flag : ['interactions','groupby','target']
 """ %(module_type, version_number))
 ################################################################################

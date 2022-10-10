@@ -382,9 +382,9 @@ from .databunch import DataBunch
 from .encoders import FrequencyEncoder
 
 from sklearn.model_selection import train_test_split
-def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
+def featurewiz(dataname, target, corr_limit=0.9, verbose=0, sep=",", header=0,
             test_data='', feature_engg='', category_encoders='', dask_xgboost_flag=False,
-            nrows=None,  **kwargs):
+            nrows=None, skip_sulov=False,  **kwargs):
     """
     #################################################################################
     ###############           F E A T U R E   W I Z A R D          ##################
@@ -430,6 +430,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             data sets faster using parallel processing. It detects the number of CPUs and GPU's in your machine
             automatically and sets the num of workers for DASK. It also uses DASK XGBoost to run it.
         nrows: default = None: None means all rows will be utilized. If you want to sample "N" rows, set nrows=N.
+        skip_sulov: a new flag to skip SULOV method. It will automatically go straight to recursive xgboost.
     ########           Featurewiz Output           #############################
     Output: Tuple
     Featurewiz can output either a list of features or one dataframe or two depending on what you send in.
@@ -473,6 +474,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     ######################################################################################
     #####      MAKING FEATURE_TYPE AND FEATURE_GEN SELECTIONS HERE           #############
     ######################################################################################
+    print('correlation limit = %s' %corr_limit)
     feature_generators = ['interactions', 'groupby', 'target']
     feature_gen = ''
     if feature_engg:
@@ -1053,7 +1055,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     #######  This is where you start the SULOV process ##################################
     
     start_time1 = time.time()
-    if len(numvars) > 1:
+    if len(numvars) > 1 and not skip_sulov:
         if data_dim < 50:
             try:
                 final_list = FE_remove_variables_using_SULOV_method(dataname,numvars,settings.modeltype,target,
@@ -1070,6 +1072,9 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
                 final_list = FE_remove_variables_using_SULOV_method(data_temp,numvars,settings.modeltype,target,
                              corr_limit,verbose, dask_xgboost_flag)
                 del data_temp
+    elif skip_sulov:
+        print('    Skipping SULOV method. Continuing ...')
+        final_list = copy.deepcopy(numvars)
     else:
         print('    Skipping SULOV method since there are no continuous vars. Continuing ...')
         final_list = copy.deepcopy(numvars)
@@ -1149,7 +1154,11 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
     if feature_gen or feature_type:
         print('Since %s category encoding is done, dropping original categorical vars from predictors...' %feature_gen)
         preds = left_subtract(preds, catvars)
-    train_p = train[preds]
+    if dask_xgboost_flag:
+        train_p = train[preds]
+    else:
+        train_p = dataname[preds]
+    ######## Limit the number of iterations to 5 or so #######
     if train_p.shape[1] <= 10:
         iter_limit = 2
     else:
@@ -1211,30 +1220,47 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
             else:
                 if verbose:
                     print('        using %d variables...' %(train_p.shape[1]-i))
-            
+                ### You need to choose fewer and fewer variables ############
+                new_preds_len = train_p.shape[1]-i
+                if new_preds_len <= 50:
+                    top_num = int(new_preds_len*0.50)
+                else:
+                    ### the maximum number of variables will 25% of preds which means we divide by 5 and get 5% here
+                    ### The five iterations result in 10% being chosen in each iteration. Hence max 50% of variables!
+                    top_num = int(new_preds_len*0.15)
+            print('            selecting %s features in this iteration' %top_num)            
             #########   This is where we check target type ##########
             if not y_train.dtypes[0] in [np.float16, np.float32, np.float64, np.int8,np.int16,np.int32,np.int64]:
                 y_train = y_train.astype(int) 
             if settings.modeltype == 'Regression':
                 objective = 'reg:squarederror'
-                params = {'objective': objective, 
-                                'tree_method': tree_method, 'gpu_id': gpuid,
-                                   "silent":True, "verbosity": 0, 'min_child_weight': 0.5}
+                params = {"objective": objective,
+                          "booster" : "gbtree",
+                          #"eta": 0.05,
+                            'tree_method': tree_method, 'gpu_id': gpuid,
+                          "silent": 1, "seed": 99
+                          }
             else:
                 #### This is for Classifiers only ##########                    
                 if settings.modeltype == 'Binary_Classification':
                     objective = 'binary:logistic'
                     num_class = 1
                     params = {'objective': objective, 'num_class': num_class,
-                                'tree_method': tree_method, 'gpu_id': gpuid,
-                                    "silent":True,  "verbosity": 0,  'min_child_weight': 0.5}
+                              "booster" : "gbtree",
+                              #"eta": 0.05,
+                              'tree_method': tree_method, 'gpu_id': gpuid,
+                              "silent": 1, "seed": 99
+                              }
                 else:
                     objective = 'multi:softmax'
                     num_class  =  dataname[target].nunique()[0]
                     # Use GPU training algorithm if needed
-                    params = {'objective': objective, 
-                                'tree_method': tree_method, 'gpu_id': gpuid,
-                                "silent":True, "verbosity": 0,   'min_child_weight': 0.5, 'num_class': num_class}
+                    params = {'objective': objective, 'num_class': num_class,
+                              "booster" : "gbtree",
+                              #"eta": 0.05,
+                              'tree_method': tree_method, 'gpu_id': gpuid,
+                              "silent": 1, "seed": 99
+                              }
             ############################################################################################################
             ######### This is where we find out whether to use single or multi-label for xgboost #######################
             ############################################################################################################
@@ -2866,9 +2892,9 @@ def EDA_randomly_select_rows_from_dataframe(train_dataframe, targets, nrows_limi
     return train_small
 ################################################################################################
 class FeatureWiz(BaseEstimator, TransformerMixin):
-    def __init__(self, corr_limit=0.70, verbose=2, sep=',', 
+    def __init__(self, corr_limit=0.90, verbose=2, sep=',', 
         header=0, feature_engg='', category_encoders='',
-        dask_xgboost_flag=False, nrows=None):
+        dask_xgboost_flag=False, nrows=None, skip_sulov=False):
         print("""wiz = FeatureWiz(verbose=1)
         X_train_selected = wiz.fit_transform(X_train, y_train)
         X_test_selected = wiz.transform(X_test)
@@ -2884,6 +2910,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self.category_encoders=category_encoders
         self.dask_xgboost_flag=dask_xgboost_flag
         self.nrows=nrows
+        self.skip_sulov=skip_sulov
         self.X_sel = None
 
     def fit(self, X, y):
@@ -2916,7 +2943,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         # Select features using featurewiz
         features, X_sel = featurewiz(df, target, self.corr_limit, self.verbose, self.sep, 
                 self.header, self.test_data, self.feature_engg, self.category_encoders,
-                self.dask_xgboost_flag, self.nrows)
+                self.dask_xgboost_flag, self.nrows, self.skip_sulov)
         # Convert the remaining column names back to integers and drop the
         difftime = max(1, int(time.time()-start_time))
         print('    Time taken to create entire pipeline = %s second(s)' %difftime)

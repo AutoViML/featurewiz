@@ -62,7 +62,6 @@ from sklearn.impute import SimpleImputer
 def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classification',
             multi_label=False, enc_method='label', scaler = StandardScaler()):
     ##### Use My_Label_Encoder to transform label targets if needed #####
-    
     if multi_label:
         if modeltype != 'Regression':
             targets = Y_train.columns
@@ -166,6 +165,7 @@ def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classifica
             columns=X_test_encoded.columns, index=X_test_encoded.index)
     else:
         X_test_scaled = ""
+
     return X_train_scaled, Y_train_encoded, X_test_scaled, Y_test_encoded
 ##################################################################################
 from sklearn.model_selection import KFold, cross_val_score,StratifiedKFold

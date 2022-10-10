@@ -2119,4 +2119,300 @@ def EDA_make_column_names_unique(data_input):
         special_char_flag = True
     return new_cols, special_char_flag
 ##########################################################################################
+from pandas.api.types import is_numeric_dtype, is_integer_dtype
+from pandas.api.types import is_datetime64_any_dtype
+#gives fit_transform method for free
+from sklearn.base import BaseEstimator, TransformerMixin 
+from lightgbm import LGBMRegressor
+import copy
+from sklearn.impute import KNNImputer, SimpleImputer
+from tqdm import tqdm
+from sklearn.metrics import r2_score
+from collections import defaultdict
+import pdb
+from tqdm import tqdm
+class Add_Lags_Transformer(BaseEstimator, TransformerMixin):
+    """
+        ################################################################################
+        ######### T I M E  S E R I E S T R A N S F O R M E R which adds L A G S  #######
+        ####        This is where we add Lags of Targets to Time Series data     #######
+        #### This only adds lags based on days. So if you want 365 days lag, you set ###
+        #### lags = 365. The time series data can be in hourly, daly or weekly perdiods#
+        #### Lags help a model to learn how to predict future sales based on past data #
+        #### This is a very important feature engineering technique in time series data#
+        ################################################################################
+        Inputs:
+        ----------------
+        df: a dataframe with a pandas date-time variable and a target column
+        y: leave this as None = it's not needed.
+        date_column: name of the date column in your X dataframe. This is the time series index.
+        hier_vars: Names of hierarchical vars (id-variables) which is sometimes helpful.
+               You can leave this out in some time series where there is no user Id variable.
+        
+        Syntax: for example if you had columns like this, you would do:
+            lagger = Add_Lags_Transformer(lags=1, date_column='date',
+                            targets=target, hier_vars=['user_id'])
+            data2 = lagger.fit_transform(data1)
 
+        Outputs:
+        -----------------
+        df: This is the transformed data frame with lagged targets added. 
+        
+    """
+    try:
+        import dask
+    except:
+        print('Need to import dask for this function. Try again after installing dask.')
+        
+    def __init__(self, lags, date_column, targets, hier_vars='', verbose=0):
+        ## Lags should be greater than 1 ####
+        self.lags = max(1, lags)
+        if isinstance(date_column, list):
+            print('Only one date column accepted. Taking the first col from list of cols given: %s' %date_column[0])
+            self.date_col = date_column[0]
+        else:
+            self.date_col = date_column
+        if isinstance(hier_vars, list):
+            if len(hier_vars) == 0:
+                print('No hierarchical vars given. Continuing without it but results may not be accurate...')
+                self.hier_vars = []
+            else:
+                self.hier_vars = hier_vars
+        elif isinstance(hier_vars, str):
+            if hier_vars == '':
+                print('No hierarchical vars given. Continuing without it but results may not be accurate...')
+                self.hier_vars = []
+            else:
+                self.hier_vars = [hier_vars]
+        else:
+            print('hier_vars must be a string or a list. Returning')
+            return
+        self.verbose = verbose
+        ### This is where we find out whether fit or fit_transform is done ##
+        self.X_prior = None
+        self.y_prior = None
+        self.fitted = False
+        ### If ts_column is not a string column, then set its format to an empty string ##
+        self.str_format = ''
+        if isinstance(targets, str):
+        ### this can be a list or a string
+            self.targets = [targets]
+        else:
+            self.targets = targets         
+        self.col_adds = defaultdict(list)
+        self.X_adds = None
+    
+    def get_params(self, deep=True):
+        # This is to make it scikit-learn compatible ####
+        return {"lags": self.lags, "date_column": self.date_col, "verbose": self.verbose}
+
+    def set_params(self, **parameters):
+        for parameter, value in parameters.items():
+            setattr(self, parameter, value)
+        return self
+
+    def self_imputer(self, X_train, y_train, X_test):
+        X_train = copy.deepcopy(X_train)
+        X_test = copy.deepcopy(X_test)
+        y_train = copy.deepcopy(y_train)
+        X_index = X_test.index
+        import time
+        cols = y_train.columns.tolist()
+        preds = []
+        int_changes = False
+        hier_vars = self.hier_vars
+        for i, column in enumerate(cols):
+            start_time = time.time()
+            if self.verbose:
+                print('Using a self imputer based on group means for imputing missing values in %s...' %column)
+            ### Since X_train might have some NaN's ##
+            X_train_new = X_train[(y_train[column].isna()==False)]
+            y_train_new = y_train[(y_train[column].isna()==False)]
+            int_changes = is_integer_dtype(y_train)
+            X_y_combined  = pd.concat([X_train_new, y_train_new[column]], axis=1)
+            season_vars = [self.date_col+'_weekofyear',self.date_col+'_dayofyear']
+            ### Sometimes, hier_vars such as store and item are not found in train and test same!
+            no_hier_vars = False
+            if len(self.hier_vars) == 0:
+                no_hier_vars = True
+            if not no_hier_vars > 0:
+                ### Suppose there are hier_vars then continue using them here ##
+                dfx = pd.merge(X_test, X_y_combined, on=season_vars+hier_vars,how='left')
+                dfx = dfx[[column]+season_vars+hier_vars]
+                dfxd = dfx.drop_duplicates(subset=season_vars+hier_vars, keep='last')
+                ### Suppose there are hier_vars but they don't work well, then reset it ##
+                if dfxd[column].isnull().all():
+                    no_hier_vars = True
+            ### Do not change the next line because there is a reason for it! ####
+            if no_hier_vars:
+                ### This is a simpler version in case NaN's happen due to lack of no hier_vars categories in test data
+                X_test1 = X_test[season_vars].astype(np.int8)
+                X_y_combined = X_y_combined[season_vars+[column]]
+                X_y_combined[season_vars] = X_y_combined[season_vars].astype(np.int8)
+                ### If there is no column value due to this merge, then use a simpler merge!
+                dfx = pd.merge(X_test1, X_y_combined, on=season_vars,how='left')
+                del X_test1
+                del X_y_combined
+                dfx = dfx[[column]+season_vars]
+                dfxd = dfx.drop_duplicates(subset=season_vars, keep='last')
+                if dfxd[column].isnull().all():
+                    if self.verbose:
+                        print('    There are NaNs in data when trying to create lagged vars. Fix the NaNs and try again.')
+                    return np.zeros((X_test.shape[0], y_train_new.shape[1]))
+                X_test1 = pd.merge(X_test, dfxd,on=season_vars, how='left')
+                pred = X_test1[column].values
+                del X_test1
+                del dfx
+                del dfxd
+            else:
+                ####### if hier vars exist, then use this #########
+                dfxgroup_all = dfx.groupby(hier_vars).mean().reset_index()[hier_vars+[column]]
+                X_test1 = pd.merge(X_test,dfxgroup_all,on=hier_vars, how='left')
+                X_test2 = pd.merge(X_test1, dfxd, on=season_vars+hier_vars,how='left')
+                pred = X_test1[column].values
+                ### delete useless variables ###
+                del X_test1
+                del X_test2
+                del X_y_combined
+                del dfx
+                del dfxd
+            ### Make sure that whatever vars came in as integers return back as integers!
+            if int_changes:
+                if self.verbose:
+                    print('    ## target is integer dtype ###')
+                pred = pd.Series(pred).fillna(0).values.astype(np.int32).values
+            preds.append(pred)
+            if self.verbose:
+                print('    time taken for imputing = %0.0f seconds' %((time.time()-start_time)))
+        y_preds = np.array(preds)
+        ### You need to flip it to make it right shape ##
+        y_preds = y_preds.T
+        y_preds = pd.DataFrame(y_preds, index=X_index, columns=cols)
+        return y_preds
+    
+    def fit(self, X, y=None, **fit_params):
+        X = copy.deepcopy(X)
+        y = copy.deepcopy(y)
+        self.X_prior = copy.deepcopy(X)
+        y = X[self.targets]
+        y_prior = X[[self.date_col]+self.hier_vars].join(y)
+        self.y_prior = y_prior.set_index(pd.to_datetime(y_prior.pop(self.date_col)))
+        del y_prior
+        self.fitted = True
+        return self
+    
+    def transform(self, X, y=None, **fit_params):
+        X = copy.deepcopy(X)
+        try:
+            y = X[self.targets]
+            drop_flag = True
+        except:
+            y = None
+            drop_flag = False
+        change_to_imputing = False
+        print('Input X shape = %s. Beginning Add lagging transformation...' %(X.shape,))
+        if y is None:
+            ### Just make sure you don't drop nan rows in test set ##########
+            ### Since y is not available we have to search for prior_y and see!
+            ### find target variables to transform ###
+            y_join = copy.deepcopy(self.y_prior)
+            if len(y_join) == 0:
+                ### If there is no prior y, then you have to change to imputing True
+                change_to_imputing = True
+            else:
+                ## No need to impute since prior y is available #######
+                change_to_imputing = False
+            y = X[self.targets]
+            df = copy.deepcopy(X)
+            #### don't change the next line. It is meant to check whether to do imputing ##
+            if change_to_imputing:
+                if self.verbose:
+                    print('Imputing prior values for target using targeted group means...')
+                col_adds = self.X_adds.columns.tolist()
+                X_old = copy.deepcopy(self.X_prior)
+                X_new = copy.deepcopy(X)
+                ## we are going to turn the prior columns as y to predict future priors
+                y_old = self.X_adds
+                ## we must convert date_col into date-time features before we convert object vars
+                ds = DateTime_Transformer(ts_column=self.date_col)
+                X_old = ds.fit_transform(X_old) ## this will give your transformed values as a dataframe
+                X_new = ds.transform(X_new) ### this will give your transformed values as a dataframe
+                ## Now we can convert all object columns to numeric ######
+                X_old, X_new, _ = FE_convert_all_object_columns_to_numeric(X_old, X_new)
+                if self.verbose:
+                    print('Imputing begins with input and output shapes = %s %s %s' %(X_old.shape, y_old.shape, X_new.shape,))
+                y_new = self.self_imputer(X_old, y_old, X_new)
+                ### This is where we combine both imputing and prior_y values ###
+                for col_add in col_adds:
+                    if col_add in X.columns:
+                        mask_loc = X[X[col_add].isna() == True].index
+                        if len(mask_loc) > 0:
+                            X.iloc[mask_loc, col_add] = y_new.iloc[mask_loc, col_add]
+                        else:
+                            X[col_add] = y_new[col_add].values
+                    else:
+                        X[col_add] = y_new[col_add].values
+                print('    completed with new X shape = %s' %(X.shape,))
+                return X
+        else:
+            ### In this case, y is available and can add prior day columns ##
+            y = copy.deepcopy(y)
+            ### find target variables to transform ###
+            y = X[self.targets]
+            X = X.sort_values(by = self.hier_vars+[self.date_col]).reset_index(drop=True)
+            df = copy.deepcopy(X)
+            df_index = df.index
+            y.index = copy.deepcopy(df_index)
+        #### Once you define y as the prior_y or same y, you are all set #####
+        int_vars  = y.select_dtypes(include='integer').columns.tolist()
+        # Notice that we will create a lagged columns from name vars
+        all_target_col_adds = []
+        int_changes = []
+        n_in = self.lags
+        ### we will only add lags to target variables here ###
+        namevars = self.targets
+        ### You have to add max. 3 columns to X using y variable shifted by 7, 30 and 365 days ###
+        no_of_days = self.lags
+        rsuffix = '_days_prior_'+str(no_of_days)
+        lsuffix = '_diff_prior_'+str(no_of_days)
+        for var in namevars:
+            addname =  var + rsuffix
+            addname2 = var + lsuffix
+            df[addname] = df.groupby(self.hier_vars)[var].shift(no_of_days) 
+            df[addname2] = df.groupby(self.hier_vars)[addname].diff() 
+            all_target_col_adds.append(addname)
+            all_target_col_adds.append(addname2)
+            X[addname] = df[addname].values
+            X[addname2] = df[addname2].values
+        ###### This is where you need to paste the old code cut out ############
+        # if fit_transform is done, then fitted is False since test is next ##
+        self.fitted = False
+        self.y_prior = copy.deepcopy(y)
+        self.X_adds = X[all_target_col_adds]
+        print('    completed transforms (with NaNs) shape = %s' %(X.shape,))
+        if drop_flag:
+            X = df.dropna(axis=0)
+            ### You have to make X and y with the same number of rows #######
+            y = y.loc[X.index]
+            #X = X.reset_index(drop=False) ### put the time variable back in dataset ##
+            y = y.reset_index(drop=True)
+            print('    (after dropping NaNs), X shape = %s, y shape = %s' %(X.shape,y.shape))
+            return X
+        else:
+            ### Just make sure there are no NaNs by filling from both directions ##
+            X = X.fillna(method='ffill')
+            X = X.fillna(method='bfill')
+            print('    Null rows for ', X[all_target_col_adds].isnull().sum())
+            print('    After filling NaNs with ffill and bfill, shape = %s' %(X.shape,))
+            return X
+    
+    def fit_transform(self, X, y=None, **fit_params):
+        X = copy.deepcopy(X)
+        y = copy.deepcopy(y)
+        self.fit(X, y)
+        X_trans = self.transform(X, y)
+        return X_trans
+#####################################################################################
+
+#####################################################################################
+#####################################################################################

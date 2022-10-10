@@ -3,7 +3,19 @@
 ![banner](featurewiz_logos.png)
 <p>
 
-## Update (August 2022)
+## Update (October 2022): FeatureWiz 2.0 is here. 
+<ol>
+<li><b>featurewiz 2.0 is here. You have two small performance improvements:</li> </b>
+1. SULOV method now has a higher correlation limit of 0.90 as default. This means fewer variables are removed and hence more vars are selected. You can always set it back to the old limit by setting `corr_limit`=0.70 if you want.<br>
+2. Recursive XGBoost algorithm is tighter in that it selects fewer features in each iteration. To see how many it selects, set `verbose` flag to 1. <br>
+The net effect is that the same number of features are selected but they are better at producing more accurate models. Try it out and let us know. </ol>
+
+## Update (September 2022): You can now skip SULOV method using skip_sulov flag
+<ol>
+<li>featurewiz now has a new input: `skip_sulov` flag is here. You can set it to `True` to skip the SULOV method if needed.</li>
+</ol>
+
+## Update (August 2022): Silent mode with verbose=0
 <ol>
 <li><b>featurewiz now has a "silent" mode which you can set using the "verbose=0" option.</b> It will run silently with no charts or graphs and very minimal verbose output. Hope this helps!<br></li>
 </ol>
