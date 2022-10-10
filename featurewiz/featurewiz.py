@@ -568,7 +568,7 @@ def featurewiz(dataname, target, corr_limit=0.7, verbose=0, sep=",", header=0,
 
     ###### Now save the old and new columns in a dictionary to use them later ###
     col_name_mapper = dict(zip(new_col_names, old_col_names))
-    col_name_replacer = dict([(y,x) for (x,y) in col_name_mapper.items()])
+    col_name_replacer = {y: x for (x, y) in col_name_mapper.items()}
     item_replacer = col_name_replacer.get  # For faster gets.
 
     #### You need to change the target name if you have changed the column names ### 
