@@ -1025,6 +1025,7 @@ def featurewiz(dataname, target, corr_limit=0.9, verbose=0, sep=",", header=0,
     ###### This top_num decides how many top_n features XGB selects in each iteration.
     ####  There a total of 5 iterations. Hence 5x10 means maximum 50 features will be selected.
     #####  If there are more than 50 variables, then maximum 25% of its variables will be selected
+    
     if len(preds) <= 50:
         top_num = int(len(preds)*0.25)
     else:
@@ -1223,12 +1224,15 @@ def featurewiz(dataname, target, corr_limit=0.9, verbose=0, sep=",", header=0,
                 ### You need to choose fewer and fewer variables ############
                 new_preds_len = train_p.shape[1]-i
                 if new_preds_len <= 50:
-                    top_num = int(new_preds_len*0.50)
+                    new_top_num = int(new_preds_len*0.50)
+                    if new_top_num <= top_num:
+                        top_num = copy.deepcopy(new_top_num)
                 else:
                     ### the maximum number of variables will 25% of preds which means we divide by 5 and get 5% here
                     ### The five iterations result in 10% being chosen in each iteration. Hence max 50% of variables!
-                    top_num = int(new_preds_len*0.15)
-            print('            selecting %s features in this iteration' %top_num)            
+                    new_top_num = int(new_preds_len*0.15)
+                    if new_top_num <= top_num:
+                        top_num = copy.deepcopy(new_top_num)
             #########   This is where we check target type ##########
             if not y_train.dtypes[0] in [np.float16, np.float32, np.float64, np.int8,np.int16,np.int32,np.int64]:
                 y_train = y_train.astype(int) 
@@ -1345,7 +1349,14 @@ def featurewiz(dataname, target, corr_limit=0.9, verbose=0, sep=",", header=0,
             
             #imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
             #print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
-            important_features += pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
+            imp_feats =  pd.Series(imp_feats).sort_values(ascending=False)[pd.Series(imp_feats).sort_values(ascending=False)>1.0]
+            if len(imp_feats) > 0:
+                if len(imp_feats) > top_num:
+                    top_num = int(len(imp_feats) * 0.5)
+                important_features += imp_feats[:top_num].index.tolist()
+                print('            selecting %s features in this iteration' %len(imp_feats[:top_num]))
+            else:
+                print('            not selecting any important features since it did not meet criteria: F-score > 1.0')
             #######  order this in the same order in which they were collected ######
             important_features = list(OrderedDict.fromkeys(important_features))
             if verbose:
@@ -1373,6 +1384,13 @@ def featurewiz(dataname, target, corr_limit=0.9, verbose=0, sep=",", header=0,
     print("#######################################################################################")
     print("#####          F E A T U R E   S E L E C T I O N   C O M P L E T E D            #######")
     print("#######################################################################################")
+    dicto = {}
+    missing_flags1 = [{x:x[:-13]} for x in important_features if 'Missing_Flag' in x]
+    for each_flag in missing_flags1:
+        print('Alert: Dont forget to add a missing flag to %s to create %s column' %(list(each_flag.values())[0], list(each_flag.keys())[0]))
+        dicto.update(each_flag)
+    if len(dicto) > 0:
+        important_features =  [dicto.get(item,item)  for item in important_features]
     if len(important_features) <= 30:
         print('Selected %d important features:\n%s' %(len(important_features), important_features))
     else:
