@@ -474,7 +474,7 @@ def featurewiz(dataname, target, corr_limit=0.9, verbose=0, sep=",", header=0,
     ######################################################################################
     #####      MAKING FEATURE_TYPE AND FEATURE_GEN SELECTIONS HERE           #############
     ######################################################################################
-    print('correlation limit = %s' %corr_limit)
+    print('Correlation Limit = %s' %corr_limit)
     feature_generators = ['interactions', 'groupby', 'target']
     feature_gen = ''
     if feature_engg:
@@ -693,7 +693,7 @@ def featurewiz(dataname, target, corr_limit=0.9, verbose=0, sep=",", header=0,
             test = load_dask_data(test_data, sep)
     ################    Load data frame with date var features correctly this time ################
     if len(features_dict['date_vars']) > 0:
-        print('Caution: Since there are date-time variables in datatset, it is best to load them using pandas')
+        print('Caution: Since there are date-time variables in dataset, it is best to load them using pandas')
         dask_xgboost_flag = False ### Set the dask flag to be False since it is now becoming Pandas dataframe 
         date_time_vars = features_dict['date_vars']
         dataname = load_file_dataframe(dataname, sep=sep, header=header, verbose=verbose, 

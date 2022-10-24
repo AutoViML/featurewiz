@@ -830,6 +830,7 @@ class Ranking_Aggregator(BaseEstimator, TransformerMixin):
         #print('There is no predict function in Rare class combiner. Returning...')
         return X
 ###################################################################################
+from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
 import copy
 class DateTime_Transformer(BaseEstimator, TransformerMixin):
     """
@@ -845,16 +846,14 @@ class DateTime_Transformer(BaseEstimator, TransformerMixin):
           test = ds.transform(test) ### this will give your transformed values as a dataframe
               
     Usage in Column Transformers and Pipelines:
-          No. It cannot be used in pipelines since it need to produce two columns for the next stage in pipeline.
-          See if you can change it to fit an sklearn pipeline on your own. I'd be curious to know how.
+          No. It cannot be used in pipelines since it needs to produce two columns for the next stage in pipeline.
+          See My_Label_Encoder_Pipe for an example of how to change this to use in sklearn pipelines.
     """
     def __init__(self, ts_column, verbose=0):
         self.ts_column = ts_column
         self.verbose = verbose
         self.cols_added = []
         self.fitted = False
-        self.X_transformed = None
-        self.train = False
         
     def fit(self, X, y=None):
         X = copy.deepcopy(X)
@@ -874,26 +873,31 @@ class DateTime_Transformer(BaseEstimator, TransformerMixin):
             ### But if it is a one-dimensional dataframe, convert it into a Series
             #print('    X is a DataFrame...')
             pass
-        X_trans, self.cols_added = FE_create_time_series_features(X, self.ts_column, ts_adds_in=[], verbose=self.verbose)
-        self.fitted = True
-        self.train = True
-        self.X_transformed = X_trans
         return self
     
     def transform(self, X, y=None):
         X = copy.deepcopy(X)
-        if self.fitted and self.train:
-            self.train = False
-            return self.X_transformed
+        if self.fitted:
+            ### This is for test data ##########
+            X_trans, _ = FE_create_time_series_features(X, self.ts_column,
+                                                    ts_adds_in=self.cols_added, verbose=self.verbose)
+            return X_trans
         else:
+            ### This is for train data #########
             self.fit(X)
-            return self.X_transformed 
+            X_trans, self.cols_added = FE_create_time_series_features(X, self.ts_column,
+                                                    ts_adds_in=[], verbose=self.verbose)
+            self.fitted = True
+            return X_trans
         
     def fit_transform(self, X, y=None):
         X = copy.deepcopy(X)
-        self.fit(X)
-        self.train = False
-        return self.X_transformed
+        if self.fitted:
+            X_transformed = self.transform(X, y)
+        else:
+            self.fit(X, y)
+            X_transformed = self.transform(X, y)
+        return X_transformed
 ######################################################################################################
 import copy
 def _create_ts_features(df, tscol, verbose=0):
@@ -1000,13 +1004,14 @@ def compute_age(year_string):
 #################################################################
 def FE_create_time_series_features(dft, ts_column, ts_adds_in=[], verbose=0):
     """
-    FE means FEATURE ENGINEERING - That means this function will create new features
+    FE stands for FEATURE ENGINEERING - That means this function will create new features!
     #######        B E W A R E  : H U G E   N U M B E R   O F  F E A T U R E S  ###########
-    This creates between 100 and 110 date time features for each date variable. The number
-    of features depends on whether it is just a year variable or a year+month+day and
-    whether it has hours and minutes or seconds. So this can create all these features
-    using just the date time column that you send in. Optinally, you can send in a list
-    of columns that you want returned. It will preserved those same columns and return them.
+    This creates between 10 to 100 date time features for each date variable!! The number
+    of features created depends on whether it is just a year variable or a year+month+day variable 
+    and has hours and minutes or seconds also. So this can create a huge number of features
+    using pandas date time column that you can send in. Optionally, you can send in a list
+    of columns that you want returned. It will use those same columns to ensure train and test
+    have the same number of columns and returns them in that order.
     ######################################################################################
     Inputs:
     dtf: pandas DataFrame
@@ -1069,6 +1074,7 @@ def FE_create_time_series_features(dft, ts_column, ts_adds_in=[], verbose=0):
         dtf, ts_adds = _create_ts_features(df=dtf, tscol=ts_column)
     ####### This is where we make sure train and test have the same number of columns ####
     try:
+        
         if not ts_adds_in:
             ts_adds_copy = copy.deepcopy(ts_adds)
             rem_cols = left_subtract(dtf.columns.tolist(), ts_adds_copy)
@@ -1245,49 +1251,54 @@ class Binning_Transformer(BaseEstimator, TransformerMixin):
 ################################################################################################
 from pandas.api.types import is_numeric_dtype, is_integer_dtype
 from pandas.api.types import is_datetime64_any_dtype
-#gives fit_transform method for free
-from sklearn.base import BaseEstimator, TransformerMixin 
-from lightgbm import LGBMRegressor
-import copy
-from sklearn.impute import KNNImputer, SimpleImputer
+from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
+from sklearn.linear_model import LinearRegression
+from xgboost import XGBRegressor
 from tqdm import tqdm
 from sklearn.metrics import r2_score
 from collections import defaultdict
 import pdb
-from tqdm import tqdm
-class TSLagging_Transformer(BaseEstimator, TransformerMixin):
+import copy
+##############################################################################################
+class TS_Lagging_Transformer(BaseEstimator, TransformerMixin):
     """
-        ################################################################################
-        ######### T I M E  S E R I E S  L A G G I N G   T R A N S F O R M E R  #########
-        ####        This is where we add Lags of Targets to Time Series data     #######
-        #### This only adds lags based on days. So if ou want 365 days lag, you set ####
-        #### lags = 365. The time series data can be in hourly, daly or weekly perdiods#
-        #### Lags help a model to learn how to predict future sales based on past data #
-        #### This is a very important feature engineering technique in time series data#
-        ################################################################################
+        #####################################################################################
+        ####   This is a PERFECT lagger based on matching current date to exact lag date ####
+        #####################################################################################
+        ######### T I M E  S E R I E S  L A G G I N G   T R A N S F O R M E R  ##############
+        ####        This is where we add Lags of Targets to Time Series data     ############
+        #### This only adds lags based on days. So if you want 365 days lag, you set ########
+        #### lags = 365. The time series data can be in hourly, daily or weekly periods #####
+        #### Lags help a model to learn how to predict future sales based on past data ######
+        #### This is a very important feature engineering technique in time series data######
+        #####################################################################################
         Inputs:
         ----------------
-        X: a dataframe with a time series (pandas date-time variable type) column in it.
-        y: target variable(s) you intend to lag. This can be multi_label target also.
-        date_column: name of the date column in your X dataframe. This is the time series index.
-        hier_vars: Names of hierarchical vars (optional) which will make model more accurate.
+        lags: number of lags based on days. So if you want 365 days lag, you set lags = 365.
+        ts_column: name of the date-time column. It should be a pandas date time column dtype.
+                It should be in your X dataframe. This will be used to set the time series index.
+        hier_vars: Names of hierarchical vars (id variables) such as user_id, store_id, item_id.
+                This is needed when you have 1000's of time series in your data.
+                Adding hier_vars will make your time series lags more accurate.
+        time_period: you can set it as "daily", "weekly", "hourly". This tells the lagger 
+                that the time series is in daily, weekly or hourly format. 
+        #############    This is where you use the Lagger to transform X and y ##############
+        X: is a dataframe with a pandas date-time variable and the hierarchical vars (optional)
+        y: You must send in a pandas series or dataframe. It must have the target column.
+                It will use y and join it with X to lag. This can be multi_label target also.
 
         Outputs:
         -----------------
-        X: This is the transformed data frame with lagged targets added.
+        X_transformed: This is the transformed data frame with lagged targets added.
     """
-    try:
-        import dask
-    except:
-        print('Need to import dask for this function. Try again after installing dask.')
-    def __init__(self, lags, date_column, hier_vars='', verbose=0):
-        ## Lags should be greater than 1 ####
-        self.lags = max(1, lags)
-        if isinstance(date_column, list):
-            print('Only one date column accepted. Taking the first col from list of cols given: %s' %date_column[0])
-            self.date_col = date_column[0]
+    def __init__(self, lags, ts_column, hier_vars = [], time_period="", verbose=0):
+        self.lags = lags
+        self.ts_column = ts_column
+        if isinstance(ts_column, list):
+            print('Only one date column accepted. Taking the first col from list of cols given: %s' %ts_column[0])
+            self.ts_column = ts_column[0]
         else:
-            self.date_col = date_column
+            self.ts_column = ts_column
         if isinstance(hier_vars, list):
             if len(hier_vars) == 0:
                 print('No hierarchical vars given. Continuing without it but results may not be accurate...')
@@ -1303,367 +1314,138 @@ class TSLagging_Transformer(BaseEstimator, TransformerMixin):
         else:
             print('hier_vars must be a string or a list. Returning')
             return
+        if time_period in ["daily", "weekly", "hourly"]:
+            self.time_period = time_period
+        else:
+            print("time period input must be either daily or weekly or hourly. Returning...")
+            return
         self.verbose = verbose
-        ### This is where we find out whether fit or fit_transform is done ##
-        self.X_prior = None
-        self.y_prior = None
-        self.fitted = False
-        ### If ts_column is not a string column, then set its format to an empty string ##
-        self.str_format = ''
         self.targets = []
-        self.col_adds = defaultdict(list)
-        self.X_adds = None
-    
-    def get_params(self, deep=True):
-        # This is to make it scikit-learn compatible ####
-        return {"lags": self.lags, "date_column": self.date_col, "verbose": self.verbose}
-
-    def set_params(self, **parameters):
-        for parameter, value in parameters.items():
-            setattr(self, parameter, value)
-        return self
+        self.fitted = False
+        self.train = None
+        self.X_index = None
+        self.ratio_col_adds = []
+        self.y_prior = None
+        self.columns = []
+        self.ratios = None
 
     def get_names_of_targets(self, y):
         """
         ### Returns names of target variables in y if it is multi-label.
         """
-        from collections import defaultdict
-        from collections import OrderedDict
         y = copy.deepcopy(y)
         if isinstance(y, np.ndarray):
-            y = pd.DataFrame(y, columns=['target'])
+            y = pd.DataFrame(y, columns=['target'], index=self.X_index)
             targets = ['target']
         if isinstance(y, pd.Series):
             if y.name is None:
                 targets = ['target']
-                y = pd.DataFrame(y, columns=targets, index=y.index)
+                y = pd.DataFrame(y, columns=targets, index=self.X_index)
             else:
                 targets = [y.name]
-                y = pd.DataFrame(y, columns=targets, index=y.index)
+                y = pd.DataFrame(y, columns=targets, index=self.X_index)
         elif isinstance(y, pd.DataFrame):
             targets = y.columns.tolist()
         self.targets = targets
         return y
-        
-    def convert_X_to_datetime(self, X):
-        """
-        This utility checks if the date-time column is actually in X.
-        Then it checks if the date time column is really a pandas date-time column.
-        Then it converts X to a pandas dataframe so it is easier to handle in future processing.
-        """
-        X = copy.deepcopy(X)
-        if isinstance(X, np.ndarray):
-            print('    X cannot be a numpy array. It must be either a pandas Series or a DataFrame. Returning')
-            return X
-        elif isinstance(X, pd.Series):
-            if self.date_col == X.name:
-                if is_datetime64_any_dtype(X):
-                    self.date_col = X.name
-                    X = pd.DataFrame(X)
-                else:
-                    if self.verbose:
-                        print('Converting %s into pandas date-time type...' %self.date_col)
-                    X = pd.DataFrame(X)
-                    self.date_col = X.columns.tolist()[0]
-            else:
-                print('%s is not found in X. Check your input and try again' %self.date_col)
-                return X
-        elif isinstance(X, pd.DataFrame):
-            if self.date_col in X.columns.tolist():
-                if not is_datetime64_any_dtype(X[self.date_col]):
-                    if self.verbose:
-                        print('Converting %s into pandas date-time type...' %self.date_col)
-            else:
-                print('%s is not found in X. Check your input and try again' %self.date_col)
-                return X
-        #### This is where you convert the column to a date-time column ###
-        if isinstance(X, pd.Series) or isinstance(X, pd.DataFrame):
-            try:
-                ####### This is where fill each date-column in case it is empty ##
-                X[[self.date_col]] = X[[self.date_col]].fillna(method='ffill')
-                X[[self.date_col]] = X[[self.date_col]].fillna(method='bfill')
-                ## Check if it has an index or a column with the name of train time series column ####
-                if is_datetime64_any_dtype(X[self.date_col]):
-                    if self.verbose:
-                        print('    since %s is already datetime column, continuing...' %self.date_col)
-                    self.str_format = ''
-                else:
-                    ### since date_col is a string you need to use values ###
-                    str_first_value = X[self.date_col].values[0]
-                    str_values = X[self.date_col].values[:12] ### we want to test a big sample of them 
-                    if isinstance(str_first_value, str):
-                        ### if it is an object column, convert ts_column into datetime and then set as index
-                        str_format = infer_date_time_format(str_values)
-                        if str_format:
-                            ### if there is a format for that date column, then use it!
-                            str_format = str_format[0]
-                            X[self.date_col] = pd.to_datetime(X[self.date_col], format=str_format)
-                        else:
-                            ### since there is no format to the date column, leave it out
-                            X[self.date_col] = pd.to_datetime(X[self.date_col])
-                    elif type(str_first_value) in [np.int8, np.int16, np.int32, np.int64]:
-                        ### if it is an integer column, convert ts_column into datetime and then set as index
-                        X[self.date_col] = pd.to_datetime(X[self.date_col])
-                    else:
-                        print('    Type of time series column %s is float or unknown. Must be string or datetime. Please check input and try again.' %self.date_col)
-                        return 
-                    self.str_format = str_format
-            except Exception as e:
-                print('    Error: Converting time series column %s into ts index due to %s. Please check input and try again.' %(self.date_col, e))
-                return X
-        elif type(X) == dask.dataframe.core.DataFrame:
-            str_format = ''
-            if self.date_col in X.columns:
-                print('    %s column exists in dask data frame...' %self.date_col)
-                str_first_value = X[self.date_col].compute()[0]
-                X.index = dd.to_datetime(X[self.date_col].compute())
-                X[self.date_col] = dd.to_datetime(X[self.date_col].compute())
-            else:
-                if self.verbose:
-                    print(f"    Error: Unable to detect column (or index) called '{self.date_col}' in dataset. Continuing...")
-                return X
-        else:
-            if self.verbose:
-                print('    Unable to detect type of input data X. Please check your input and try again')                        
-            return X
-        return X
 
-    def change_datecolumn_to_index(self, X):
-        X = copy.deepcopy(X)
-        if isinstance(X, pd.Series) or isinstance(X, pd.DataFrame):
-            try:
-                ############### Check if it has an index or a column with the name of train time series column ####
-                if is_datetime64_any_dtype(X[self.date_col]):
-                    ### if it is a datetime column, then set it as index
-                    ### if it a datetime index, then just set the index as is 
-                    ts_index = X.pop(self.date_col)
-                    X.index = ts_index
-                else:
-                    if self.str_format:
-                        ### if there is a format for that date column, then use it!
-                        if isinstance(self.str_format, list):
-                            str_format = self.str_format[0]
-                        else:
-                            str_format = self.str_format
-                        ts_index = pd.to_datetime(X.pop(self.date_col), format=str_format)
-                    else:
-                        ### since there is no format to the date column, leave it out
-                        ts_index = pd.to_datetime(X.pop(self.date_col))
-                    X.index = ts_index
-            except Exception as e:
-                print('    Error: Converting time series column %s into ts index due to %s. Please check input and try again.' %(self.date_col, e))
-        elif type(X) == dask.dataframe.core.DataFrame:
-            if self.date_col in X.columns:
-                print('    %s column exists in dask data frame...' %self.date_col)
-                str_first_value = X[self.date_col].compute()[0]
-                X.index = dd.to_datetime(X[self.date_col].compute())
-                X = X.drop(self.date_col, axis=1)
-            else:
-                print(f"    Error: input X must have a column (or index) called '{self.date_col}'.")
-        else:
-            print('    Unable to detect type of input data X. Please check your input and try again')                        
-        return X
-    
-    def self_imputer(self, X_train, y_train, X_test):
-        X_train = copy.deepcopy(X_train)
-        X_test = copy.deepcopy(X_test)
-        y_train = copy.deepcopy(y_train)
-        X_index = X_test.index
-        import time
-        cols = y_train.columns.tolist()
-        preds = []
-        int_changes = False
-        hier_vars = self.hier_vars
-        for i, column in enumerate(cols):
-            start_time = time.time()
-            if self.verbose:
-                print('Using a self imputer based on group means for imputing missing values in %s...' %column)
-            ### Since X_train might have some NaN's ##
-            X_train_new = X_train[(y_train[column].isna()==False)]
-            y_train_new = y_train[(y_train[column].isna()==False)]
-            int_changes = is_integer_dtype(y_train)
-            X_y_combined  = pd.concat([X_train_new, y_train_new[column]], axis=1)
-            season_vars = [self.date_col+'_weekofyear',self.date_col+'_dayofyear']
-            ### Sometimes, hier_vars such as store and item are not found in train and test same!
-            no_hier_vars = False
-            if len(self.hier_vars) == 0:
-                no_hier_vars = True
-            if not no_hier_vars > 0:
-                ### Suppose there are hier_vars then continue using them here ##
-                dfx = pd.merge(X_test, X_y_combined, on=season_vars+hier_vars,how='left')
-                dfx = dfx[[column]+season_vars+hier_vars]
-                dfxd = dfx.drop_duplicates(subset=season_vars+hier_vars, keep='last')
-                ### Suppose there are hier_vars but they don't work well, then reset it ##
-                if dfxd[column].isnull().all():
-                    no_hier_vars = True
-            ### Do not change the next line because there is a reason for it! ####
-            if no_hier_vars:
-                ### This is a simpler version in case NaN's happen due to lack of no hier_vars categories in test data
-                X_test1 = X_test[season_vars].astype(np.int8)
-                X_y_combined = X_y_combined[season_vars+[column]]
-                X_y_combined[season_vars] = X_y_combined[season_vars].astype(np.int8)
-                ### If there is no column value due to this merge, then use a simpler merge!
-                dfx = pd.merge(X_test1, X_y_combined, on=season_vars,how='left')
-                del X_test1
-                del X_y_combined
-                dfx = dfx[[column]+season_vars]
-                dfxd = dfx.drop_duplicates(subset=season_vars, keep='last')
-                if dfxd[column].isnull().all():
-                    if self.verbose:
-                        print('    There are NaNs in data when trying to create lagged vars. Fix the NaNs and try again.')
-                    return np.zeros((X_test.shape[0], y_train_new.shape[1]))
-                X_test1 = pd.merge(X_test, dfxd,on=season_vars, how='left')
-                pred = X_test1[column].values
-                del X_test1
-                del dfx
-                del dfxd
-            else:
-                ####### if hier vars exist, then use this #########
-                dfxgroup_all = dfx.groupby(hier_vars).mean().reset_index()[hier_vars+[column]]
-                X_test1 = pd.merge(X_test,dfxgroup_all,on=hier_vars, how='left')
-                X_test2 = pd.merge(X_test1, dfxd, on=season_vars+hier_vars,how='left')
-                pred = X_test1[column].values
-                ### delete useless variables ###
-                del X_test1
-                del X_test2
-                del X_y_combined
-                del dfx
-                del dfxd
-            ### Make sure that whatever vars came in as integers return back as integers!
-            if int_changes:
-                if self.verbose:
-                    print('    ## target is integer dtype ###')
-                pred = pd.Series(pred).fillna(0).values.astype(np.int32).values
-            preds.append(pred)
-            if self.verbose:
-                print('    time taken for imputing = %0.0f seconds' %((time.time()-start_time)))
-        y_preds = np.array(preds)
-        ### You need to flip it to make it right shape ##
-        y_preds = y_preds.T
-        y_preds = pd.DataFrame(y_preds, index=X_index, columns=cols)
-        return y_preds
-    
-    def fit(self, X, y, **fit_params):
+        
+    def fit(self, X, y):
         X = copy.deepcopy(X)
         y = copy.deepcopy(y)
-        self.X_prior = copy.deepcopy(X)
-        y = self.get_names_of_targets(y)
-        y_prior = X[[self.date_col]+self.hier_vars].join(y)
-        self.y_prior = y_prior.set_index(pd.to_datetime(y_prior.pop(self.date_col)))
-        del y_prior
+        ts_columns = [self.ts_column]
+        self.y_prior = copy.deepcopy(y)
+        self.X_index = X.index
+        self.columns = X.columns.tolist()
+        self.fitted = True
+        ### Now you can check if the parts of tuple are dataframe series, etc.
+        if isinstance(X, tuple):
+            y = X[1]
+            X = X[0]
+        ### Now you can check if the parts of tuple are dataframe series, etc.
+        if isinstance(X, pd.Series):
+            print('X must be dataframe and cannot be a pandas Series. Returning...')
+            return self
+        elif isinstance(X, np.ndarray):
+            print('X must be dataframe and cannot be a numpy array. Returning...')
+            return self
+        ########## you must save the product uniques so that train and test have consistent columns ##
+        print('Before adding lag column, shape of data set = %s' %(X.shape,))
+        if not is_datetime64_any_dtype(X[self.ts_column]):
+            print('%s is not a pandas date-time dtype column. Converting it now.' %self.ts_column)
+            X[self.ts_column] = pd.to_datetime(X[self.ts_column])
+        try:
+            self.train =  X.join(self.get_names_of_targets(y))
+        except:
+            print("Cannot join X to y. Check your inputs and try again...")
+            return self
+        if len(self.hier_vars) == 0:
+            self.ratios = self.train.groupby(ts_columns)[self.targets].sum()
+        else:
+            self.ratios = self.train.groupby(self.hier_vars+ts_columns)[self.targets].sum()
         self.fitted = True
         return self
-    
-    def transform(self, X, y=None, **fit_params):
+
+    def transform(self, X, y=None):
         X = copy.deepcopy(X)
-        change_to_imputing = False
-        print('Input X shape = %s. Beginning Time Series lagging transformation...' %(X.shape,))
-        drop_flag = True
-        if y is None:
-            ### Just make sure you don't drop nan rows in test set ##########
-            drop_flag = False 
-            ### Since y is not available we have to search for prior_y and see!
-            ### find target variables to transform ###
-            y_join = copy.deepcopy(self.y_prior)
-            if len(y_join) == 0:
-                ### If there is no prior y, then you have to change to imputing True
-                change_to_imputing = True
-            else:
-                ## No need to impute since prior y is available #######
-                change_to_imputing = False
-            y = self.get_names_of_targets(y_join)
-            df = self.convert_X_to_datetime(X)
-            df = self.change_datecolumn_to_index(df)
-            #### don't change the next line. It is meant to check whether to do imputing ##
-            if change_to_imputing:
-                if self.verbose:
-                    print('Imputing prior values for target using targeted group means...')
-                col_adds = self.X_adds.columns.tolist()
-                X_old = self.convert_X_to_datetime(self.X_prior)
-                X_new = self.convert_X_to_datetime(X)
-                ## we are going to turn the prior columns as y to predict future priors
-                y_old = self.X_adds
-                ## we must convert date_col into date-time features before we convert object vars
-                ds = DateTime_Transformer(ts_column=self.date_col)
-                X_old = ds.fit_transform(X_old) ## this will give your transformed values as a dataframe
-                X_new = ds.transform(X_new) ### this will give your transformed values as a dataframe
-                ## Now we can convert all object columns to numeric ######
-                X_old, X_new, _ = FE_convert_all_object_columns_to_numeric(X_old, X_new)
-                if self.verbose:
-                    print('Imputing begins with input and output shapes = %s %s %s' %(X_old.shape, y_old.shape, X_new.shape,))
-                y_new = self.self_imputer(X_old, y_old, X_new)
-                ### This is where we combine both imputing and prior_y values ###
-                for col_add in col_adds:
-                    if col_add in X.columns:
-                        mask_loc = X[X[col_add].isna() == True].index
-                        if len(mask_loc) > 0:
-                            X.iloc[mask_loc, col_add] = y_new.iloc[mask_loc, col_add]
-                        else:
-                            X[col_add] = y_new[col_add].values
+        X_trans = None
+        ##### Then you should transform here ############
+        if self.fitted and y is None:
+            ##### This is for test data #################
+            if not is_datetime64_any_dtype(X[self.ts_column]):
+                print('%s is not a pandas date-time dtype column. Converting it now.' %self.ts_column)
+                X[self.ts_column] = pd.to_datetime(X[self.ts_column])
+            numtrans = Numeric_Transformer(ts_columns = [self.ts_column])
+            new_columns = left_subtract(self.X_transformed.columns.tolist(), self.ratio_col_adds)
+            for each_ratio_col_add in self.ratio_col_adds:
+                X_train_1 = numtrans.fit_transform(self.X_transformed[new_columns], self.y_prior)
+                y_1 = self.X_transformed[each_ratio_col_add]
+                X_test_1 = numtrans.transform(X[new_columns])
+                print('##### Training model to create %s column in test ############' %each_ratio_col_add)
+                xgbr = XGBRegressor(random_state=0)
+                # Train model using XGBRegressor
+                xgbr.fit(X_train_1, y_1)
+                # Make predictions
+                preds1 = xgbr.predict(X_test_1)
+                X[each_ratio_col_add] = preds1
+            print('    Completed')
+            return X[self.columns + self.ratio_col_adds]
+        else:
+            ##### This is for train data #################
+            try:
+                if self.time_period == 'daily':
+                    self.train['new_'+self.ts_column] = self.train[self.ts_column] - pd.Timedelta(days=self.lags)
+                elif self.time_period == 'weekly':
+                    self.train['new_'+self.ts_column] = self.train[self.ts_column] - pd.Timedelta(weeks=self.lags)
+                else:
+                    self.train['new_'+self.ts_column] = self.train[self.ts_column] - pd.Timedelta(hours=self.lags)
+                #### Now we must transform using the new lag column ############
+                for each_target in self.targets:
+                    newcol = each_target+'_lag_'+str(self.lags)
+                    if len(self.hier_vars) == 0:
+                        self.train[newcol] = self.train.set_index(['new_'+self.ts_column]).index.map(self.ratios[each_target].get).fillna(0)
                     else:
-                        X[col_add] = y_new[col_add].values
-                print('    completed with new X shape = %s' %(X.shape,))
+                        self.train[newcol] = self.train.set_index(self.hier_vars+['new_'+self.ts_column]).index.map(self.ratios[each_target].get).fillna(0)
+                    self.ratio_col_adds.append(newcol)
+            except:
+                print('    Error occured in adding lag feature. Check your inputs. Returning...')
                 return X
-        else:
-            ### In this case, y is available and can add prior day columns ##
-            y = copy.deepcopy(y)
-            ### find target variables to transform ###
-            y = self.get_names_of_targets(y)
-            df = self.convert_X_to_datetime(X)
-            df = self.change_datecolumn_to_index(df)
-            df_index = df.index
-            y.index = copy.deepcopy(df_index)
-        #### Once you define y as the prior_y or same y, you are all set #####
-        int_vars  = y.select_dtypes(include='integer').columns.tolist()
-        # Notice that we will create a lagged columns from name vars
-        all_target_col_adds = []
-        int_changes = []
-        n_in = self.lags
-        ### we will only add lags to target variables here ###
-        namevars = self.targets
-        ### You have to add max. 3 columns to X using y variable shifted by 7, 30 and 365 days ###
-        no_of_days = self.lags
-        rsuffix = '_days_prior_'+str(no_of_days)
-        for var in namevars:
-            addname = var + rsuffix
-            for index, row in tqdm(df.iterrows(), total=df.shape[0]):
-                new_index = index - pd.Timedelta(days=no_of_days)
-                try:
-                    df.loc[index, addname] = y.loc[new_index, var]
-                except:
-                    df.loc[index, addname] = np.nan
-            if var in int_vars:
-                int_changes.append(addname)
-            self.col_adds[var].append(addname)
-            all_target_col_adds.append(addname)
-            X[addname] = df[addname].values
-        # if fit_transform is done, then fitted is False since test is next ##
-        self.fitted = False
-        self.y_prior = copy.deepcopy(y)
-        self.X_adds = X[all_target_col_adds]
-        print('    completed transforms (with NaNs) shape = %s' %(X.shape,))
-        if drop_flag:
-            X = df.dropna(axis=0)
-            ### You have to make X and y with the same number of rows #######
-            y = y.loc[X.index]
-            X = X.reset_index(drop=False) ### put the time variable back in dataset ##
-            y = y.reset_index(drop=True)
-            print('    (after dropping NaNs), X shape = %s, y shape = %s' %(X.shape,y.shape))
-            return X, y
-        else:
-            ### Just make sure there are no NaNs by filling from both directions ##
-            X = X.fillna(method='ffill')
-            X = X.fillna(method='bfill')
-            print('    Null rows for ', X[all_target_col_adds].isnull().sum())
-            print('    After filling NaNs with ffill and bfill, shape = %s' %(X.shape,))
-            return X
+            ##### This is where you set the end of training and return values ###
+            self.fitted = True
+            X_trans = self.train[self.columns + self.ratio_col_adds ]
+            print('After adding lag column, shape of data: %s' %(X_trans.shape,))
+            return X_trans
     
-    def fit_transform(self, X, y, **fit_params):
+        
+    def fit_transform(self, X, y):
         X = copy.deepcopy(X)
         y = copy.deepcopy(y)
-        self.fit(X, y)
-        X_trans = self.transform(X, y)
-        return X_trans
+        if self.fitted:
+            self.X_transformed = self.transform(X, y)
+        else:
+            self.fit(X, y)
+            self.X_transformed = self.transform(X, y)
+        return self.X_transformed        
 
 ################################################################################
 # THIS IS A MORE COMPLEX ALGORITHM THAT CHECKS MORE SPECIFICALLY FOR A DATE AND TIME FIELD
@@ -1811,6 +1593,8 @@ def FE_convert_all_object_columns_to_numeric(train, test="", features=[]):
     test = copy.deepcopy(test)
     #### This is to fill all numeric columns with a missing number ##########
     nums = train.select_dtypes('number').columns.tolist()
+    if len(features) == 0:
+        features = train.columns.tolist()
     nums = [x for x in nums if x in features]
     #### We don't want to look for ID columns and deleted columns ########
     if len(nums) == 0:
@@ -1879,7 +1663,169 @@ def FE_convert_all_object_columns_to_numeric(train, test="", features=[]):
 ###############################################################################################
 from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
 import copy
-class Fourier_Transformer(BaseEstimator, TransformerMixin):
+from sklearn.linear_model import LinearRegression
+from xgboost import XGBRegressor
+class TS_Trend_Seasonality_Transformer(BaseEstimator, TransformerMixin):
+    """
+    This Transformer class will add a Trend and Seasonality column to your time series dataset.
+    In many retail use cases, you will need to add a column that aggregates sales 
+    for each item as a percent of that store's sales that day or week. Similarly, 
+    you may need to know sales of each item as a percent of the product category by date.
+    In these cases, you need a target column ("y") and a date column ("ts_column")
+    and finally you need a category column ("categorical_var") to aggregate.
+    We will always use "sum" as the aggregation function. The result will be a percent 
+    column which you can add to your time series data set!
+    
+    Remember that this Transformer is very complex. Since we don't have the same dates 
+    in test data as in train (since time series data are usually for forecasting problems).
+    We will do 2 things since test data has unseen dates and unseen stores compared to train data. 
+    So you cannot do a left join to transfer data. You need to predict those columns in test using train data. 
+    1. First use X_transformed and set the y to be the ratios column. Then we use a linearn regression model
+    to train on train data and predict on test data. This will form the ratios column in test.
+    2. Second use X_transformed and set y to the percent column. Then we use an XGBoost regression model 
+    to train on train data and predict on test data. This will form the ratios column in test.
+    
+    Input:
+    ts_column: string. Must be an object or a pandas date-time dtype column.
+        Column must be found in the X input. Otherwise it will error. 
+    categorical_var: string. default is "". group_id or product_id or store ID 
+        that defines a group in the time series dataset.
+    verbose: default is 0. If set to 1, it will print more verbose output.
+    X: pandas dataframe. Must contain the time series column (as an object dtype)
+       and the categorical_var column which must be of object dtype.
+    y: pandas series or dataframe. Must contain the target (as an integer or float dtype).
+    """
+    def __init__(self, ts_column, categorical_var="", verbose=0):
+        self.ts_column = ts_column
+        self.categorical_var = categorical_var
+        self.verbose = verbose
+        self.targets = []
+        self.fitted = False
+        self.train = None
+        self.X_index = None
+        self.ratio_col_adds = []
+        self.percent_col_adds = []
+        self.columns = []
+        self.ratios = None
+
+    def get_names_of_targets(self, y):
+        """
+        ### Returns names of target variables in y if it is multi-label.
+        """
+        y = copy.deepcopy(y)
+        if isinstance(y, np.ndarray):
+            y = pd.DataFrame(y, columns=['target'], index=self.X_index)
+            targets = ['target']
+        if isinstance(y, pd.Series):
+            if y.name is None:
+                targets = ['target']
+                y = pd.DataFrame(y, columns=targets, index=self.X_index)
+            else:
+                targets = [y.name]
+                y = pd.DataFrame(y, columns=targets, index=self.X_index)
+        elif isinstance(y, pd.DataFrame):
+            targets = y.columns.tolist()
+        self.targets = targets
+        return y
+
+        
+    def fit(self, X, y):
+        X = copy.deepcopy(X)
+        y = copy.deepcopy(y)
+        self.y_prior = copy.deepcopy(y)
+        self.X_index = X.index
+        self.columns = X.columns.tolist()
+        ### Now you can check if the parts of tuple are dataframe series, etc.
+        if isinstance(X, tuple):
+            y = X[1]
+            X = X[0]
+        ### Now you can check if the parts of tuple are dataframe series, etc.
+        if isinstance(X, pd.Series):
+            print('X must be dataframe and cannot be a pandas Series. Returning...')
+            return self
+        elif isinstance(X, np.ndarray):
+            print('X must be dataframe and cannot be a numpy array. Returning...')
+            return self
+        ########## you must save the product uniques so that train and test have consistent columns ##
+        if not is_datetime64_any_dtype(X[self.ts_column]):
+            print('%s is not a pandas date-time dtype column. Converting it now.' %self.ts_column)
+            X[self.ts_column] = pd.to_datetime(X[self.ts_column])
+        print('Before adding trend and seasonality columns, shape of data set = %s' %(X.shape,))
+        try:
+            self.train =  X.join(self.get_names_of_targets(y))
+        except:
+            print("Cannot join X to y. Check your inputs and try again...")
+            return self
+        self.ratios = (self.train.groupby([self.categorical_var,self.ts_column]).sum()/self.train.groupby(
+                                [self.ts_column]).sum())[self.targets].to_dict()
+        self.fitted = True
+        return self
+
+    def transform(self, X, y=None):
+        X = copy.deepcopy(X)
+        X_trans = None
+        ##### Then you should transform here ############
+        if self.fitted and y is None:
+            if not is_datetime64_any_dtype(self.X_transformed[self.ts_column]):
+                print('%s is not a pandas date-time dtype column. Converting it now.' %self.ts_column)
+                self.X_transformed[self.ts_column] = pd.to_datetime(self.X_transformed[self.ts_column])
+            numtrans = Numeric_Transformer(ts_columns = [self.ts_column])
+            new_columns = left_subtract(self.X_transformed.columns.tolist(), self.ratio_col_adds + self.percent_col_adds)
+            X_train_1 = numtrans.fit_transform(self.X_transformed[new_columns], self.y_prior)
+            X_test_1 = numtrans.transform(X[new_columns])
+            ### Since ts_column has been dropped, we need to subtract it from all columns ##
+            for each_ratio_col_add in self.ratio_col_adds:
+                y_1 = self.X_transformed[each_ratio_col_add]
+                print('##### Training model to create %s column in test ############' %each_ratio_col_add)
+                model1 = LinearRegression()
+                model1.fit(X_train_1, y_1)
+                preds1 = model1.predict(X_test_1)
+                X[each_ratio_col_add] = preds1
+            print('    Completed')
+            for each_percent_col_add in self.percent_col_adds:
+                print('##### Training model to create %s column in test ############' %each_percent_col_add)
+                y_2 = self.X_transformed[each_percent_col_add]
+                X_train_2 = copy.deepcopy(X_train_1)
+                X_test_2 = copy.deepcopy(X_test_1)
+                xgbr = XGBRegressor(random_state=0)
+                # Train model using XGBRegressor
+                xgbr.fit(X_train_2, y_2)
+                # Make predictions
+                preds2 = xgbr.predict(X_test_2)
+                X[each_percent_col_add] = preds2
+            print('    Completed')
+            return X[self.columns + self.ratio_col_adds + self.percent_col_adds]
+        try:
+            for each_target in self.targets:
+                self.train[each_target+'_'+self.categorical_var+'_trend'] = self.train.set_index(
+                    [self.categorical_var, self.ts_column]).index.map(self.ratios[each_target].get)
+                self.train[each_target+'_'+self.categorical_var+'_seasonality'] = self.train[
+                        each_target]/self.train[each_target+'_'+self.categorical_var+'_trend']
+                self.ratio_col_adds.append(each_target+'_'+self.categorical_var+'_trend')
+                self.percent_col_adds.append(each_target+'_'+self.categorical_var+'_seasonality')
+        except:
+            print('    Error occured in adding trend and seasonality features. Check your inputs. Returning...')
+            return X
+        ##### This is where you set the end of training and return values ###
+        self.fitted = True
+        X_trans = self.train[self.columns + self.ratio_col_adds + self.percent_col_adds]
+        print('After adding trend and seasonality columns, shape of data: %s' %(X_trans.shape,))
+        return X_trans
+    
+        
+    def fit_transform(self, X, y):
+        X = copy.deepcopy(X)
+        y = copy.deepcopy(y)
+        if self.fitted:
+            self.X_transformed = self.transform(X, y)
+        else:
+            self.fit(X, y)
+            self.X_transformed = self.transform(X, y)
+        return self.X_transformed        
+############################################################################################################
+from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
+import copy
+class TS_Fourier_Transformer(BaseEstimator, TransformerMixin):
     """
     This Transformer class will add fourier transform features to daily and weekly time series data.
         WARNING: You cannot use it for hourly or any other kind of time series data yet.
@@ -2119,300 +2065,110 @@ def EDA_make_column_names_unique(data_input):
         special_char_flag = True
     return new_cols, special_char_flag
 ##########################################################################################
-from pandas.api.types import is_numeric_dtype, is_integer_dtype
-from pandas.api.types import is_datetime64_any_dtype
-#gives fit_transform method for free
-from sklearn.base import BaseEstimator, TransformerMixin 
-from lightgbm import LGBMRegressor
+from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
 import copy
-from sklearn.impute import KNNImputer, SimpleImputer
-from tqdm import tqdm
-from sklearn.metrics import r2_score
-from collections import defaultdict
-import pdb
-from tqdm import tqdm
-class Add_Lags_Transformer(BaseEstimator, TransformerMixin):
+class Numeric_Transformer(BaseEstimator, TransformerMixin):
     """
-        ################################################################################
-        ######### T I M E  S E R I E S T R A N S F O R M E R which adds L A G S  #######
-        ####        This is where we add Lags of Targets to Time Series data     #######
-        #### This only adds lags based on days. So if you want 365 days lag, you set ###
-        #### lags = 365. The time series data can be in hourly, daly or weekly perdiods#
-        #### Lags help a model to learn how to predict future sales based on past data #
-        #### This is a very important feature engineering technique in time series data#
-        ################################################################################
-        Inputs:
-        ----------------
-        df: a dataframe with a pandas date-time variable and a target column
-        y: leave this as None = it's not needed.
-        date_column: name of the date column in your X dataframe. This is the time series index.
-        hier_vars: Names of hierarchical vars (id-variables) which is sometimes helpful.
-               You can leave this out in some time series where there is no user Id variable.
+    This Transformer class will convert all date-time, object and categorical columns to numeric.
+        It will leave numeric columns as is.
         
-        Syntax: for example if you had columns like this, you would do:
-            lagger = Add_Lags_Transformer(lags=1, date_column='date',
-                            targets=target, hier_vars=['user_id'])
-            data2 = lagger.fit_transform(data1)
-
-        Outputs:
-        -----------------
-        df: This is the transformed data frame with lagged targets added. 
-        
+    Input:
+    ts_columns: list of names of date-time columns. These columns must be a pandas date-time dtype columns.
+        Columns must be found in the X input. Otherwise it will error. You can leave it as empty list.
+    verbose: default is 0. If set to 1, it will print more verbose output.
+    X: pandas dataframe. Must contain the time series columns (as date-time dtypes). Otherwise error!
+       All your object columns must be of object or categorical dtypes.
+    y: pandas series or dataframe. Must contain the target (as an integer or float dtype).
+    
+    Outputs:
+    X_transformed: It will return a transformed dataframe with all numeric columns.
+    
     """
-    try:
-        import dask
-    except:
-        print('Need to import dask for this function. Try again after installing dask.')
-        
-    def __init__(self, lags, date_column, targets, hier_vars='', verbose=0):
-        ## Lags should be greater than 1 ####
-        self.lags = max(1, lags)
-        if isinstance(date_column, list):
-            print('Only one date column accepted. Taking the first col from list of cols given: %s' %date_column[0])
-            self.date_col = date_column[0]
-        else:
-            self.date_col = date_column
-        if isinstance(hier_vars, list):
-            if len(hier_vars) == 0:
-                print('No hierarchical vars given. Continuing without it but results may not be accurate...')
-                self.hier_vars = []
-            else:
-                self.hier_vars = hier_vars
-        elif isinstance(hier_vars, str):
-            if hier_vars == '':
-                print('No hierarchical vars given. Continuing without it but results may not be accurate...')
-                self.hier_vars = []
-            else:
-                self.hier_vars = [hier_vars]
-        else:
-            print('hier_vars must be a string or a list. Returning')
-            return
+    def __init__(self, ts_columns=[], verbose=0):
+        self.ts_columns = ts_columns
         self.verbose = verbose
-        ### This is where we find out whether fit or fit_transform is done ##
-        self.X_prior = None
-        self.y_prior = None
+        self.lis = []
+        self.columns = []
+        self.error_columns = []
+        self.mlbs = {}
+        self.dss = {}
         self.fitted = False
-        ### If ts_column is not a string column, then set its format to an empty string ##
-        self.str_format = ''
-        if isinstance(targets, str):
-        ### this can be a list or a string
-            self.targets = [targets]
-        else:
-            self.targets = targets         
-        self.col_adds = defaultdict(list)
-        self.X_adds = None
-    
-    def get_params(self, deep=True):
-        # This is to make it scikit-learn compatible ####
-        return {"lags": self.lags, "date_column": self.date_col, "verbose": self.verbose}
-
-    def set_params(self, **parameters):
-        for parameter, value in parameters.items():
-            setattr(self, parameter, value)
+      
+    def fit(self, X, y=None):
+        X = copy.deepcopy(X)
+        ### Now you can check if the parts of tuple are dataframe series, etc.
+        if isinstance(X, tuple):
+            y = X[1]
+            X = X[0]
+        ### Now you can check if the parts of tuple are dataframe series, etc.
+        if isinstance(X, pd.Series):
+            print('X is a pandas Series. Converting...')
+            X = pd.DataFrame(X)
+        elif isinstance(X, np.ndarray):
+            print('X must be dataframe and cannot be a numpy array. Returning...')
+            return self
+        ########## you must save the product uniques so that train and test have consistent columns ##
+        print('Before converting columns, shape of data set = %s' %(X.shape,))
+        self.lis = X.select_dtypes('object').columns.tolist() + X.select_dtypes('category').columns.tolist()
+        self.columns = X.columns.tolist()
         return self
 
-    def self_imputer(self, X_train, y_train, X_test):
-        X_train = copy.deepcopy(X_train)
-        X_test = copy.deepcopy(X_test)
-        y_train = copy.deepcopy(y_train)
-        X_index = X_test.index
-        import time
-        cols = y_train.columns.tolist()
-        preds = []
-        int_changes = False
-        hier_vars = self.hier_vars
-        for i, column in enumerate(cols):
-            start_time = time.time()
-            if self.verbose:
-                print('Using a self imputer based on group means for imputing missing values in %s...' %column)
-            ### Since X_train might have some NaN's ##
-            X_train_new = X_train[(y_train[column].isna()==False)]
-            y_train_new = y_train[(y_train[column].isna()==False)]
-            int_changes = is_integer_dtype(y_train)
-            X_y_combined  = pd.concat([X_train_new, y_train_new[column]], axis=1)
-            season_vars = [self.date_col+'_weekofyear',self.date_col+'_dayofyear']
-            ### Sometimes, hier_vars such as store and item are not found in train and test same!
-            no_hier_vars = False
-            if len(self.hier_vars) == 0:
-                no_hier_vars = True
-            if not no_hier_vars > 0:
-                ### Suppose there are hier_vars then continue using them here ##
-                dfx = pd.merge(X_test, X_y_combined, on=season_vars+hier_vars,how='left')
-                dfx = dfx[[column]+season_vars+hier_vars]
-                dfxd = dfx.drop_duplicates(subset=season_vars+hier_vars, keep='last')
-                ### Suppose there are hier_vars but they don't work well, then reset it ##
-                if dfxd[column].isnull().all():
-                    no_hier_vars = True
-            ### Do not change the next line because there is a reason for it! ####
-            if no_hier_vars:
-                ### This is a simpler version in case NaN's happen due to lack of no hier_vars categories in test data
-                X_test1 = X_test[season_vars].astype(np.int8)
-                X_y_combined = X_y_combined[season_vars+[column]]
-                X_y_combined[season_vars] = X_y_combined[season_vars].astype(np.int8)
-                ### If there is no column value due to this merge, then use a simpler merge!
-                dfx = pd.merge(X_test1, X_y_combined, on=season_vars,how='left')
-                del X_test1
-                del X_y_combined
-                dfx = dfx[[column]+season_vars]
-                dfxd = dfx.drop_duplicates(subset=season_vars, keep='last')
-                if dfxd[column].isnull().all():
-                    if self.verbose:
-                        print('    There are NaNs in data when trying to create lagged vars. Fix the NaNs and try again.')
-                    return np.zeros((X_test.shape[0], y_train_new.shape[1]))
-                X_test1 = pd.merge(X_test, dfxd,on=season_vars, how='left')
-                pred = X_test1[column].values
-                del X_test1
-                del dfx
-                del dfxd
-            else:
-                ####### if hier vars exist, then use this #########
-                dfxgroup_all = dfx.groupby(hier_vars).mean().reset_index()[hier_vars+[column]]
-                X_test1 = pd.merge(X_test,dfxgroup_all,on=hier_vars, how='left')
-                X_test2 = pd.merge(X_test1, dfxd, on=season_vars+hier_vars,how='left')
-                pred = X_test1[column].values
-                ### delete useless variables ###
-                del X_test1
-                del X_test2
-                del X_y_combined
-                del dfx
-                del dfxd
-            ### Make sure that whatever vars came in as integers return back as integers!
-            if int_changes:
-                if self.verbose:
-                    print('    ## target is integer dtype ###')
-                pred = pd.Series(pred).fillna(0).values.astype(np.int32).values
-            preds.append(pred)
-            if self.verbose:
-                print('    time taken for imputing = %0.0f seconds' %((time.time()-start_time)))
-        y_preds = np.array(preds)
-        ### You need to flip it to make it right shape ##
-        y_preds = y_preds.T
-        y_preds = pd.DataFrame(y_preds, index=X_index, columns=cols)
-        return y_preds
-    
-    def fit(self, X, y=None, **fit_params):
+    def transform(self, X, y=None):
         X = copy.deepcopy(X)
-        y = copy.deepcopy(y)
-        self.X_prior = copy.deepcopy(X)
-        y = X[self.targets]
-        y_prior = X[[self.date_col]+self.hier_vars].join(y)
-        self.y_prior = y_prior.set_index(pd.to_datetime(y_prior.pop(self.date_col)))
-        del y_prior
-        self.fitted = True
-        return self
-    
-    def transform(self, X, y=None, **fit_params):
-        X = copy.deepcopy(X)
-        try:
-            y = X[self.targets]
-            drop_flag = True
-        except:
-            y = None
-            drop_flag = False
-        change_to_imputing = False
-        print('Input X shape = %s. Beginning Add lagging transformation...' %(X.shape,))
-        if y is None:
-            ### Just make sure you don't drop nan rows in test set ##########
-            ### Since y is not available we have to search for prior_y and see!
-            ### find target variables to transform ###
-            y_join = copy.deepcopy(self.y_prior)
-            if len(y_join) == 0:
-                ### If there is no prior y, then you have to change to imputing True
-                change_to_imputing = True
-            else:
-                ## No need to impute since prior y is available #######
-                change_to_imputing = False
-            y = X[self.targets]
-            df = copy.deepcopy(X)
-            #### don't change the next line. It is meant to check whether to do imputing ##
-            if change_to_imputing:
-                if self.verbose:
-                    print('Imputing prior values for target using targeted group means...')
-                col_adds = self.X_adds.columns.tolist()
-                X_old = copy.deepcopy(self.X_prior)
-                X_new = copy.deepcopy(X)
-                ## we are going to turn the prior columns as y to predict future priors
-                y_old = self.X_adds
+        ### This is for both train and test data ########
+        ### First we must convert all date-time columns to their parts of time ####
+        if len(self.ts_columns) > 0:
+            for every_ts in self.ts_columns:
                 ## we must convert date_col into date-time features before we convert object vars
-                ds = DateTime_Transformer(ts_column=self.date_col)
-                X_old = ds.fit_transform(X_old) ## this will give your transformed values as a dataframe
-                X_new = ds.transform(X_new) ### this will give your transformed values as a dataframe
-                ## Now we can convert all object columns to numeric ######
-                X_old, X_new, _ = FE_convert_all_object_columns_to_numeric(X_old, X_new)
-                if self.verbose:
-                    print('Imputing begins with input and output shapes = %s %s %s' %(X_old.shape, y_old.shape, X_new.shape,))
-                y_new = self.self_imputer(X_old, y_old, X_new)
-                ### This is where we combine both imputing and prior_y values ###
-                for col_add in col_adds:
-                    if col_add in X.columns:
-                        mask_loc = X[X[col_add].isna() == True].index
-                        if len(mask_loc) > 0:
-                            X.iloc[mask_loc, col_add] = y_new.iloc[mask_loc, col_add]
-                        else:
-                            X[col_add] = y_new[col_add].values
+                if self.fitted:
+                    ds1 = self.dss[every_ts]
+                    X = ds1.transform(X) ### this will give your transformed values as a dataframe
+                else:
+                    ds = DateTime_Transformer(ts_column=every_ts, verbose=1)
+                    X = ds.fit_transform(X) ## this will give your transformed values as a dataframe
+                    self.dss[every_ts] = ds
+            print('After converting all date columns to numeric, shape of data: %s' %(X.shape,))
+        #### Now you have to convert all the columns into numeric ###
+        if not self.fitted:
+            self.columns = X.columns.tolist()
+            self.lis = X.select_dtypes('object').columns.tolist() + X.select_dtypes('category').columns.tolist()
+        if not (len(self.lis)==0):
+            for everycol in self.lis:
+                try:
+                    if self.fitted:
+                        MLB = self.mlbs[everycol]
+                        train_result = MLB.transform(X[everycol])
                     else:
-                        X[col_add] = y_new[col_add].values
-                print('    completed with new X shape = %s' %(X.shape,))
-                return X
+                        MLB = My_LabelEncoder()
+                        train_result = MLB.fit_transform(X[everycol])
+                        self.mlbs[everycol] =  MLB
+                except Exception as e:
+                    print(f'    error converting {everycol} column from string to numeric, deteail : {e}. Continuing...')
+                    self.error_columns.append(everycol)
+                    continue
+                if isinstance(train_result, tuple):
+                    train_result = train_result[0]
+                #### This is where you store the transformed column #####
+                X[everycol] = train_result
         else:
-            ### In this case, y is available and can add prior day columns ##
-            y = copy.deepcopy(y)
-            ### find target variables to transform ###
-            y = X[self.targets]
-            X = X.sort_values(by = self.hier_vars+[self.date_col]).reset_index(drop=True)
-            df = copy.deepcopy(X)
-            df_index = df.index
-            y.index = copy.deepcopy(df_index)
-        #### Once you define y as the prior_y or same y, you are all set #####
-        int_vars  = y.select_dtypes(include='integer').columns.tolist()
-        # Notice that we will create a lagged columns from name vars
-        all_target_col_adds = []
-        int_changes = []
-        n_in = self.lags
-        ### we will only add lags to target variables here ###
-        namevars = self.targets
-        ### You have to add max. 3 columns to X using y variable shifted by 7, 30 and 365 days ###
-        no_of_days = self.lags
-        rsuffix = '_days_prior_'+str(no_of_days)
-        lsuffix = '_diff_prior_'+str(no_of_days)
-        for var in namevars:
-            addname =  var + rsuffix
-            addname2 = var + lsuffix
-            df[addname] = df.groupby(self.hier_vars)[var].shift(no_of_days) 
-            df[addname2] = df.groupby(self.hier_vars)[addname].diff() 
-            all_target_col_adds.append(addname)
-            all_target_col_adds.append(addname2)
-            X[addname] = df[addname].values
-            X[addname2] = df[addname2].values
-        ###### This is where you need to paste the old code cut out ############
-        # if fit_transform is done, then fitted is False since test is next ##
-        self.fitted = False
-        self.y_prior = copy.deepcopy(y)
-        self.X_adds = X[all_target_col_adds]
-        print('    completed transforms (with NaNs) shape = %s' %(X.shape,))
-        if drop_flag:
-            X = df.dropna(axis=0)
-            ### You have to make X and y with the same number of rows #######
-            y = y.loc[X.index]
-            #X = X.reset_index(drop=False) ### put the time variable back in dataset ##
-            y = y.reset_index(drop=True)
-            print('    (after dropping NaNs), X shape = %s, y shape = %s' %(X.shape,y.shape))
-            return X
-        else:
-            ### Just make sure there are no NaNs by filling from both directions ##
-            X = X.fillna(method='ffill')
-            X = X.fillna(method='bfill')
-            print('    Null rows for ', X[all_target_col_adds].isnull().sum())
-            print('    After filling NaNs with ffill and bfill, shape = %s' %(X.shape,))
-            return X
+            print('No categorical columns in X. Returning...')
+            return 
+        ##### This is where you set the end of training and return values ###
+        self.fitted = True
+        self.columns = left_subtract(self.columns, self.error_columns)
+        print('After converting all date, object and category columns to numeric, shape of data: %s' %(X[self.columns].shape,))
+        return X[self.columns]
     
-    def fit_transform(self, X, y=None, **fit_params):
+        
+    def fit_transform(self, X, y):
         X = copy.deepcopy(X)
         y = copy.deepcopy(y)
-        self.fit(X, y)
-        X_trans = self.transform(X, y)
-        return X_trans
-#####################################################################################
+        if self.fitted:
+            X_transformed = self.transform(X, y)
+        else:
+            self.fit(X, y)
+            X_transformed = self.transform(X, y)
+        return X_transformed
 
 #####################################################################################
 #####################################################################################
