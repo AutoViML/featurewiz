@@ -118,10 +118,10 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
         max_feats = len(corr_list)
         if modeltype == 'Regression':
             sel_function = mutual_info_regression
-            fs = SelectKBest(score_func=sel_function, k=max_feats)
+            #fs = SelectKBest(score_func=sel_function, k=max_feats)
         else:
             sel_function = mutual_info_classif
-            fs = SelectKBest(score_func=sel_function, k=max_feats)
+            #fs = SelectKBest(score_func=sel_function, k=max_feats)
         ##### you must ensure there are no infinite nor null values in corr_list df ##
         df_fit = df[corr_list]
         ### Now check if there are any NaN values in the dataset #####
@@ -138,7 +138,11 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
         ##### Ready to perform fit and find mutual information score ####
         
         try:
-            fs.fit(df_fit, df_target)
+            #fs.fit(df_fit, df_target)
+            if modeltype == 'Regression':
+                fs = mutual_info_regression(df_fit, df_target, n_neighbors=5, discrete_features=False, random_state=42)
+            else:
+                fs = mutual_info_classif(df_fit, df_target, n_neighbors=5, discrete_features=False, random_state=42)
         except:
             print('    SelectKBest() function is erroring. Returning with all %s variables...' %len(numvars))
             return numvars
@@ -146,7 +150,8 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
             #################################################################################
             #######   This is the main section where we use mutual info score to select vars        
             #################################################################################
-            mutual_info = dict(zip(corr_list,fs.scores_))
+            #mutual_info = dict(zip(corr_list,fs.scores_))
+            mutual_info = dict(zip(corr_list,fs))
             #### The first variable in list has the highest correlation to the target variable ###
             sorted_by_mutual_info =[key for (key,val) in sorted(mutual_info.items(), key=lambda kv: kv[1],reverse=True)]
             #####   Now we select the final list of correlated variables ###########
