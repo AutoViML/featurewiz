@@ -183,33 +183,33 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0,
                     nrows=None, parse_dates=False, target='', is_test_flag=False):
     start_time = time.time()
     ### This is where you have to make sure target is not empty #####
-    
-    if isinstance(target, str):
-        if not is_test_flag:
-            if len(target) == 0:
-                modelt = 'Clustering'
-                print('featurewiz does not work on clustering or unsupervised problems. Returning...')
-                return dataname
+    if not isinstance(dataname,str):
+        dfte = copy.deepcopy(dataname)
+        if isinstance(target, str):
+            if not is_test_flag:
+                if len(target) == 0:
+                    modelt = 'Clustering'
+                    print('featurewiz does not work on clustering or unsupervised problems. Returning...')
+                    return dataname
+                else:
+                    modelt, _ = analyze_problem_type(dataname[target], target)
             else:
-                modelt, _ = analyze_problem_type(dataname[target], target)
+                ### For test data, just check the target value which will be given as odeltype ##
+                modelt = copy.deepcopy(target)
         else:
-            ### For test data, just check the target value which will be given as odeltype ##
-            modelt = copy.deepcopy(target)
-    else:
-        ### Target is a list or None ############
-        if not is_test_flag:
-            if target is None or len(target) == 0:
-                modelt = 'Clustering'
-                print('featurewiz does not work on clustering or unsupervised problems. Returning...')
-                return dataname
+            ### Target is a list or None ############
+            if not is_test_flag:
+                if target is None or len(target) == 0:
+                    modelt = 'Clustering'
+                    print('featurewiz does not work on clustering or unsupervised problems. Returning...')
+                    return dataname
+                else:
+                    modelt, _ = analyze_problem_type(dataname[target], target)
             else:
-                modelt, _ = analyze_problem_type(dataname[target], target)
-        else:
-            ## For test data, the modeltype is given in the target variable 
-            modelt = copy.deepcopy(target)
-
+                ## For test data, the modeltype is given in the target variable 
+                modelt = copy.deepcopy(target)
     ###########################  This is where we load file or data frame ###############
-    if isinstance(dataname,str):
+    elif isinstance(dataname,str):
         if dataname == '':
             print('    No file given. Continuing...')
             return None
@@ -251,7 +251,7 @@ def load_file_dataframe(dataname, sep=",", header=0, verbose=0,
             except:
                 print('    Could not read compressed file. Please unzip and try again...')
                 return dataname
-    elif isinstance(dataname,pd.DataFrame):        
+    elif isinstance(dataname, pd.DataFrame):        
         dfte = copy.deepcopy(dataname)
     else:
         print('Dataname input must be a filename with path to that file or a Dataframe')
@@ -382,7 +382,7 @@ from .databunch import DataBunch
 from .encoders import FrequencyEncoder
 
 from sklearn.model_selection import train_test_split
-def featurewiz(dataname, target, corr_limit=0.9, verbose=0, sep=",", header=0,
+def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
             test_data='', feature_engg='', category_encoders='', dask_xgboost_flag=False,
             nrows=None, skip_sulov=False,  **kwargs):
     """
@@ -445,6 +445,7 @@ def featurewiz(dataname, target, corr_limit=0.9, verbose=0, sep=",", header=0,
     print('############       F A S T   F E A T U R E  E N G G    A N D    S E L E C T I O N ! ########')
     print("# Be judicious with featurewiz. Don't use it to create too many un-interpretable features! #")
     print('############################################################################################')
+    print('featurewiz has selected %s as the correlation limit. Change this limit to fit your needs...' %corr_limit)
     if not nrows is None:
         print('ALERT: nrows=%s. Hence featurewiz will randomly sample that many rows.' %nrows)
         print('    Change nrows=None if you want all rows...')
@@ -474,7 +475,6 @@ def featurewiz(dataname, target, corr_limit=0.9, verbose=0, sep=",", header=0,
     ######################################################################################
     #####      MAKING FEATURE_TYPE AND FEATURE_GEN SELECTIONS HERE           #############
     ######################################################################################
-    print('Correlation Limit = %s' %corr_limit)
     feature_generators = ['interactions', 'groupby', 'target']
     feature_gen = ''
     if feature_engg:

@@ -25,6 +25,7 @@ from .my_encoders import My_LabelEncoder, Groupby_Aggregator, My_LabelEncoder_Pi
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe, FE_create_time_series_features, Binning_Transformer
 from .my_encoders import Column_Names_Transformer, FE_convert_all_object_columns_to_numeric, Numeric_Transformer
 from .my_encoders import TS_Lagging_Transformer, TS_Fourier_Transformer, TS_Trend_Seasonality_Transformer
+from .my_encoders import TS_Lagging_Transformer_Pipe, TS_Fourier_Transformer_Pipe
 
 from .sulov_method import FE_remove_variables_using_SULOV_method
 from .featurewiz import FE_transform_numeric_columns_to_bins, FE_create_interaction_vars

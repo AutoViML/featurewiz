@@ -1389,16 +1389,18 @@ class TS_Lagging_Transformer(BaseEstimator, TransformerMixin):
     def transform(self, X, y=None):
         X = copy.deepcopy(X)
         X_trans = None
-        ##### Then you should transform here ############
         if self.fitted and y is None:
+            #############################################
             ##### This is for test data #################
+            #############################################
             if not is_datetime64_any_dtype(X[self.ts_column]):
                 print('%s is not a pandas date-time dtype column. Converting it now.' %self.ts_column)
                 X[self.ts_column] = pd.to_datetime(X[self.ts_column])
             numtrans = Numeric_Transformer(ts_columns = [self.ts_column])
-            new_columns = left_subtract(self.X_transformed.columns.tolist(), self.ratio_col_adds)
+            #new_columns = left_subtract(self.X_transformed.columns.tolist(), self.ratio_col_adds)
+            new_columns = X.columns.tolist()
             for each_ratio_col_add in self.ratio_col_adds:
-                X_train_1 = numtrans.fit_transform(self.X_transformed[new_columns], self.y_prior)
+                X_train_1 = numtrans.fit_transform(X[new_columns], self.y_prior)
                 y_1 = self.X_transformed[each_ratio_col_add]
                 X_test_1 = numtrans.transform(X[new_columns])
                 print('##### Training model to create %s column in test ############' %each_ratio_col_add)
@@ -1411,7 +1413,9 @@ class TS_Lagging_Transformer(BaseEstimator, TransformerMixin):
             print('    Completed')
             return X[self.columns + self.ratio_col_adds]
         else:
+            ##############################################
             ##### This is for train data #################
+            ##############################################
             try:
                 if self.time_period == 'daily':
                     self.train['new_'+self.ts_column] = self.train[self.ts_column] - pd.Timedelta(days=self.lags)
@@ -1437,136 +1441,77 @@ class TS_Lagging_Transformer(BaseEstimator, TransformerMixin):
             return X_trans
     
         
-    def fit_transform(self, X, y):
+    def fit_transform(self, X, y, **fit_params):
         X = copy.deepcopy(X)
         y = copy.deepcopy(y)
         if self.fitted:
-            self.X_transformed = self.transform(X, y)
+            return self.transform(X, y)
         else:
             self.fit(X, y)
-            self.X_transformed = self.transform(X, y)
-        return self.X_transformed        
+            return self.transform(X, y)
 
 ################################################################################
-# THIS IS A MORE COMPLEX ALGORITHM THAT CHECKS MORE SPECIFICALLY FOR A DATE AND TIME FIELD
-import datetime as dt
-from datetime import datetime, date, time
-
-### This tests if a string is date field and returns a date type object if successful and
-##### a null list if it is unsuccessful
-def is_date(txt):
-    fmts = ('%Y-%m-%d', '%d/%m/%Y', '%d-%b-%Y', '%d/%b/%Y', '%b/%d/%Y', '%m/%d/%Y', '%b-%d-%Y', '%m-%d-%Y',
- '%Y/%m/%d', '%m/%d/%y', '%d/%m/%y', '%Y-%b-%d', '%Y-%B-%d', '%d-%m-%y', '%a, %d %b %Y', '%a, %d %b %y',
- '%d %b %Y', '%d %b %y', '%a, %d/%b/%y', '%d-%b-%y', '%m-%d-%y', '%d-%m-%Y', '%b%d%Y', '%d%b%Y',
- '%Y', '%b %d, %Y', '%B %d, %Y', '%B %d %Y', '%b %Y', '%B%Y', '%b %d,%Y')
-    parsed=None
-    for fmt in fmts:
-        try:
-            t = dt.datetime.strptime(txt, fmt)
-            Year=t.year
-            if Year > 2040 or Year < 1900:
-                pass
-            else:
-                parsed = fmt
-                return fmt
-                break
-        except ValueError as err:
-            pass
-    return parsed
-
-
-
-#### This tests if a string is time field and returns a time type object if successful and
-##### a null list if it is unsuccessful
-def is_time(txt):
-    fmts = ('%H:%M:%S.%f','%M:%S.%fZ','%Y-%m-%dT%H:%M:%S.%fZ','%h:%M:%S.%f','%-H:%M:%S.%f',
-            '%H:%M','%I:%M','%H:%M:%S','%I:%M:%S','%H:%M:%S %p','%I:%M:%S %p',
-           '%H:%M %p','%I:%M %p')
-    parsed=None
-    for fmt in fmts:
-        try:
-            t = dt.datetime.strptime(txt, fmt)
-            parsed=fmt
-            return parsed
-            break
-        except ValueError as err:
-            pass
-    return parsed
-
-#### This tests if a string has both date and time in it. Returns a date-time object and null if it is not
-
-def is_date_and_time(txt):
-    fmts = ('%d/%m/%Y  %I:%M:%S %p', '%d/%m/%Y %I:%M:%S %p', '%d-%b-%Y %I:%M:%S %p',
- '%d/%b/%Y %I:%M:%S %p', '%b/%d/%Y %I:%M:%S %p', '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%dT%H:%M:%S.%fZ',
- '%m/%d/%Y %I:%M %p', '%m/%d/%Y %H:%M %p', '%d/%m/%Y  %I:%M:%S', '%d/%m/%Y  %H:%M', '%m/%d/%Y %H:%M',
- '%m/%d/%Y  %H:%M', '%d/%m/%Y  %I:%M', '%d/%m/%Y  %I:%M %p', '%m/%d/%Y  %I:%M', '%d/%b/%Y  %I:%M',
- '%b/%d/%Y  %I:%M', '%m/%d/%Y  %I:%M:%S', '%b-%d-%Y %I:%M:%S %p', '%m-%d-%Y %H:%M:%S %p',
- '%b-%d-%Y %H:%M:%S %p', '%m/%d/%Y %H:%M:%S %p', '%b/%d/%Y %H:%M:%S %p', '%Y-%m-%d %H:%M:%S %Z',
- '%Y-%m-%d %H:%M:%S %Z%z', '%Y-%m-%d %H:%M:%S %z', '%Y/%m/%d %H:%M:%S %Z%z', '%m/%d/%y %H:%M:%S %Z%z',
- '%d/%m/%Y %H:%M:%S %Z%z', '%m/%d/%Y %H:%M:%S %Z%z', '%d/%m/%y %H:%M:%S %Z%z', '%Y-%b-%d %H:%M:%S %Z%z',
- '%Y-%B-%d %H:%M:%S %Z%z', '%d-%b-%Y %H:%M:%S %Z%z', '%d-%m-%y %H:%M:%S %Z%z', '%Y-%m-%d %H:%M',
- '%Y-%b-%d %H:%M', '%a, %d %b %Y %T %z', '%a, %d %b %y %T %z', '%d %b %Y %T %z', '%d %b %y %T %z',
- '%d/%b/%Y %T %z', '%a, %d/%b/%y %T %z', '%d-%b-%Y %T %z', '%d-%b-%y %T %z', '%m-%d-%Y %I:%M %p',
- '%m-%d-%y %I:%M %p', '%m-%d-%Y %I:%M:%S %p', '%d-%m-%Y %H:%M:%S %p', '%m-%d-%y %H:%M:%S %p',
- '%d-%b-%Y %H:%M:%S %p', '%d-%m-%y %H:%M:%S %p', '%d-%b-%y %I:%M:%S %p', '%d-%b-%y %I:%M %p',
- '%d-%b-%Y %I:%M %p', '%d-%m-%Y %H:%M %p', '%d-%m-%y %H:%M %p', '%d/%m/%Y %H:%M:%p', '%d/%m/%Y %H:%M:%S',
- '%Y-%m-%d %H:%M:%S')
-    parsed=None
-    for fmt in fmts:
-        try:
-            t = dt.datetime.strptime(txt, fmt)
-            parsed=fmt
-            return parsed
-            break
-        except ValueError as err:
-            pass
-    return parsed
-
-# FIND DATE TIME VARIABLES
-
-# This checks if a field in general is a date or time field
-
-def infer_date_time_format(list_dates):
+# THIS IS A PIPE version of the Transformers - it is useful for sklearn pipelines
+class TS_Lagging_Transformer_Pipe(BaseEstimator, TransformerMixin):
     """
-    This is a generic algorithm that can infer date and time formats by checking repeatedly against a list.
-    Make sure you give it a list of datetime formats since there can be many formats in a list.
-    You can take the first of the returned list of formats or the majority or whatever you wish.
-    # THE DATE FORMATS tested so far by this algorithm are:
-        # 19JAN1990
-        # JAN191990
-        # 19/jan/1990
-        # jan/19/1990
-        # Jan 19, 1990
-        # January 19, 1990
-        # Jan 19,1990
-        # 01/19/1990
-        # 01/19/90
-        # 1990
-        # Jan 1990
-        # January1990 
-        # YOU CAN ADD MORE FORMATS above IN THE "fmts" section.
+        #####################################################################
+        ####   This is a PIPELINE version suitable for sklearn pipelines ####
+        #####################################################################
     """
-    
-    date_time_fmts = []
-    try: 
-        for each_datetime in list_dates:
-            date1 = is_date(each_datetime)
-            if date1 and not date1 in date_time_fmts:
-                date_time_fmts.append(date1)
-            else:
-                date2 = is_time(each_datetime)
-                if date2 and not date2 in date_time_fmts:
-                    date_time_fmts.append(date2)
-                else:
-                    date3 = is_date_and_time(each_datetime)
-                    if date3 and not date3 in date_time_fmts:
-                        date_time_fmts.append(date3)
-            if not date1 and not date2 and not date3 :
-                print('date time format cannot be inferred. Please check input and try again.')
-    except:
-        print('Error in inferring date time format. Returning...')
-    return date_time_fmts
+    def __init__(self, lags, ts_column, hier_vars = [], time_period="", verbose=0):
+        self.lags = lags
+        self.ts_column = ts_column
+        self.hier_vars = hier_vars
+        self.time_period = time_period
+        self.verbose = verbose
+
+    def fit(self, X, y):
+        tslag = TS_Lagging_Transformer(lags=self.lags, ts_column=self.ts_column, 
+            hier_vars = self.hier_vars, time_period=self.time_period, verbose=self.verbose)
+        self.fitted = True
+        return tslag
+
+    def transform(self, X, y=None):
+        if self.fitted:
+            return self.transform(X, y), y
+        else:
+            tslag = self.fit(X, y)
+            return tslag.transform(X), y
+
+    def fit_transform(X, y, **fit_params):
+        tslag = self.fit(X, y)
+        return tslag.transform(X), y
 #################################################################################################
+class TS_Fourier_Transformer_Pipe(BaseEstimator, TransformerMixin):
+    """
+        #########################################################################################
+        ####   This is a Fourier Transformer PIPELINE version suitable for sklearn pipelines ####
+        #########################################################################################
+    """
+    def __init__(self, ts_column, id_column='', time_period='daily', seasonality='1year', verbose=0):
+        self.ts_column = ts_column
+        self.id_column = id_column
+        self.time_period = time_period
+        self.seasonality = seasonality
+        self.verbose = verbose
+
+    def fit(self, X, y):
+        tslag = TS_Fourier_Transformer(ts_column=self.ts_column, id_column=self.id_column, 
+                time_period=self.time_period, seasonality=self.seasonality, verbose=self.verbose)
+        self.fitted = True
+        return tslag
+
+    def transform(self, X, y=None):
+        if self.fitted:
+            return self.transform(X, y), y
+        else:
+            tslag = self.fit(X, y)
+            return tslag.transform(X), y
+
+    def fit_transform(X, y, **fit_params):
+        tslag = self.fit(X, y)
+        return tslag.transform(X), y
+
 ###########################################################################################
 ############## CONVERSION OF STRING COLUMNS TO NUMERIC using MY_LABELENCODER #########
 #######################################################################################
