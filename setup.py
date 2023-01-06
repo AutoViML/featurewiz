@@ -33,7 +33,7 @@ setuptools.setup(
         "lightgbm>=3.2.1",
         "distributed>=2021.11.0",
         "feather-format>=0.4.1",
-        "pyarrow~=7.0.0",
+        "pyarrow>=7.0.0",
         "fsspec>=0.3.3",
         "Pillow>=9.0.0",
     ],
