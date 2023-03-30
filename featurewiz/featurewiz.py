@@ -1349,15 +1349,15 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
             
             #imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
             #print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
-            imp_feats_1 =  pd.Series(imp_feats).sort_values(ascending=False)[pd.Series(imp_feats).sort_values(ascending=False)>1.0]
+            imp_feats_1 =  pd.Series(imp_feats).sort_values(ascending=False)#[pd.Series(imp_feats).sort_values(ascending=False)>1.0]
             if len(imp_feats_1) > 0:
                 if len(imp_feats_1) > top_num:
                     top_num = int(len(imp_feats_1) * 0.5)
                 important_features += imp_feats_1[:top_num].index.tolist()
                 print('            selecting %s features in this iteration' %len(imp_feats_1[:top_num]))
             else:
-                print('            Selecting all features though none meet criteria of F-score greater than 1.0.')
-                print('                Caution: they might be low-quality features...')
+                print('            Selecting all features...')
+                #print('                Caution: they might be low-quality features...')
                 imp_feats_1 =  pd.Series(imp_feats).sort_values(ascending=False)
                 important_features += imp_feats_1[:].index.tolist()
             #######  order this in the same order in which they were collected ######
