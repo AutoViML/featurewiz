@@ -827,7 +827,7 @@ def xgboost_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y,
     early_stopping = 10
     start_time = time.time()
     if str(model).split("(")[0] == 'RandomizedSearchCV':
-        
+        #### we need to set the xgboost version fixed at 1.5 otherwise error!
         model.fit(x_train, y_train, **early_stopping_params)
         print('Time taken for Hyper Param tuning of XGB (in minutes) = %0.1f' %(
                                         (time.time()-start_time)/60))
