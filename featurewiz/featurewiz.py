@@ -1357,12 +1357,12 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
                 else:
                     top_num = int(len(imp_feats_1))
                 important_features += imp_feats_1[:top_num].index.tolist()
-                print('            selecting %s features in this iteration' %len(imp_feats_1[:top_num]))
+                print('            selecting %s features in this iteration' %top_num)
             else:
-                print('            Selecting all features...')
-                #print('                Caution: they might be low-quality features...')
+                print('            Selecting %s features from this iteration...' %top_num)
+                print('                Caution: they might be low-quality features since their F-score is less than 1...')
                 imp_feats_1 =  pd.Series(imp_feats).sort_values(ascending=False)
-                important_features += imp_feats_1[:].index.tolist()
+                important_features += imp_feats_1[:top_num].index.tolist()
             #######  order this in the same order in which they were collected ######
             important_features = list(OrderedDict.fromkeys(important_features))
             if verbose:
