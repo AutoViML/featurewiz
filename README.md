@@ -7,7 +7,9 @@
 <li>It is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>.</li>
 <li>It is actively maintained, and it is regularly updated with new features and bug fixes.</li>
 </ol>
-If you are looking for a single feature selection library, we would definitely recommend checking out featurewiz. It is a powerful tool that can help you to improve the performance of your machine learning models.
+
+## Latest Updates
+If you are looking for the latest and greatest updates about the library, we would definitely recommend checking out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a> often. It is a powerful tool that can help you improve the performance of your machine learning models with constant new capabilities from featurewiz.
 
 # Table of Contents
 <ul>
