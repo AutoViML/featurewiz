@@ -1,13 +1,20 @@
 # featurewiz latest updates
+## Update (May 2023): featurewiz 3.0 is here with better accuracy and speed
+<ol>
+<li><b>The latest version of featurewiz is here!</li> </b> The new 3.0 version of featurewiz provides slightly better performance by about 1-2% in diverse datasets (your experience may vary). Install it and check it out!
+</ol>
+
 ## Update (March 2023): XGBoost 1.7 has issues with featurewiz
 <ol>
 <li><b>The latest version of XGBoost 1.7+ does not work with featurewiz.</li> </b>
  They have made massive changes to their API. So please switch to xgboost 1.5 if you want to run featurewiz.</ol>
+</ol>
 
 ## Update (October 2022): FeatureWiz 2.0 is here. 
 <ol>
 <li><b>featurewiz 2.0 is here. You have two small performance improvements:</li> </b>
-1. SULOV method now has a higher correlation limit of 0.90 as default. This means fewer variables are removed and hence more vars are selected. You can always set it back to the old limit by setting `corr_limit`=0.70 if you want.<br>
+1. SULOV method now has a higher correlation limit of 0.90 as default. This means fewer variables are removed and hence more vars are selected. You can always set it back to the old limit by setting `corr_limit`=0.70 if you want.
+<br>
 2. Recursive XGBoost algorithm is tighter in that it selects fewer features in each iteration. To see how many it selects, set `verbose` flag to 1. <br>
 The net effect is that the same number of features are selected but they are better at producing more accurate models. Try it out and let us know. 
 </ol>
