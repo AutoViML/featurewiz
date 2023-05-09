@@ -1387,13 +1387,35 @@ class TS_Lagging_Transformer(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
-        X = copy.deepcopy(X)
+        self.test = copy.deepcopy(X)
         X_trans = None
         if self.fitted and y is None:
             #############################################
             ##### This is for test data #################
             #############################################
-            if not is_datetime64_any_dtype(X[self.ts_column]):
+            self.ratio_col_adds = []
+            if is_datetime64_any_dtype(X[self.ts_column]):
+                try:
+                    if self.time_period == 'daily':
+                        self.test['new_'+self.ts_column] = self.test[self.ts_column] - pd.Timedelta(days=self.lags)
+                    elif self.time_period == 'weekly':
+                        self.test['new_'+self.ts_column] = self.test[self.ts_column] - pd.Timedelta(weeks=self.lags)
+                    else:
+                        self.test['new_'+self.ts_column] = self.test[self.ts_column] - pd.Timedelta(hours=self.lags)
+                    #### Now we must transform using the new lag column ############
+                    for each_target in self.targets:
+                        newcol = each_target+'_lag_'+str(self.lags)
+                        if len(self.hier_vars) == 0:
+                            self.test[newcol] = self.test.set_index(['new_'+self.ts_column]).index.map(self.ratios[each_target].get).fillna(0)
+                        else:
+                            self.test[newcol] = self.test.set_index(self.hier_vars+['new_'+self.ts_column]).index.map(self.ratios[each_target].get).fillna(0)
+                        self.ratio_col_adds.append(newcol)
+                    X_trans = self.test[self.columns + self.ratio_col_adds ]
+                    print('After adding lag column, shape of data: %s' %(X_trans.shape,))
+                    return X_trans
+                except:
+                    print('    Error occured in adding lag feature. Trying another method...')
+            else:
                 print('%s is not a pandas date-time dtype column. Converting it now.' %self.ts_column)
                 X[self.ts_column] = pd.to_datetime(X[self.ts_column])
             numtrans = Numeric_Transformer(ts_columns = [self.ts_column])
@@ -1545,7 +1567,7 @@ def FE_convert_all_object_columns_to_numeric(train, test="", features=[]):
     if len(nums) == 0:
         pass
     else:
-
+        
         if train[nums].isnull().sum().sum() > 0:
             null_cols = np.array(nums)[train[nums].isnull().sum()>0].tolist()
             for each_col in null_cols:

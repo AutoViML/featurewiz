@@ -717,6 +717,7 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
     #### If there are more than 30 categorical variables in a data set, it is worth reducing features.
     ####  Otherwise. XGBoost is pretty good at finding the best features whether cat or numeric !
     #################################################################################################
+
     start_time = time.time()
     n_splits = 5
     max_depth = 8
@@ -959,6 +960,7 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
                 y_test = None
         X_train_index = X_train.index
         X_test_index = X_test.index
+        
         ##################################################################################################
         ###### Category_Encoders does not work with Dask - so don't send in Dask dataframes to DataBunch!
         ##################################################################################################
@@ -1035,6 +1037,7 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
     ############     S   U  L  O   V       M   E   T   H   O  D      ###############################
     #### If the data dimension is less than 5o Million then do SULOV - otherwise skip it! #########
     ################################################################################################
+    
     cols_with_infinity = EDA_find_remove_columns_with_infinity(dataname)
     # first you must drop rows that have inf in them ####
     if cols_with_infinity:
@@ -1595,9 +1598,7 @@ def reduce_mem_usage(df):
     end_mem = df.memory_usage().sum() / 1024**2
     if type(df) == dask.dataframe.core.DataFrame:
         end_mem = end_mem.compute()
-    print('        memory usage after optimization is: {:.2f} MB'.format(end_mem))
-    print('        decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
-    
+    print(f'        by {(100 * (start_mem - end_mem) / start_mem):.1f}%. Memory usage after is: {end_mem:.2f} MB')    
     return df
 ##################################################################################
 def FE_start_end_date_time_features(smalldf, startTime, endTime, splitter_date_string="/",splitter_hour_string=":"):
@@ -2988,5 +2989,64 @@ def FE_remove_commas_in_numerics(train, nums=[]):
             train[each_num] = train[each_num].map(lambda x: float("".join( x.split(",")))).values
     return train
 ####################################################################################
+### this works only on pandas dataframes but it is extremely fast
+import copy
+def FE_calculate_duration_from_timestamp(df, id_column, timestamp_column):
+    """
+    ###################################################################################
+    Calculate the total time and average time spent online per day by user. 
+    Also it calculates the number of logins per user per day.
+    ###   This is very useful for logs data, IOT data, and pings from visits data #####
+    This function takes a DataFrame with user ids and timestamps (of logins, etc.) 
+    and returns a DataFrame with duration or the time spent between two timestamps.
+    This is calculated by taking pairs of rows and assuming the first row is login
+    and the second row is logout. Then we subtract the timestamp of the login from 
+    the timestamp of the logout for each pair of rows. This function uses alternate rows
+    of a dataframe and splits them into separate columns. It then subtracts the two 
+    columns to find time delta in seconds during those two times. It also eliminates
+    any data entry errors by removing negative durations. This is the best and 
+    speediest way to calculate online time spent per user per day.
+    ###################################################################################
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input DataFrame with user ids, timestamps and values.
+    id_column : str
+        The name of the column that contains the user ids.
+    timestamp_column : str
+        Name of the timestamp column
 
+    Returns
+    -------
+    result : pandas.DataFrame
+        The output DataFrame with user ids, dates, average time spent and number of logins.
+    """
+    df = copy.deepcopy(df)
+    # Create an empty DataFrame to store the results
+    columns = [id_column, timestamp_column]
+    df = df[columns]
+    leng = len(df)
+    # Reshape the DataFrame into two columns by stacking every other row
+    df1 = df.iloc[::2] # select every even row
+    df2 = df.drop(0, axis=0) # drop the first row
+    df2 = df2.iloc[::2] # select every even row from the remaining rows
+    # If length of dataframe is not an even number, process until the last row
+    if leng%2 != 0:
+        lastrow = dict(df.iloc[-1]) # get the last row as a dictionary
+        df2 = df2.append(lastrow, ignore_index=True) # append it to df2
+    df1 = df1.rename(columns={timestamp_column:timestamp_column+'_begin'}) # rename the timestamp column in df1
+    df2 = df2.rename(columns={timestamp_column:timestamp_column+'_end'}) # rename the timestamp column in df2
+    df1x = df1.reset_index(drop=True) # reset the index of df1
+    df2x = df2.reset_index(drop=True) # reset the index of df2
+    df3 = pd.concat([df1x, df2x], axis=1) # concatenate df1 and df2 horizontally
+    result = df3.iloc[:,[0,1,3]] # select only the relevant columns from df3
+    # calculate the time difference between each pair of rows
+    result["time_diff"] = result[timestamp_column+"_end"] - result[timestamp_column+"_begin"] 
+    #convert the value_diff column to seconds using np.timedelta64(1, 's') function
+    result['time_diff'] = result['time_diff'] / np.timedelta64(1, 's')
+    result.loc[(result['time_diff']<0),"time_diff"] = 0
+    
+    #return the result
+    return result
+###############################################################################################
 
