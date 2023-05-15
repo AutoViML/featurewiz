@@ -757,9 +757,9 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
         tree_method = 'gpu_hist'
         param['nthread'] = -1
         param['tree_method'] = 'gpu_hist'
-        params['eta'] = 0.01
-        params['subsample'] = 0.5
-        params['grow_policy'] = 'depthwise' # 'lossguide' # 
+        param['eta'] = 0.01
+        param['subsample'] = 0.5
+        param['grow_policy'] = 'depthwise' # 'lossguide' # 
         param['n_estimators'] = n_estimators
         param['max_depth'] = max_depth
         param['max_leaves'] = 0
