@@ -754,6 +754,7 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
     cpu_params['predictor'] = 'cpu_predictor'
     cpu_params['num_parallel_tree'] = 1
     if GPU_exists:
+        ### This has been fixed ###
         tree_method = 'gpu_hist'
         param['nthread'] = -1
         param['tree_method'] = 'gpu_hist'
