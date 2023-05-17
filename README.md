@@ -1,18 +1,11 @@
 # featurewiz
-`featurewiz` is a powerful feature selection library that has a number of features that make it stand out from the competition, including:
-<ol>
-<li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR)) described by wikipedia as: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
-<li>It selects the best number of un-correlated features that have maximum mutual information about the target without having to specify the number of features</li>
-<li>It is fast and easy to use, and comes with a number of helpful features, such as a built-in categorical-to-numeric encoder and a powerful feature engineering module</li>
-<li>It is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>.</li>
-<li>It is actively maintained, and it is regularly updated with new features and bug fixes.</li>
-</ol>
+`featurewiz` is the best feature selection library for boosting your machine learning performance with minimal effort and maximum relevance using the famous MRMR algorithm.
 
-## Latest Updates
-If you are looking for the latest and greatest updates about the library, we would definitely recommend checking out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a> often. It is a powerful tool that can help you improve the performance of your machine learning models with constant new capabilities from featurewiz.
+![banner](images/featurewiz_logos.png)
 
 # Table of Contents
 <ul>
+<li><a href="#Latest">Latest updates</a></li>
 <li><a href="#introduction">What is featurewiz</a></li>
 <li><a href="#working">How it works</a></li>
 <li><a href="#tips">Tips for using featurewiz</a></li>
@@ -25,20 +18,27 @@ If you are looking for the latest and greatest updates about the library, we wou
 <li><a href="#license">License</a></li>
 <li><a href="#disclaimer">Disclaimer</a></li>
 </ul>
-<p>
 
-![banner](featurewiz_logos.png)
+## Latest
+If you are looking for the latest and greatest updates about our library, we would definitely recommend checking out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a> often. It is a powerful tool that can help you improve the performance of your machine learning models with constant new capabilities from featurewiz.
 
 ## Introduction
 `featurewiz` a new python library for creating and selecting the best features in your data set fast!
 `featurewiz` can be used in one or two ways. Both are explained below.
+<ol>
+<li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR)) described by wikipedia as: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
+<li>It selects the best number of un-correlated features that have maximum mutual information about the target without having to specify the number of features</li>
+<li>It is fast and easy to use, and comes with a number of helpful features, such as a built-in categorical-to-numeric encoder and a powerful feature engineering module</li>
+<li>It is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>.</li>
+<li>It is actively maintained, and it is regularly updated with <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">new features and bug fixes</a>.</li>
+</ol>
 
 ### 1.  Feature Engineering
 <p>The first step is not absolutely necessary but it can be used to create new features that may or may not be helpful (be careful with automated feature engineering tools!).<p>
 1. <b>Performing Feature Engineering</b>: One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions such as Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features to find best features was difficult and left only to "experts" or "professionals". featurewiz was created to help you in this endeavor.<br>
 <p>featurewiz now enables you to add hundreds of such features with a single line of code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go. Not only that, using the next step, featurewiz will sift through numerous such variables and find only the least correlated and most relevant features to your model. All in one step!.<br>
 
-![feature_engg](feature_engg.jpg)
+![feature_engg](images/feature_engg.jpg)
 
 ### 2.  Feature Selection
 <p>The second step is Feature Selection. `featurewiz` uses the MRMR (Minimum Redundancy Maximum Relevance) algorithm as the basis for its feature selection. <br>
@@ -48,9 +48,9 @@ If you are looking for the latest and greatest updates about the library, we wou
 3. Does the model overfit now on these new features and perform better or worse than before?
 <br>
 All are very important questions and featurewiz answers them by using the SULOV method and Recursive XGBoost to reduce features in your dataset to the best "minimum optimal" features for the model.<br>
-<p><b>SULOV</b>: SULOV stands for `Searching for Uncorrelated List of Variables`. The SULOV algorithm is based on the Minimum-Redundancy-Maximum-Relevance (MRMR) <a href="https://towardsdatascience.com/mrmr-explained-exactly-how-you-wished-someone-explained-to-you-9cf4ed27458b">algorithm explained in this article</a> as one of the best feature selection methods. To understand how MRMR works and how it is different from `Boruta` and other feature selection methods, see the chart below. Here "Minimal Optimal" refers to the MRMR and featurewiz kind of algorithms while "all-relevant" refers to Boruta kind of algorithms.<br>
+<p><b>SULOV</b>: SULOV stands for `Searching for Uncorrelated List of Variables`. The SULOV algorithm is based on the Minimum-Redundancy-Maximum-Relevance (MRMR) <a href="https://towardsdatascience.com/mrmr-explained-exactly-how-you-wished-someone-explained-to-you-9cf4ed27458b">algorithm explained in this article</a> as one of the best feature selection methods. To understand how MRMR works and how it is different from `Boruta` and other feature selection methods, see the chart below. Here "Minimal Optimal" refers to MRMR  (featurewiz) while "all-relevant" refers to Boruta.<br>
 
-![MRMR_chart](MRMR.png)
+![MRMR_chart](images/MRMR.png)
 
 ## Working
 `featurewiz` performs feature selection in 2 steps. Each step is explained below.
@@ -62,7 +62,7 @@ All are very important questions and featurewiz answers them by using the SULOV 
 <li>What’s left is the ones with the highest Information scores and least correlation with each other.</li>
 </ol>
 
-![sulov](SULOV.jpg)
+![sulov](images/SULOV.jpg)
 
 <b>The working of the Recursive XGBoost</b> is as follows: 
 Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, featurewiz uses XGBoost to repeatedly find the best features among the remaining variables after SULOV. 
@@ -73,7 +73,7 @@ Once SULOV has selected variables that have high mutual information scores with 
 <li>Do this 5 times. Combine all selected features and de-duplicate them.</li>
 </ol>
 
-![xgboost](xgboost.jpg)
+![xgboost](images/xgboost.jpg)
 
 ## Tips
 Here are some additional tips for ML engineers and data scientists when using featurewiz:
@@ -209,7 +209,7 @@ outputs = fwiz.featurewiz(dataname=train, target=target, corr_limit=0.70, verbos
 
 ## Additional
 
-![background](featurewiz_background.jpg)
+![background](images/featurewiz_background.jpg)
 
 To learn more about how featurewiz works under the hood, watch this [video](https://www.youtube.com/embed/ZiNutwPcAU0)<br>
 <p>featurewiz was designed for selecting High Performance variables with the fewest steps.
