@@ -46,7 +46,7 @@ version_number = __version__
 print("""%s %s version. Select nrows to a small number when running on huge datasets.
 output = featurewiz(dataname, target, corr_limit=0.90, verbose=2, sep=',', 
 		header=0, test_data='',feature_engg='', category_encoders='',
-		dask_xgboost_flag=False, nrows=None, skip_sulov=False)
+		dask_xgboost_flag=False, nrows=None, skip_sulov=False, skip_xgboost=False)
 Create new features via 'feature_engg' flag : ['interactions','groupby','target']
 """ %(module_type, version_number))
 ################################################################################

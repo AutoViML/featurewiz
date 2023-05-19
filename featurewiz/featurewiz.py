@@ -385,7 +385,7 @@ from .encoders import FrequencyEncoder
 from sklearn.model_selection import train_test_split
 def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
             test_data='', feature_engg='', category_encoders='', dask_xgboost_flag=False,
-            nrows=None, skip_sulov=False,  **kwargs):
+            nrows=None, skip_sulov=False, skip_xgboost=False,  **kwargs):
     """
     #################################################################################
     ###############           F E A T U R E   W I Z A R D          ##################
@@ -432,6 +432,7 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
             automatically and sets the num of workers for DASK. It also uses DASK XGBoost to run it.
         nrows: default = None: None means all rows will be utilized. If you want to sample "N" rows, set nrows=N.
         skip_sulov: a new flag to skip SULOV method. It will automatically go straight to recursive xgboost.
+        skip_xgboost: a new flag to skip recursive xgboost.
     ########           Featurewiz Output           #############################
     Output: Tuple
     Featurewiz can output either a list of features or one dataframe or two depending on what you send in.
@@ -1114,243 +1115,251 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
         if not test_data is None:
             test_data.drop(error_columns, axis=1, inplace=True)
             print('    Shape of test data after adding missing values flags  = %s' %(test_data.shape,) )
-    if verbose:
-        print('#######################################################################################')
-        print('#####    R E C U R S I V E   X G B O O S T : F E A T U R E   S E L E C T I O N  #######')
-        print('#######################################################################################')
     
-    important_features = []
-    #######################################################################
-    #####   This is for DASK XGB Regressor and XGB Classifier problems ####
-    #######################################################################
-    if settings.multi_label:
-        ### only regular xgboost with multi-output can work well in multi-label settings #
-        dask_xgboost_flag = False 
-    bst_models = []
+    if not skip_xgboost:
+ 
+        if verbose:
+            print('#######################################################################################')
+            print('#####    R E C U R S I V E   X G B O O S T : F E A T U R E   S E L E C T I O N  #######')
+            print('#######################################################################################')
+        
+        important_features = []
+        #######################################################################
+        #####   This is for DASK XGB Regressor and XGB Classifier problems ####
+        #######################################################################
+        if settings.multi_label:
+            ### only regular xgboost with multi-output can work well in multi-label settings #
+            dask_xgboost_flag = False 
+        bst_models = []
 
-    #########   This is for DASK Dataframes XGBoost training ####################
-    try:
-        xgb.set_config(verbosity=0)
-    except:
-        ## Some cases, this errors, so pass ###
-        pass
-    #################################################################################################
-    ########   Now if dask_xgboost_flag is True, convert pandas dfs back to Dask Dataframes     #####
-    #################################################################################################
-    if dask_xgboost_flag:
-        ### we reload the dataframes into dask since columns may have been dropped ##
-        if verbose:
-            print('    using DASK XGBoost')  
-        train = load_dask_data(dataname, sep)
-        if not test_data is None:
-            test = load_dask_data(test_data, sep)
-    else:
-        ### we reload the dataframes into dask since columns may have been dropped ##
-        if verbose:
-            print('    using regular XGBoost') 
-        train = copy.deepcopy(dataname)
-        test = copy.deepcopy(test_data)
-    ########  Conversion completed for train and test data ##########
-   #### If Category Encoding took place, these cat variables are no longer needed in Train. So remove them!
-    if feature_gen or feature_type:
-        print('Since %s category encoding is done, dropping original categorical vars from predictors...' %feature_gen)
-        preds = left_subtract(preds, catvars)
-    if dask_xgboost_flag:
-        train_p = train[preds]
-    else:
-        train_p = dataname[preds]
-    ######## Limit the number of iterations to 5 or so #######
-    if train_p.shape[1] <= 10:
-        iter_limit = 2
-    else:
-        iter_limit = int(train_p.shape[1]/5+0.5)
-    if verbose:
-        print('    Taking top %s features per iteration...' %top_num)
-    if dask_xgboost_flag:
-        if verbose:
-            print('    Dask version = %s' %dask.__version__)
-        ### You can remove dask_ml here since you don't do any split of train test here ##########
-        #from dask_ml.model_selection import train_test_split
-        ### check available memory and allocate at least 1GB of it in the Client in DASK #############################
-        n_workers = get_cpu_worker_count()
-        ### Avoid reducing the free memory - leave it as big as it wants to be ###
-        memory_free = str(max(1, int(psutil.virtual_memory()[0]/(n_workers*1e9))))+'GB'
-        print('    Using Dask XGBoost algorithm with %s virtual CPUs and %s memory limit...' %(get_cpu_worker_count(), memory_free))
-        client = Client(n_workers= n_workers, threads_per_worker=1, processes=True, silence_logs=50,
-                        memory_limit=memory_free)
-        print('Dask client configuration: %s' %client)
-        import gc
-        client.run(gc.collect) 
-        #train_p = client.persist(train_p)
-    if verbose:
-        print('    XGBoost version using %s as tree method: %s' %(xgb.__version__, tree_method))
-    ### This is to convert the target labels to proper numeric columns ######
-    cat_targets = dataname[target].select_dtypes(include='object').columns.tolist() + dataname[target].select_dtypes(include='category').columns.tolist()
-    ### check if they are not starting from zero ##################
-    if dask_xgboost_flag:
-        ### train is already a dask dataframe -> you can leave it as it is
-        y_train = train[target]
-    else:
-        ### train is already a regular dataframe -> you can leave it as it is
-        y_train = dataname[target]
-    #### Now we process the numeric  values through DASK XGBoost repeatedly ###################
-    try:
-        for i in range(0,train_p.shape[1],iter_limit):
-            start_time2 = time.time()
-            imp_feats = []
-            if train_p.shape[1]-i < iter_limit:
-                X_train = train_p.iloc[:,i:]
-                cols_sel = X_train.columns.tolist()
-            else:
-                X_train = train_p[list(train_p.columns.values)[i:train_p.shape[1]]]
-                cols_sel = X_train.columns.tolist()
-            ##### This is where you repeat the training and finding feature importances
-            if dask_xgboost_flag:
-                rows = X_train.compute().shape[0]
-            else:
-                rows = X_train.shape[0]
-            if rows >= 100000:
-                num_rounds = 20
-            else:
-                num_rounds = 100
-            if i == 0:
-                print('Number of booster rounds = %s' %num_rounds)
-            if train_p.shape[1]-i < 2:
-                ### If there is just one variable left, then just skip it #####
-                continue
-            #########   This is where we check target type ##########
-            if not y_train.dtypes[0] in [np.float16, np.float32, np.float64, np.int8,np.int16,np.int32,np.int64]:
-                y_train = y_train.astype(int) 
-            if settings.modeltype == 'Regression':
-                objective = 'reg:squarederror'
-                params = {'objective': objective, 
-                                   "silent":True, "verbosity": 0, 'min_child_weight': 0.5}
-            else:
-                #### This is for Classifiers only ##########                    
-                if settings.modeltype == 'Binary_Classification':
-                    objective = 'binary:logistic'
-                    num_class = 1
-                    params = {'objective': objective, 'num_class': num_class,
-                                    "silent":True,  "verbosity": 0,  'min_child_weight': 0.5}
-                else:
-                    objective = 'multi:softmax'
-                    num_class  =  dataname[target].nunique()[0]
-                    params = {'objective': objective, 
-                                    "silent":True, "verbosity": 0,   'min_child_weight': 0.5, 'num_class': num_class}
-            ############################################################################################################
-            ######### This is where we find out whether to use single or multi-label for xgboost #######################
-            ############################################################################################################
-            if settings.multi_label:
-                if settings.modeltype == 'Regression':
-                    clf = XGBRegressor(n_jobs=-1, n_estimators=100, max_depth=4, random_state=99)
-                    clf.set_params(**params)
-                    bst = MultiOutputRegressor(clf)
-                else:
-                    clf = XGBClassifier(n_jobs=-1, n_estimators=100, max_depth=4, random_state=99)
-                    clf.set_params(**params)
-                    bst = MultiOutputClassifier(clf)
-                bst.fit(X_train, y_train)
-            else:
-                if not dask_xgboost_flag:
-                    ################################################################################
-                    #########  Training Regular XGBoost on pandas dataframes only ##################
-                    ################################################################################
-                    #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
-                    
-                    try:
-                        dtrain = xgb.DMatrix(X_train, y_train, enable_categorical=True, feature_names=cols_sel)
-                        bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
-                                     
-                    except Exception as error_msg:
-                        print('Regular XGBoost is crashing due to: %s' %error_msg)
-                        if settings.modeltype == 'Regression':
-                            params = {'tree_method': cpu_tree_method, 'gpu_id': None}
-                        else:
-                            params = {'tree_method': cpu_tree_method,'num_class': num_class, 'gpu_id': None}
-                        print(error_msg)
-                        bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
-                else:
-                    ################################################################################
-                    ##########   Training XGBoost model using dask_xgboost #########################
-                    ################################################################################
-                    ### the dtrain syntax can only be used xgboost 1.50 or greater. Dont use it until then.
-                    ### use the next line for new xgboost version 1.5.1 abd higher #########
-                    try:
-                        #### SYNTAX BELOW WORKS WELL. BUT YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
-                        #dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train)
-                        #bst = xgb.dask.train(client, params, dtrain, num_boost_round=num_rounds)
-                        bst = dask_xgboost_training(X_train, y_train, params)
-                    except Exception as error_msg:
-                        if settings.modeltype == 'Regression':
-                            params = {'tree_method': cpu_tree_method}
-                        else:
-                            params = {'tree_method': cpu_tree_method,'num_class': num_class}
-                        dtrain = xgb.DMatrix(X_train, label=y_train, feature_names=cols_sel)
-                        bst = xgb.dask.train(client=client, params=params, dtrain=dtrain, num_boost_round=num_rounds)
-                        print(error_msg)
-            ################################################################################
-            if not dask_xgboost_flag:
-                bst_models.append(bst)
-            else:
-                bst_models.append(bst['booster'])                
-            ##### to get the params of an xgboost booster object you have to do the following steps:
-            if verbose >= 3:
-                if not dask_xgboost_flag :
-                    print('Regular XGBoost model parameters:\n')
-                    config = json.loads(bst.save_config())
-                else:
-                    print('Dask XGBoost model parameters:\n')
-                    boo = bst['booster']
-                    config = json.loads(boo.save_config())
-                print(config)
-            #### use this next one for dask_xgboost old ############### 
-            if settings.multi_label:
-                imp_feats = dict(zip(X_train.columns, bst.estimators_[0].feature_importances_))
-            else:
-                if not dask_xgboost_flag:
-                    imp_feats = bst.get_score(fmap='', importance_type='total_gain')
-                else:
-                    imp_feats = bst['booster'].get_score(fmap='', importance_type='total_gain')
-            ### skip the next statement since it is duplicating the work of sort_values ##
-            #imp_feats = dict(sorted(imp_feats.items(),reverse=True, key=lambda item: item[1]))
-            ### doing this for single-label is a little different from settings.multi_label #########
-
-            #imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
-            #print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
-            if len(pd.Series(imp_feats)[pd.Series(imp_feats).sort_values(ascending=False)/pd.Series(imp_feats).values.max()>=0.5]) > 1:
-                print_feats = (pd.Series(imp_feats)[pd.Series(imp_feats).sort_values(ascending=False)/pd.Series(imp_feats).values.max()>=0.5]).index.tolist()
-                if len(print_feats) < top_num:
-                    print_feats = pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
-                if len(print_feats) <= 30:
-                    print('        Selected: %s' %print_feats)
-                important_features += print_feats
-            else:
-                print_feats = pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
-                if len(print_feats) <= 30:
-                    print('        Selected: %s' %pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist())
-                important_features += print_feats
-            #######  order this in the same order in which they were collected ######
-            important_features = list(OrderedDict.fromkeys(important_features))
-            if dask_xgboost_flag:
-                print('            Time taken for DASK XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
-            else:
-                print('            Time taken for regular XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
-        #### plot all the feature importances in a grid ###########
-        if verbose >= 2:
-            if settings.multi_label:
-                draw_feature_importances_multi_label(bst_models, dask_xgboost_flag)
-            else:
-                draw_feature_importances_single_label(bst_models, dask_xgboost_flag)
-    except Exception as e:
+        #########   This is for DASK Dataframes XGBoost training ####################
+        try:
+            xgb.set_config(verbosity=0)
+        except:
+            ## Some cases, this errors, so pass ###
+            pass
+        #################################################################################################
+        ########   Now if dask_xgboost_flag is True, convert pandas dfs back to Dask Dataframes     #####
+        #################################################################################################
         if dask_xgboost_flag:
-            print('Dask XGBoost is crashing due to %s. Returning with currently selected features...' %e)
+            ### we reload the dataframes into dask since columns may have been dropped ##
+            if verbose:
+                print('    using DASK XGBoost')  
+            train = load_dask_data(dataname, sep)
+            if not test_data is None:
+                test = load_dask_data(test_data, sep)
         else:
-            print('Regular XGBoost is crashing due to %s. Returning with currently selected features...' %e)
+            ### we reload the dataframes into dask since columns may have been dropped ##
+            if verbose:
+                print('    using regular XGBoost') 
+            train = copy.deepcopy(dataname)
+            test = copy.deepcopy(test_data)
+        ########  Conversion completed for train and test data ##########
+    #### If Category Encoding took place, these cat variables are no longer needed in Train. So remove them!
+        if feature_gen or feature_type:
+            print('Since %s category encoding is done, dropping original categorical vars from predictors...' %feature_gen)
+            preds = left_subtract(preds, catvars)
+        if dask_xgboost_flag:
+            train_p = train[preds]
+        else:
+            train_p = dataname[preds]
+        ######## Limit the number of iterations to 5 or so #######
+        if train_p.shape[1] <= 10:
+            iter_limit = 2
+        else:
+            iter_limit = int(train_p.shape[1]/5+0.5)
+        if verbose:
+            print('    Taking top %s features per iteration...' %top_num)
+        if dask_xgboost_flag:
+            if verbose:
+                print('    Dask version = %s' %dask.__version__)
+            ### You can remove dask_ml here since you don't do any split of train test here ##########
+            #from dask_ml.model_selection import train_test_split
+            ### check available memory and allocate at least 1GB of it in the Client in DASK #############################
+            n_workers = get_cpu_worker_count()
+            ### Avoid reducing the free memory - leave it as big as it wants to be ###
+            memory_free = str(max(1, int(psutil.virtual_memory()[0]/(n_workers*1e9))))+'GB'
+            print('    Using Dask XGBoost algorithm with %s virtual CPUs and %s memory limit...' %(get_cpu_worker_count(), memory_free))
+            client = Client(n_workers= n_workers, threads_per_worker=1, processes=True, silence_logs=50,
+                            memory_limit=memory_free)
+            print('Dask client configuration: %s' %client)
+            import gc
+            client.run(gc.collect) 
+            #train_p = client.persist(train_p)
+        if verbose:
+            print('    XGBoost version using %s as tree method: %s' %(xgb.__version__, tree_method))
+        ### This is to convert the target labels to proper numeric columns ######
+        cat_targets = dataname[target].select_dtypes(include='object').columns.tolist() + dataname[target].select_dtypes(include='category').columns.tolist()
+        ### check if they are not starting from zero ##################
+        if dask_xgboost_flag:
+            ### train is already a dask dataframe -> you can leave it as it is
+            y_train = train[target]
+        else:
+            ### train is already a regular dataframe -> you can leave it as it is
+            y_train = dataname[target]
+        #### Now we process the numeric  values through DASK XGBoost repeatedly ###################
+        try:
+            for i in range(0,train_p.shape[1],iter_limit):
+                start_time2 = time.time()
+                imp_feats = []
+                if train_p.shape[1]-i < iter_limit:
+                    X_train = train_p.iloc[:,i:]
+                    cols_sel = X_train.columns.tolist()
+                else:
+                    X_train = train_p[list(train_p.columns.values)[i:train_p.shape[1]]]
+                    cols_sel = X_train.columns.tolist()
+                ##### This is where you repeat the training and finding feature importances
+                if dask_xgboost_flag:
+                    rows = X_train.compute().shape[0]
+                else:
+                    rows = X_train.shape[0]
+                if rows >= 100000:
+                    num_rounds = 20
+                else:
+                    num_rounds = 100
+                if i == 0:
+                    print('Number of booster rounds = %s' %num_rounds)
+                if train_p.shape[1]-i < 2:
+                    ### If there is just one variable left, then just skip it #####
+                    continue
+                #########   This is where we check target type ##########
+                if not y_train.dtypes[0] in [np.float16, np.float32, np.float64, np.int8,np.int16,np.int32,np.int64]:
+                    y_train = y_train.astype(int) 
+                if settings.modeltype == 'Regression':
+                    objective = 'reg:squarederror'
+                    params = {'objective': objective, 
+                                    "silent":True, "verbosity": 0, 'min_child_weight': 0.5}
+                else:
+                    #### This is for Classifiers only ##########                    
+                    if settings.modeltype == 'Binary_Classification':
+                        objective = 'binary:logistic'
+                        num_class = 1
+                        params = {'objective': objective, 'num_class': num_class,
+                                        "silent":True,  "verbosity": 0,  'min_child_weight': 0.5}
+                    else:
+                        objective = 'multi:softmax'
+                        num_class  =  dataname[target].nunique()[0]
+                        params = {'objective': objective, 
+                                        "silent":True, "verbosity": 0,   'min_child_weight': 0.5, 'num_class': num_class}
+                ############################################################################################################
+                ######### This is where we find out whether to use single or multi-label for xgboost #######################
+                ############################################################################################################
+                if settings.multi_label:
+                    if settings.modeltype == 'Regression':
+                        clf = XGBRegressor(n_jobs=-1, n_estimators=100, max_depth=4, random_state=99)
+                        clf.set_params(**params)
+                        bst = MultiOutputRegressor(clf)
+                    else:
+                        clf = XGBClassifier(n_jobs=-1, n_estimators=100, max_depth=4, random_state=99)
+                        clf.set_params(**params)
+                        bst = MultiOutputClassifier(clf)
+                    bst.fit(X_train, y_train)
+                else:
+                    if not dask_xgboost_flag:
+                        ################################################################################
+                        #########  Training Regular XGBoost on pandas dataframes only ##################
+                        ################################################################################
+                        #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
+                        
+                        try:
+                            dtrain = xgb.DMatrix(X_train, y_train, enable_categorical=True, feature_names=cols_sel)
+                            bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
+                                        
+                        except Exception as error_msg:
+                            print('Regular XGBoost is crashing due to: %s' %error_msg)
+                            if settings.modeltype == 'Regression':
+                                params = {'tree_method': cpu_tree_method, 'gpu_id': None}
+                            else:
+                                params = {'tree_method': cpu_tree_method,'num_class': num_class, 'gpu_id': None}
+                            print(error_msg)
+                            bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
+                    else:
+                        ################################################################################
+                        ##########   Training XGBoost model using dask_xgboost #########################
+                        ################################################################################
+                        ### the dtrain syntax can only be used xgboost 1.50 or greater. Dont use it until then.
+                        ### use the next line for new xgboost version 1.5.1 abd higher #########
+                        try:
+                            #### SYNTAX BELOW WORKS WELL. BUT YOU CANNOT DO EVALS WITH DASK XGBOOST AS OF NOW ####
+                            #dtrain = xgb.dask.DaskDMatrix(client, X_train, y_train)
+                            #bst = xgb.dask.train(client, params, dtrain, num_boost_round=num_rounds)
+                            bst = dask_xgboost_training(X_train, y_train, params)
+                        except Exception as error_msg:
+                            if settings.modeltype == 'Regression':
+                                params = {'tree_method': cpu_tree_method}
+                            else:
+                                params = {'tree_method': cpu_tree_method,'num_class': num_class}
+                            dtrain = xgb.DMatrix(X_train, label=y_train, feature_names=cols_sel)
+                            bst = xgb.dask.train(client=client, params=params, dtrain=dtrain, num_boost_round=num_rounds)
+                            print(error_msg)
+                ################################################################################
+                if not dask_xgboost_flag:
+                    bst_models.append(bst)
+                else:
+                    bst_models.append(bst['booster'])                
+                ##### to get the params of an xgboost booster object you have to do the following steps:
+                if verbose >= 3:
+                    if not dask_xgboost_flag :
+                        print('Regular XGBoost model parameters:\n')
+                        config = json.loads(bst.save_config())
+                    else:
+                        print('Dask XGBoost model parameters:\n')
+                        boo = bst['booster']
+                        config = json.loads(boo.save_config())
+                    print(config)
+                #### use this next one for dask_xgboost old ############### 
+                if settings.multi_label:
+                    imp_feats = dict(zip(X_train.columns, bst.estimators_[0].feature_importances_))
+                else:
+                    if not dask_xgboost_flag:
+                        imp_feats = bst.get_score(fmap='', importance_type='total_gain')
+                    else:
+                        imp_feats = bst['booster'].get_score(fmap='', importance_type='total_gain')
+                ### skip the next statement since it is duplicating the work of sort_values ##
+                #imp_feats = dict(sorted(imp_feats.items(),reverse=True, key=lambda item: item[1]))
+                ### doing this for single-label is a little different from settings.multi_label #########
+
+                #imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
+                #print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
+                if len(pd.Series(imp_feats)[pd.Series(imp_feats).sort_values(ascending=False)/pd.Series(imp_feats).values.max()>=0.5]) > 1:
+                    print_feats = (pd.Series(imp_feats)[pd.Series(imp_feats).sort_values(ascending=False)/pd.Series(imp_feats).values.max()>=0.5]).index.tolist()
+                    if len(print_feats) < top_num:
+                        print_feats = pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
+                    if len(print_feats) <= 30:
+                        print('        Selected: %s' %print_feats)
+                    important_features += print_feats
+                else:
+                    print_feats = pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
+                    if len(print_feats) <= 30:
+                        print('        Selected: %s' %pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist())
+                    important_features += print_feats
+                #######  order this in the same order in which they were collected ######
+                important_features = list(OrderedDict.fromkeys(important_features))
+                if dask_xgboost_flag:
+                    print('            Time taken for DASK XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
+                else:
+                    print('            Time taken for regular XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
+            #### plot all the feature importances in a grid ###########
+            if verbose >= 2:
+                if settings.multi_label:
+                    draw_feature_importances_multi_label(bst_models, dask_xgboost_flag)
+                else:
+                    draw_feature_importances_single_label(bst_models, dask_xgboost_flag)
+        except Exception as e:
+            if dask_xgboost_flag:
+                print('Dask XGBoost is crashing due to %s. Returning with currently selected features...' %e)
+            else:
+                print('Regular XGBoost is crashing due to %s. Returning with currently selected features...' %e)
+            important_features = copy.deepcopy(preds)
+        ######    E    N     D      O  F      X  G  B  O  O  S  T    S E L E C T I O N ####################
+        print('    Completed XGBoost feature selection in %0.0f seconds' %(time.time()-start_time2))
+        if len(idcols) > 0:
+            print('    Alert: No ID variables %s are included in selected features' %idcols)
+      
+    else:
+        print('    Skipping Recursive XGBoost method. Continuing ...')
         important_features = copy.deepcopy(preds)
-    ######    E    N     D      O  F      X  G  B  O  O  S  T    S E L E C T I O N ####################
-    print('    Completed XGBoost feature selection in %0.0f seconds' %(time.time()-start_time2))
-    if len(idcols) > 0:
-        print('    Alert: No ID variables %s are included in selected features' %idcols)
+
     if verbose:
         print("#######################################################################################")
         print("#####          F E A T U R E   S E L E C T I O N   C O M P L E T E D            #######")
@@ -1361,7 +1370,8 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
         print('Alert: Dont forget to add a missing flag to %s to create %s column' %(list(each_flag.values())[0], list(each_flag.keys())[0]))
         dicto.update(each_flag)
     if len(dicto) > 0:
-        important_features =  [dicto.get(item,item)  for item in important_features]
+        important_features = [dicto.get(item,item)  for item in important_features]
+        important_features = list(set(important_features))
     if len(important_features) <= 30:
         print('Selected %d important features:\n%s' %(len(important_features), important_features))
     else:
@@ -2881,7 +2891,7 @@ def EDA_randomly_select_rows_from_dataframe(train_dataframe, targets, nrows_limi
 class FeatureWiz(BaseEstimator, TransformerMixin):
     def __init__(self, corr_limit=0.90, verbose=2, sep=',', 
         header=0, feature_engg='', category_encoders='',
-        dask_xgboost_flag=False, nrows=None, skip_sulov=False):
+        dask_xgboost_flag=False, nrows=None, skip_sulov=False, skip_xgboost=False):
         print("""wiz = FeatureWiz(verbose=1)
         X_train_selected = wiz.fit_transform(X_train, y_train)
         X_test_selected = wiz.transform(X_test)
@@ -2898,6 +2908,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self.dask_xgboost_flag=dask_xgboost_flag
         self.nrows=nrows
         self.skip_sulov=skip_sulov
+        self.skip_xgboost=skip_xgboost
         self.X_sel = None
 
     def fit(self, X, y):
@@ -2930,7 +2941,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         # Select features using featurewiz
         features, X_sel = featurewiz(df, target, self.corr_limit, self.verbose, self.sep, 
                 self.header, self.test_data, self.feature_engg, self.category_encoders,
-                self.dask_xgboost_flag, self.nrows, self.skip_sulov)
+                self.dask_xgboost_flag, self.nrows, self.skip_sulov, self.skip_xgboost)
         # Convert the remaining column names back to integers and drop the
         difftime = max(1, int(time.time()-start_time))
         print('    Time taken to create entire pipeline = %s second(s)' %difftime)
