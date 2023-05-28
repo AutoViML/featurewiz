@@ -20,7 +20,7 @@
 </ul>
 
 ## Latest
-If you are looking for the latest and greatest updates about our library, we would definitely recommend checking out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a> often. It is a powerful tool that can help you improve the performance of your machine learning models with constant new capabilities from featurewiz.
+If you are looking for the latest and greatest updates about our library, we would definitely recommend checking out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a> often. 
 
 ## Introduction
 `featurewiz` a new python library for creating and selecting the best features in your data set fast!
@@ -113,17 +113,10 @@ As of June 2022, thanks to [arturdaraujo](https://github.com/arturdaraujo), feat
 ```
 
 ### If the above conda install fails, you can try installing featurewiz this way:
-##Step 1: Install featurewiz first<br>
+##### Install featurewiz using git+<br>
 
 ```
- !pip install featurewiz --ignore-installed --no-deps
- !pip install xlrd --ignore-installed --no-deps 
-```
-
-##Step 2: Next, install Pillow since Kaggle has an incompatible version. <br>
-
-```
- !pip install Pillow==9.0.0
+!pip install git+https://github.com/AutoViML/featurewiz.git
 ```
 
 ## Usage
@@ -145,7 +138,7 @@ Alternatively, you can use featurewiz for feature engineering using this older s
 import featurewiz as fwiz
 outputs = fwiz.featurewiz(dataname=train, target=target, corr_limit=0.70, verbose=2, sep=',', 
 		header=0, test_data='',feature_engg='', category_encoders='',
-		dask_xgboost_flag=False, nrows=None)
+		dask_xgboost_flag=False, nrows=None, skip_sulov=False, skip_xgboost=False)
 ```
 
 `outputs`: There will always be multiple objects in output. The objects in that tuple can vary:
@@ -197,6 +190,8 @@ outputs = fwiz.featurewiz(dataname=train, target=target, corr_limit=0.70, verbos
     The mean target value (regardless of the feature value).
     - `dask_xgboost_flag`: Default is False. Set to True to use dask_xgboost estimator. You can turn it off if it gives an error. Then it will use pandas and regular xgboost to do the job.
     - `nrows`: default `None`. You can set the number of rows to read from your datafile if it is too large to fit into either dask or pandas. But you won't have to if you use dask. 
+    - `skip_sulov`: default `False`. You can set the flag to skip the SULOV method if you wanted. 
+    - `skip_xgboost`: default `False`. You can set the flag to skip the Recursive XGBoost method if you wanted. 
 
 **Output values**
 -   `outputs`: Output is always a tuple. We can call our outputs in that tuple: out1 and out2.

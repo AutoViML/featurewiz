@@ -1113,11 +1113,12 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
         print('Shape of train data after adding missing values flags = %s' %(dataname.shape,) )
         preds = [x for x in list(dataname) if x not in targets]
         if not test_data is None:
-            test_data.drop(error_columns, axis=1, inplace=True)
+            if len(error_columns) > 0:
+                test_data.drop(error_columns, axis=1, inplace=True)
             print('    Shape of test data after adding missing values flags  = %s' %(test_data.shape,) )
     
     if not skip_xgboost:
- 
+        ### This is where we perform the recursive XGBoost method ##############
         if verbose:
             print('#######################################################################################')
             print('#####    R E C U R S I V E   X G B O O S T : F E A T U R E   S E L E C T I O N  #######')
@@ -1155,7 +1156,7 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
             train = copy.deepcopy(dataname)
             test = copy.deepcopy(test_data)
         ########  Conversion completed for train and test data ##########
-    #### If Category Encoding took place, these cat variables are no longer needed in Train. So remove them!
+        #### If Category Encoding took place, these cat variables are no longer needed in Train. So remove them!
         if feature_gen or feature_type:
             print('Since %s category encoding is done, dropping original categorical vars from predictors...' %feature_gen)
             preds = left_subtract(preds, catvars)
@@ -1218,7 +1219,7 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
                 else:
                     num_rounds = 100
                 if i == 0:
-                    print('Number of booster rounds = %s' %num_rounds)
+                    print('    Number of booster rounds = %s' %num_rounds)
                 if train_p.shape[1]-i < 2:
                     ### If there is just one variable left, then just skip it #####
                     continue
@@ -1357,7 +1358,7 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
             print('    Alert: No ID variables %s are included in selected features' %idcols)
       
     else:
-        print('    Skipping Recursive XGBoost method. Continuing ...')
+        print('Skipping Recursive XGBoost method. Continuing ...')
         important_features = copy.deepcopy(preds)
 
     if verbose:
