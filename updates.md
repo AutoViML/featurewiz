@@ -1,7 +1,7 @@
 # featurewiz latest updates
 ## Update (June 2023): featurewiz now has skip_sulov and skip_xgboost flags
 <ol>
-<li><b>There are two flags that are available to skip the recursive xgboost and/or SULOV methods. They are the `skip_xgboost` and `skip_sulov` flags. They are by default set to `False`. But you can change them to `True` if you want to skip them.
+<li><b>There are two flags that are available to skip the recursive xgboost and/or SULOV methods. They are the `skip_xgboost` and `skip_sulov` flags.</b> They are by default set to `False`. But you can change them to `True` if you want to skip them.
 </ol>
 
 ## Update (May 2023): featurewiz 3.0 is here with better accuracy and speed
