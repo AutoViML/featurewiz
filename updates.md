@@ -43,7 +43,8 @@ The net effect is that the same number of features are selected but they are bet
 <ol>
 <li><b>featurewiz as of version 0.1.04 or higher can read `feather-format` files at blazing speeds.</b> See example below on how to convert your CSV files to feather. Then you can feed those '.ftr' files to featurewiz and it will read it 10-100X faster!<br></li>
 </ol>
-![feather_example](feather_example.jpg)
+
+![feather_example](./images/feather_example.jpg)
 <ol>
 <li><b>featurewiz now runs at blazing speeds thanks to using GPU's by default.</b> So if you are running a large data set on Colab and/or Kaggle, make sure you turn on the GPU kernels. featurewiz will automatically detect that GPU is turned on and will utilize XGBoost using GPU-hist. That will ensure it will crunch your datasets even faster. I have tested it with a very large data set and it reduced the running time from 52 mins to 1 minute! That's a 98% reduction in running time using GPU compared to CPU!<br></li>
 </ol>
