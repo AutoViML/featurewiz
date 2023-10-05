@@ -20,7 +20,7 @@
 </ul>
 
 ## Latest
-If you are looking for the latest and greatest updates about our library, we would definitely recommend checking out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a> often. 
+If you are looking for the latest and greatest updates about our library, check out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a>. 
 
 ## Introduction
 `featurewiz` a new python library for creating and selecting the best features in your data set fast!
@@ -78,7 +78,7 @@ Once SULOV has selected variables that have high mutual information scores with 
 ## Tips
 Here are some additional tips for ML engineers and data scientists when using featurewiz:
 <ol>
-<li><b>Always cross-validate your results</b>: When you use a feature selection tool, it is important to cross-validate your results. This means that you should split your data into a training set and a test set. Use the training set to select features, and then evaluate your model on the test set. This will help you to ensure that your model is not overfitting to the training data.</li>
+<li><b>Always cross-validate your results</b>: When you use a featurewiz, we do multiple rounds of feature selection using the number of columns. However, you can perform multiple rounds of feature selection using rows. This a technique similar to to cross-validation. This means that you should split your data into multiple (3) train sets and each time, a test set. Use the training set to select features and set it aside. Then evaluate your model on the test set with that selected set. Do this multiple times and see whether the selected features are stable and whether the results are stable. This will give you a good idea of what the best (most stable) set of features are and how to then evaluate cross-validated accuracy with those features.</li>
 <li><b>Use multiple feature selection tools</b>: It is a good idea to use multiple feature selection tools and compare the results. This will help you to get a better understanding of which features are most important for your data.</li>
 <li><b>Don't forget to engineer new features</b>: Feature selection is only one part of the process of building a good machine learning model. You should also spend time engineering your features to make them as informative as possible. This can involve things like creating new features, transforming existing features, and removing irrelevant features.</li>
 <li><b>Don't overfit your model</b>: It is important to avoid overfitting your model to the training data. Overfitting occurs when your model learns the noise in the training data, rather than the underlying signal. To avoid overfitting, you can use regularization techniques, such as lasso or elasticnet.</li>
@@ -105,7 +105,6 @@ pip install -r requirements.txt
 ```
 
 ##  Good News: You can install featurewiz on Colab and Kaggle easily in 2 steps!
-<a href="updates.md">Check out more latest updates from this page</a><br>
 As of June 2022, thanks to [arturdaraujo](https://github.com/arturdaraujo), featurewiz is now available on conda-forge. You can try:<br>
 
 ```
@@ -121,7 +120,7 @@ As of June 2022, thanks to [arturdaraujo](https://github.com/arturdaraujo), feat
 
 ## Usage
 
-For feature selection, you must use the newer syntax which is similar to the scikit-learn fit and predict transformer syntax below.
+For feature selection, you must use the new syntax which is similar to the scikit-learn `fit and predict` transformer syntax below. It also includes the `lazytransformer` library that I created to transform categorical variables into numeric variables automatically. So you can now use it as the main syntax for your future needs.
 
 ```
 from featurewiz import FeatureWiz
@@ -132,7 +131,7 @@ X_test_selected = fwiz.transform(X_test)
 fwiz.features  
 ```
 
-Alternatively, you can use featurewiz for feature engineering using this older syntax. Otherwise, it will give an error. If you want to combine feature engg and then feature selection, you must use this older syntax:
+Alternatively, you can use the old `featurewiz` syntax for creating new features and then select features. If you want to combine feature engg with feature selection, you must use this older syntax:
 
 ```
 import featurewiz as fwiz
@@ -141,18 +140,19 @@ outputs = fwiz.featurewiz(dataname=train, target=target, corr_limit=0.70, verbos
 		dask_xgboost_flag=False, nrows=None, skip_sulov=False, skip_xgboost=False)
 ```
 
-`outputs`: There will always be multiple objects in output. The objects in that tuple can vary:
-1. "features" and "trainm": It be a list (of selected features) and one dataframe (if you sent in train only)
-2. "trainm" and "testm": It can be two dataframes when you send in both test and train but with selected features.
+`outputs` is a tuple: There will always be two objects in output. It can vary:
+1. In the first case, it can be `features` and `trainm`: features is a list (of selected features) and trainm is the transformed dataframe (if you sent in train only)
+2. In the second case, it can be `trainm` and `testm`: It can be two transformed dataframes when you send in both test and train but with selected features.
 <ol>
-<li>Both the selected features and dataframes are ready for you to now to do further modeling.
-<li>Featurewiz works on any multi-class, multi-label data Set. So you can have as many target labels as you want.
-<li>You don't have to tell Featurewiz whether it is a Regression or Classification problem. It will decide that automatically.
+<li>In both cases, the features and dataframes are ready for you to do further modeling.
 </ol>
+
+Featurewiz works on any multi-class, multi-label data Set. So you can have as many target labels as you want.
+You don't have to tell Featurewiz whether it is a Regression or Classification problem. It will decide that automatically.
 
 ## API
 
-**Arguments**
+**Input Arguments**
 
 - `dataname`: could be a datapath+filename or a dataframe. It will detect whether your input is a filename or a dataframe and load it automatically.
 - `target`: name of the target variable in the data set.

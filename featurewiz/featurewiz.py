@@ -2889,6 +2889,8 @@ def EDA_randomly_select_rows_from_dataframe(train_dataframe, targets, nrows_limi
         train_small = train_dataframe[:nrows_limit]
     return train_small
 ################################################################################################
+from lazytransform import LazyTransformer
+
 class FeatureWiz(BaseEstimator, TransformerMixin):
     def __init__(self, corr_limit=0.90, verbose=2, sep=',', 
         header=0, feature_engg='', category_encoders='',
@@ -2911,6 +2913,10 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self.skip_sulov=skip_sulov
         self.skip_xgboost=skip_xgboost
         self.X_sel = None
+        self.y_sel = None
+        self.lazy = LazyTransformer(model=None, encoders='auto', scalers=None, date_to_string=False,
+            transform_target=True, imbalanced=False, save=False, combine_rare=False, verbose=0)
+
 
     def fit(self, X, y):
         start_time = time.time()
@@ -2921,12 +2927,6 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         if isinstance(y, np.ndarray):
             print('   y input is an numpy array and hence convert into a series or dataframe and re-try.')
             return X, y
-        y_index = y.index
-        if (X_index == y_index).all():
-            df = pd.concat([X, y], axis=1)
-        else:
-            df = pd.concat([X.reset_index(drop=True), y], axis=1)
-            df.index = X_index
         ### Now you can process the X and y datasets ####
         if isinstance(y, pd.Series):
             target = y.name
@@ -2938,24 +2938,39 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         elif isinstance(X, np.ndarray):
             print('y must be a pd.Series or pd.DataFrame since we use column names to build data pipeline. Returning')
             return {}, {}
-        #### Send target variable as it is so that y_train is analyzed properly ###
+        #### Use lazytransform to transform all variables to numeric ###
+        X_sel, y_sel = self.lazy.fit_transform(X, y)
+        ##### Now put a dataframe together of transformed X and y  ####
+        y_index = y_sel.index
+        X_index = X_sel.index
+        if (X_index == y_index).all():
+            df = pd.concat([X_sel, y_sel], axis=1)
+        else:
+            df = pd.concat([X_sel.reset_index(drop=True), y_sel], axis=1)
+            df.index = X_index
         # Select features using featurewiz
-        features, X_sel = featurewiz(df, target, self.corr_limit, self.verbose, self.sep, 
+        features, _ = featurewiz(df, target, self.corr_limit, self.verbose, self.sep, 
                 self.header, self.test_data, self.feature_engg, self.category_encoders,
                 self.dask_xgboost_flag, self.nrows, self.skip_sulov, self.skip_xgboost)
         # Convert the remaining column names back to integers and drop the
-        difftime = max(1, int(time.time()-start_time))
+        difftime = max(1, np.int16(time.time()-start_time))
         print('    Time taken to create entire pipeline = %s second(s)' %difftime)
         # column of labels
         self.features = features
         self.X_sel = X_sel
+        self.y_sel = y_sel
         return self
 
     def transform(self, X):
         try:
-            return X[self.features]
+            assert y is None
         except:
-            print('Returning transformed dataframe with %d features' %len(self.features))
+            self.X_sel = self.lazy.transform(X)
+        try:
+            return self.X_sel[self.features]
+            print('Returning numeric transformed dataframe with %d features' %len(self.features))
+        except:
+            print('featurewiz is erroring. Returning numeric transformed dataframe with all %d features' %len(self.X_sel.columns))
             return self.X_sel
 ###################################################################################################
 def EDA_remove_special_chars(df):
