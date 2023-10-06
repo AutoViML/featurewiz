@@ -20,7 +20,12 @@
 </ul>
 
 ## Latest
-If you are looking for the latest and greatest updates about our library, check out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a>. 
+If you are looking for the latest and greatest updates about our library, check out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a>.
+<br>
+<b>Citation</b>: If you use featurewiz in your research project or paper, please use the following format for citations:<br>
+"Seshadri, Ram (2020). GitHub - AutoViML/featurewiz: Use advanced feature engineering strategies and select the best features from your data set fast with a single line of code. https://github.com/AutoViML/featurewiz "
+<br>
+<b>Current citations for featurewiz</b> in [Google Scholar](https://scholar.google.com/scholar?hl=en&as_sdt=0%2C31&q=featurewiz&btnG=)
 
 ## Introduction
 `featurewiz` a new python library for creating and selecting the best features in your data set fast!
@@ -78,7 +83,10 @@ Once SULOV has selected variables that have high mutual information scores with 
 ## Tips
 Here are some additional tips for ML engineers and data scientists when using featurewiz:
 <ol>
-<li><b>Always cross-validate your results</b>: When you use a featurewiz, we do multiple rounds of feature selection using the number of columns. However, you can perform multiple rounds of feature selection using rows. This a technique similar to to cross-validation. This means that you should split your data into multiple (3) train sets and each time, a test set. Use the training set to select features and set it aside. Then evaluate your model on the test set with that selected set. Do this multiple times and see whether the selected features are stable and whether the results are stable. This will give you a good idea of what the best (most stable) set of features are and how to then evaluate cross-validated accuracy with those features.</li>
+<li><b>How to cross-validate your results</b>: When you use featurewiz, we automatically perform multiple rounds of feature selection using permutations on the number of columns. However, you can perform feature selection using permutations of rows as follows in this page.</li>
+
+![cross_validate using featurewiz](examples/cross_validate.py)
+
 <li><b>Use multiple feature selection tools</b>: It is a good idea to use multiple feature selection tools and compare the results. This will help you to get a better understanding of which features are most important for your data.</li>
 <li><b>Don't forget to engineer new features</b>: Feature selection is only one part of the process of building a good machine learning model. You should also spend time engineering your features to make them as informative as possible. This can involve things like creating new features, transforming existing features, and removing irrelevant features.</li>
 <li><b>Don't overfit your model</b>: It is important to avoid overfitting your model to the training data. Overfitting occurs when your model learns the noise in the training data, rather than the underlying signal. To avoid overfitting, you can use regularization techniques, such as lasso or elasticnet.</li>
@@ -240,3 +248,6 @@ Apache License 2.0 © 2020 Ram Seshadri
 
 ## DISCLAIMER
 This project is not an official Google project. It is not supported by Google and Google specifically disclaims all warranties as to its quality, merchantability, or fitness for a particular purpose.
+
+
+[page]: examples/cross_validate.py
