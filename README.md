@@ -6,7 +6,7 @@
 # Table of Contents
 <ul>
 <li><a href="#Latest">Latest updates</a></li>
-<li><a href="#introduction">What is featurewiz</a></li>
+<li><a href="#citation">Citation</a></li>
 <li><a href="#working">How it works</a></li>
 <li><a href="#tips">Tips for using featurewiz</a></li>
 <li><a href="#install">How to install featurewiz</a></li>
@@ -22,32 +22,35 @@
 ## Latest
 If you are looking for the latest and greatest updates about our library, check out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a>.
 <br>
-<b>Citation</b>: If you use featurewiz in your research project or paper, please use the following format for citations:<br>
-"Seshadri, Ram (2020). GitHub - AutoViML/featurewiz: Use advanced feature engineering strategies and select the best features from your data set fast with a single line of code. https://github.com/AutoViML/featurewiz "
-<br>
+
+## Citation
+If you use featurewiz in your research project or paper, please use the following format for citations:
+<p>
+"Seshadri, Ram (2020). GitHub - AutoViML/featurewiz: Use advanced feature engineering strategies and select the best features from your data set fast with a single line of code. source code: https://github.com/AutoViML/featurewiz "
+<p>
 <b>Current citations for featurewiz</b> in [Google Scholar](https://scholar.google.com/scholar?hl=en&as_sdt=0%2C31&q=featurewiz&btnG=)
 
 ## Introduction
-`featurewiz` a new python library for creating and selecting the best features in your data set fast!
-`featurewiz` can be used in one or two ways. Both are explained below.
+`featurewiz` a new python library for creating and selecting the best features in your data set fast! The differentiating features of featurewiz are:
 <ol>
-<li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR)) described by wikipedia as: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
+<li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR) algorithm) as described by wikipedia in this page: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
 <li>It selects the best number of un-correlated features that have maximum mutual information about the target without having to specify the number of features</li>
 <li>It is fast and easy to use, and comes with a number of helpful features, such as a built-in categorical-to-numeric encoder and a powerful feature engineering module</li>
 <li>It is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>.</li>
 <li>It is actively maintained, and it is regularly updated with <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">new features and bug fixes</a>.</li>
 </ol>
 
+`featurewiz` can be used in one or two ways. They are explained below.
 ### 1.  Feature Engineering
 <p>The first step is not absolutely necessary but it can be used to create new features that may or may not be helpful (be careful with automated feature engineering tools!).<p>
-1. <b>Performing Feature Engineering</b>: One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions such as Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features to find best features was difficult and left only to "experts" or "professionals". featurewiz was created to help you in this endeavor.<br>
+One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions such as Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features to find best features was difficult and left only to "experts" or "professionals". featurewiz was created to help you in this endeavor.<br>
 <p>featurewiz now enables you to add hundreds of such features with a single line of code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go. Not only that, using the next step, featurewiz will sift through numerous such variables and find only the least correlated and most relevant features to your model. All in one step!.<br>
 
 ![feature_engg](images/feature_engg.jpg)
 
 ### 2.  Feature Selection
 <p>The second step is Feature Selection. `featurewiz` uses the MRMR (Minimum Redundancy Maximum Relevance) algorithm as the basis for its feature selection. <br>
-<b> Why do Feature Selection</b>? Once you have created 100's of new features, you still have three questions left to answer:
+<b> Why perform Feature Selection</b>? Once you have created 100's of new features, you still have three questions left to answer:
 1. How do we interpret those newly created features?
 2. Which of these features is important and which are useless? How many of them are highly correlated to each other causing redundancy?
 3. Does the model overfit now on these new features and perform better or worse than before?
@@ -83,9 +86,7 @@ Once SULOV has selected variables that have high mutual information scores with 
 ## Tips
 Here are some additional tips for ML engineers and data scientists when using featurewiz:
 <ol>
-<li><b>How to cross-validate your results</b>: When you use featurewiz, we automatically perform multiple rounds of feature selection using permutations on the number of columns. However, you can perform feature selection using permutations of rows as follows in this page.</li>
-
-![cross_validate using featurewiz](examples/cross_validate.py)
+<li><b>How to cross-validate your results</b>: When you use featurewiz, we automatically perform multiple rounds of feature selection using permutations on the number of columns. However, you can perform feature selection using permutations of rows as follows in [cross_validate using featurewiz](examples/cross_validate.py).</li>
 
 <li><b>Use multiple feature selection tools</b>: It is a good idea to use multiple feature selection tools and compare the results. This will help you to get a better understanding of which features are most important for your data.</li>
 <li><b>Don't forget to engineer new features</b>: Feature selection is only one part of the process of building a good machine learning model. You should also spend time engineering your features to make them as informative as possible. This can involve things like creating new features, transforming existing features, and removing irrelevant features.</li>
@@ -120,7 +121,7 @@ As of June 2022, thanks to [arturdaraujo](https://github.com/arturdaraujo), feat
 ```
 
 ### If the above conda install fails, you can try installing featurewiz this way:
-##### Install featurewiz using git+<br>
+#### Install featurewiz using git+<br>
 
 ```
 !pip install git+https://github.com/AutoViML/featurewiz.git
@@ -128,7 +129,22 @@ As of June 2022, thanks to [arturdaraujo](https://github.com/arturdaraujo), feat
 
 ## Usage
 
-For feature selection, you must use the new syntax which is similar to the scikit-learn `fit and predict` transformer syntax below. It also includes the `lazytransformer` library that I created to transform categorical variables into numeric variables automatically. So you can now use it as the main syntax for your future needs.
+There are two ways to use featurewiz. 
+<ol>
+<li>One way is the old way and it incorporates feature engineering with feature selection. This is the original syntax of featurewiz and is still being used by thousands of researchers in the field. Hence it will continue to be maintained. You can use it if you like.</li>
+
+```
+import featurewiz as fwiz
+outputs = fwiz.featurewiz(dataname=train, target=target, corr_limit=0.70, verbose=2, sep=',', 
+		header=0, test_data='',feature_engg='', category_encoders='',
+		dask_xgboost_flag=False, nrows=None, skip_sulov=False, skip_xgboost=False)
+```
+
+`outputs` is a tuple: There will always be two objects in output. It can vary:
+- In the first case, it can be `features` and `trainm`: features is a list (of selected features) and trainm is the transformed dataframe (if you sent in train only)
+- In the second case, it can be `trainm` and `testm`: It can be two transformed dataframes when you send in both test and train but with selected features.
+
+<li>The second way is the new way where you use scikit-learn's `fit and predict` syntax. It also includes the `lazytransformer` library that I created to transform categorical variables into numeric variables automatically. So you can now use it as the main syntax for your future needs.</li>
 
 ```
 from featurewiz import FeatureWiz
@@ -139,36 +155,22 @@ X_test_selected = fwiz.transform(X_test)
 fwiz.features  
 ```
 
-Alternatively, you can use the old `featurewiz` syntax for creating new features and then select features. If you want to combine feature engg with feature selection, you must use this older syntax:
-
-```
-import featurewiz as fwiz
-outputs = fwiz.featurewiz(dataname=train, target=target, corr_limit=0.70, verbose=2, sep=',', 
-		header=0, test_data='',feature_engg='', category_encoders='',
-		dask_xgboost_flag=False, nrows=None, skip_sulov=False, skip_xgboost=False)
-```
-
-`outputs` is a tuple: There will always be two objects in output. It can vary:
-1. In the first case, it can be `features` and `trainm`: features is a list (of selected features) and trainm is the transformed dataframe (if you sent in train only)
-2. In the second case, it can be `trainm` and `testm`: It can be two transformed dataframes when you send in both test and train but with selected features.
-<ol>
-<li>In both cases, the features and dataframes are ready for you to do further modeling.
-</ol>
+In both cases, the features and dataframes are ready for you to do further modeling.
 
 Featurewiz works on any multi-class, multi-label data Set. So you can have as many target labels as you want.
 You don't have to tell Featurewiz whether it is a Regression or Classification problem. It will decide that automatically.
 
 ## API
 
-**Input Arguments**
+**Input Arguments for old syntax**
 
 - `dataname`: could be a datapath+filename or a dataframe. It will detect whether your input is a filename or a dataframe and load it automatically.
 - `target`: name of the target variable in the data set.
 - `corr_limit`: if you want to set your own threshold for removing variables as highly correlated, then give it here. The default is 0.7 which means variables less than -0.7 and greater than 0.7 in pearson's correlation will be candidates for removal.
 - `verbose`: This has 3 possible states:
-  - `0` limited output. Great for running this silently and getting fast results.
-  - `1` more verbiage. Great for knowing how results were and making changes to flags in input.
-  - `2` SULOV charts and output. Great for finding out what happens under the hood for SULOV method.
+  - `0` - limited output. Great for running this silently and getting fast results.
+  - `1` - verbose. Great for knowing how results were and making changes to flags in input.
+  - `2` - more charts such as SULOV and output. Great for finding out what happens under the hood for SULOV method.
 - `test_data`: If you want to transform test data in the same way you are transforming dataname, you can.
     test_data could be the name of a datapath+filename or a dataframe. featurewiz will detect whether
         your input is a filename or a dataframe and load it automatically. Default is empty string.
@@ -196,13 +198,13 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
     For feature value i, James-Stein estimator returns a weighted average of:
     The mean target value for the observed feature value i.
     The mean target value (regardless of the feature value).
-    - `dask_xgboost_flag`: Default is False. Set to True to use dask_xgboost estimator. You can turn it off if it gives an error. Then it will use pandas and regular xgboost to do the job.
-    - `nrows`: default `None`. You can set the number of rows to read from your datafile if it is too large to fit into either dask or pandas. But you won't have to if you use dask. 
-    - `skip_sulov`: default `False`. You can set the flag to skip the SULOV method if you wanted. 
-    - `skip_xgboost`: default `False`. You can set the flag to skip the Recursive XGBoost method if you wanted. 
+- `dask_xgboost_flag`: Default is False. Set to True to use dask_xgboost estimator. You can turn it off if it gives an error. Then it will use pandas and regular xgboost to do the job.
+- `nrows`: default `None`. You can set the number of rows to read from your datafile if it is too large to fit into either dask or pandas. But you won't have to if you use dask. 
+- `skip_sulov`: default `False`. You can set the flag to skip the SULOV method if you wanted. 
+- `skip_xgboost`: default `False`. You can set the flag to skip the Recursive XGBoost method if you wanted. 
 
-**Output values**
--   `outputs`: Output is always a tuple. We can call our outputs in that tuple: out1 and out2.
+**Output values for old syntax**
+-   `outputs`: Output is always a tuple. We can call our outputs in that tuple as `out1` and `out2` below.
     -   `out1` and `out2`: If you sent in just one dataframe or filename as input, you will get:
         - 1. `features`: It will be a list (of selected features) and
         - 2. `trainm`: It will be a dataframe (if you sent in a file or dataname as input)
@@ -211,11 +213,11 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
         - 2. `testm`: a modified test dataframe with engineered and selected features from test_data.
 
 ## Additional
+To learn more about how featurewiz works under the hood, watch this [video](https://www.youtube.com/embed/ZiNutwPcAU0)
 
 ![background](images/featurewiz_background.jpg)
 
-To learn more about how featurewiz works under the hood, watch this [video](https://www.youtube.com/embed/ZiNutwPcAU0)<br>
-<p>featurewiz was designed for selecting High Performance variables with the fewest steps.
+featurewiz was designed for selecting High Performance variables with the fewest steps.
 In most cases, featurewiz builds models with 20%-99% fewer features than your original data set with nearly the same or slightly lower performance (this is based on my trials. Your experience may vary).<br>
 <p>
 featurewiz is every Data Scientist's feature wizard that will:<ol>
@@ -226,7 +228,7 @@ featurewiz is every Data Scientist's feature wizard that will:<ol>
 <li><b>Build a fast XGBoost or LightGBM model using the features selected by featurewiz</b>. There is a function called "simple_lightgbm_model" which you can use to build a fast model. It is a new module, so check it out.<br>
 </ol>
 
-<b>*** A Note of Gratitude ***</b>:<br>
+<b>*** Special thanks to fellow open sourcers ***</b>:<br>
 <ol>
 <li><b>Alex Lekov</b> (https://github.com/Alex-Lekov/AutoML_Alex/tree/master/automl_alex) for his DataBunch and encoders modules which are used by the tool (although with some modifications).</li>
 <li><b>Category Encoders</b> library in Python : This is an amazing library. Make sure you read all about the encoders that featurewiz uses here: https://contrib.scikit-learn.org/category_encoders/index.html </li>
