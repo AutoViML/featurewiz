@@ -17,11 +17,11 @@
 ##### Google and Google specifically disclaims all warranties as to its quality,#
 ##### merchantability, or fitness for a particular purpose.  ####################
 #################################################################################
-import pandas as pd
 import numpy as np
 np.random.seed(99)
 import random
 random.seed(42)
+import pandas as pd
 from sklearn.model_selection import KFold
 from sklearn.model_selection import GridSearchCV
 from sklearn.multioutput import MultiOutputClassifier, MultiOutputRegressor
@@ -1022,17 +1022,6 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
         else:
             catvars = left_subtract(preds, numvars)
     ######################   I M P O R T A N T ##############################################
-    ###### This top_num decides how many top_n features XGB selects in each iteration.
-    ####  There a total of 5 iterations. Hence 5x10 means maximum 50 features will be selected.
-    #####  If there are more than 50 variables, then maximum 25% of its variables will be selected
-    if len(preds) <= 50:
-        #top_num = 10
-        top_num = int(max(2, len(preds)*0.25))
-    else:
-        ### the maximum number of variables will 25% of preds which means we divide by 5 and get 5% here
-        ### The five iterations result in 10% being chosen in each iteration. Hence max 50% of variables!
-        top_num = int(len(preds)*0.20)
-    ######################   I M P O R T A N T ##############################################
     important_cats = copy.deepcopy(catvars)
     data_dim = int((len(dataname)*dataname.shape[1])/1e6)
     ################################################################################################
@@ -1124,21 +1113,6 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
             print('#####    R E C U R S I V E   X G B O O S T : F E A T U R E   S E L E C T I O N  #######')
             print('#######################################################################################')
         
-        important_features = []
-        #######################################################################
-        #####   This is for DASK XGB Regressor and XGB Classifier problems ####
-        #######################################################################
-        if settings.multi_label:
-            ### only regular xgboost with multi-output can work well in multi-label settings #
-            dask_xgboost_flag = False 
-        bst_models = []
-
-        #########   This is for DASK Dataframes XGBoost training ####################
-        try:
-            xgb.set_config(verbosity=0)
-        except:
-            ## Some cases, this errors, so pass ###
-            pass
         #################################################################################################
         ########   Now if dask_xgboost_flag is True, convert pandas dfs back to Dask Dataframes     #####
         #################################################################################################
@@ -1164,32 +1138,6 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
             train_p = train[preds]
         else:
             train_p = dataname[preds]
-        ######## Limit the number of iterations to 5 or so #######
-        if train_p.shape[1] <= 10:
-            iter_limit = 2
-        else:
-            iter_limit = int(train_p.shape[1]/5+0.5)
-        if verbose:
-            print('    Taking top %s features per iteration...' %top_num)
-        if dask_xgboost_flag:
-            if verbose:
-                print('    Dask version = %s' %dask.__version__)
-            ### You can remove dask_ml here since you don't do any split of train test here ##########
-            #from dask_ml.model_selection import train_test_split
-            ### check available memory and allocate at least 1GB of it in the Client in DASK #########
-            n_workers = get_cpu_worker_count()
-            ### Avoid reducing the free memory - leave it as big as it wants to be ###
-            memory_free = str(max(1, int(psutil.virtual_memory()[0]/(n_workers*1e9))))+'GB'
-            print('    Using Dask XGBoost algorithm with %s virtual CPUs and %s memory limit...' %(
-                                    get_cpu_worker_count(), memory_free))
-            client = Client(n_workers= n_workers, threads_per_worker=1, processes=True, silence_logs=50,
-                            memory_limit=memory_free)
-            print('Dask client configuration: %s' %client)
-            import gc
-            client.run(gc.collect) 
-            #train_p = client.persist(train_p)
-        if verbose:
-            print('    XGBoost version using %s as tree method: %s' %(xgb.__version__, tree_method))
         ### This is to convert the target labels to proper numeric columns ######
         cat_targets = dataname[target].select_dtypes(include='object').columns.tolist() + dataname[
                             target].select_dtypes(include='category').columns.tolist()
@@ -1201,7 +1149,9 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
             ### train is already a regular dataframe -> you can leave it as it is
             y_train = dataname[target]
         #### Now we process the numeric  values through DASK XGBoost repeatedly ###################
-        important_features = FE_perform_recursive_xgboost(train_p, y_train, settings.modeltype, settings.multi_label)
+        start_time2 = time.time()
+        important_features = FE_perform_recursive_xgboost(train_p, y_train, 
+                                settings.modeltype, settings.multi_label, dask_xgboost_flag, verbose)
         ######    E    N     D      O  F      X  G  B  O  O  S  T    S E L E C T I O N ##############
         print('    Completed XGBoost feature selection in %0.0f seconds' %(time.time()-start_time2))
         if len(idcols) > 0:
@@ -1332,16 +1282,84 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
             print('Warning: Returning with important features and train. Please re-check your outputs.')
             return important_features, dataname[important_features+targets]
 ################################################################################
-def FE_perform_recursive_xgboost(train_p, y_train, model_type, multi_label_type):
+def FE_perform_recursive_xgboost(X_train, y_train, model_type, multi_label_type,
+                            dask_xgboost_flag=False, verbose=0):
     """
-    Perform recursive XGBoost to identify most important features
+    Perform recursive XGBoost to identify most important features in an all-
+        numeric dataset. If the dataset is not numeric, it will give an error.
+    
+    Inputs:
+        X_train: a pandas dataframe containing all-numeric features
+        y_train: a pandas Series or Dataframe containing all-numeric features.
+        model_type: can be one of "Classification" or "Regression". If it is 
+            multi-class, you can also use 'Multi-Classification" as input.
+        multi_label_type: can be one of "Single_Label" or "Multi_Label".
+        dask_xgboost_flag: False by default. You can set it to True if your dataset
+            is a Dask dataframe and Series.
+        
+    output:
+        features: a list of top features in dataset.
+    
     """
-    train_p = copy.deepcopy(train_p)
+    ### we need to use the name train_p to start and then change it to X_train 
+    train_p = copy.deepcopy(X_train)
     y_train = copy.deepcopy(y_train)
     cpu_tree_method = 'hist'
+    cols_sel = train_p.columns.tolist()
+    ######## Do the Dask settings here  #######
+    if dask_xgboost_flag:
+        if verbose:
+            print('    Dask version = %s' %dask.__version__)
+        ### You can remove dask_ml here since you don't do any split of train test here ##########
+        #from dask_ml.model_selection import train_test_split
+        ### check available memory and allocate at least 1GB of it in the Client in DASK #########
+        n_workers = get_cpu_worker_count()
+        ### Avoid reducing the free memory - leave it as big as it wants to be ###
+        memory_free = str(max(1, int(psutil.virtual_memory()[0]/(n_workers*1e9))))+'GB'
+        print('    Using Dask XGBoost algorithm with %s virtual CPUs and %s memory limit...' %(
+                                get_cpu_worker_count(), memory_free))
+        client = Client(n_workers= n_workers, threads_per_worker=1, processes=True, silence_logs=50,
+                        memory_limit=memory_free)
+        print('Dask client configuration: %s' %client)
+        import gc
+        client.run(gc.collect) 
+        #train_p = client.persist(train_p)
+    important_features = []
+    #######################################################################
+    #####   This is for DASK XGB Regressor and XGB Classifier problems ####
+    #######################################################################
+    if settings.multi_label:
+        ### only regular xgboost with multi-output can work well in multi-label settings #
+        dask_xgboost_flag = False 
+    bst_models = []
+
+    #########   This is for DASK Dataframes XGBoost training ####################
+    try:
+        xgb.set_config(verbosity=0)
+    except:
+        ## Some cases, this errors, so pass ###
+        pass
+    ####  Limit the number of iterations here ######
+    if train_p.shape[1] <= 10:
+        iter_limit = 2
+    else:
+        iter_limit = int(train_p.shape[1]/5+0.5)
+    ######################   I M P O R T A N T ##############################################
+    ###### This top_num decides how many top_n features XGB selects in each iteration.
+    ####  There a total of 5 iterations. Hence 5x10 means maximum 50 features will be selected.
+    #####  If there are more than 50 variables, then maximum 25% of its variables will be selected
+    if len(cols_sel) <= 50:
+        #top_num = 10
+        top_num = int(max(2, len(cols_sel)*0.25))
+    else:
+        ### the maximum number of variables will be 25% of preds which means we divide by 4 and get 25% here
+        ### The five iterations result in 10% being chosen in each iteration. Hence max 50% of variables!
+        top_num = int(len(cols_sel)*0.20)
+    if verbose:
+        print('    Taking top %s features per iteration...' %top_num)
     try:
         for i in range(0,train_p.shape[1],iter_limit):
-            start_time2 = time.time()
+            start_time1 = time.time()
             imp_feats = []
             if train_p.shape[1]-i < iter_limit:
                 X_train = train_p.iloc[:,i:]
@@ -1359,13 +1377,12 @@ def FE_perform_recursive_xgboost(train_p, y_train, model_type, multi_label_type)
             else:
                 num_rounds = 100
             if i == 0:
-                print('    Number of booster rounds = %s' %num_rounds)
+                if verbose:
+                    print('    Number of booster rounds = %s' %num_rounds)
             if train_p.shape[1]-i < 2:
                 ### If there is just one variable left, then just skip it #####
                 continue
-            #########   This is where we check target type ##########
-            if not y_train.dtypes[0] in [np.float16, np.float32, np.float64, np.int8,np.int16,np.int32,np.int64]:
-                y_train = y_train.astype(int) 
+            #### The target must always be  numeric ##
             if model_type == 'Regression':
                 objective = 'reg:squarederror'
                 params = {'objective': objective, 
@@ -1401,7 +1418,7 @@ def FE_perform_recursive_xgboost(train_p, y_train, model_type, multi_label_type)
                     #########  Training Regular XGBoost on pandas dataframes only ##################
                     ################################################################################
                     #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
-                    
+                    #print('cols order: ',cols_sel)
                     try:
                         dtrain = xgb.DMatrix(X_train, y_train, enable_categorical=True, feature_names=cols_sel)
                         bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
@@ -1466,20 +1483,22 @@ def FE_perform_recursive_xgboost(train_p, y_train, model_type, multi_label_type)
                 print_feats = (pd.Series(imp_feats)[pd.Series(imp_feats).sort_values(ascending=False)/pd.Series(imp_feats).values.max()>=0.5]).index.tolist()
                 if len(print_feats) < top_num:
                     print_feats = pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
-                if len(print_feats) <= 30:
+                if len(print_feats) <= 30 and verbose:
                     print('        Selected: %s' %print_feats)
                 important_features += print_feats
             else:
                 print_feats = pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist()
-                if len(print_feats) <= 30:
+                if len(print_feats) <= 30 and verbose:
                     print('        Selected: %s' %pd.Series(imp_feats).sort_values(ascending=False)[:top_num].index.tolist())
                 important_features += print_feats
             #######  order this in the same order in which they were collected ######
             important_features = list(OrderedDict.fromkeys(important_features))
             if dask_xgboost_flag:
-                print('            Time taken for DASK XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
+                if verbose >= 2:
+                    print('            Time taken for DASK XGBoost feature selection = %0.0f seconds' %(time.time()-start_time1))
             else:
-                print('            Time taken for regular XGBoost feature selection = %0.0f seconds' %(time.time()-start_time2))
+                if verbose >= 2:
+                    print('            Time taken for regular XGBoost feature selection = %0.0f seconds' %(time.time()-start_time1))
         #### plot all the feature importances in a grid ###########
         if verbose >= 2:
             if multi_label_type:
@@ -1491,7 +1510,7 @@ def FE_perform_recursive_xgboost(train_p, y_train, model_type, multi_label_type)
             print('Dask XGBoost is crashing due to %s. Returning with currently selected features...' %e)
         else:
             print('Regular XGBoost is crashing due to %s. Returning with currently selected features...' %e)
-        important_features = copy.deepcopy(preds)
+        important_features = copy.deepcopy(cols_sel)
     return important_features
 ################################################################################
 def remove_highly_correlated_vars_fast(df, corr_limit=0.70):
@@ -2904,14 +2923,18 @@ def EDA_randomly_select_rows_from_dataframe(train_dataframe, targets, nrows_limi
 from lazytransform import LazyTransformer
 
 class FeatureWiz(BaseEstimator, TransformerMixin):
+    """
+    FeatureWiz is a scikit-learn transformer that performs automatic feature selection.
+    How to use FeatureWiz? Here is the syntax.
+        wiz = FeatureWiz(verbose=1)
+        X_train_selected, y_train = wiz.fit_transform(X_train, y_train)
+        X_test_selected = wiz.transform(X_test)
+        wiz.features  ### provides a list of selected features ###            
+    
+    """
     def __init__(self, corr_limit=0.90, verbose=2, sep=',', 
         header=0, feature_engg='', category_encoders='',
         dask_xgboost_flag=False, nrows=None, skip_sulov=False, skip_xgboost=False):
-        print("""wiz = FeatureWiz(verbose=1)
-        X_train_selected = wiz.fit_transform(X_train, y_train)
-        X_test_selected = wiz.transform(X_test)
-        wiz.features  ### provides a list of selected features ###            
-        """)
         self.features = None
         self.corr_limit = corr_limit
         self.verbose=verbose
@@ -2950,11 +2973,14 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         encoders = []
         for each_encoder in self.category_encoders:
             enc = encoders_dict.get(each_encoder, 'label')
-            encoders.append(enc)    
+            encoders.append(enc)
+        if len(encoders) == 0:
+            encoders = 'auto'
         self.lazy = LazyTransformer(model=None, encoders=encoders, 
             scalers=None, date_to_string=False,
-            transform_target=True, imbalanced=False, save=False, combine_rare=False, verbose=0)
-
+            transform_target=True, imbalanced=False, save=False, 
+            combine_rare=False, verbose=self.verbose)
+        print('featurewiz is given %0.1f as correlation limit...' %self.corr_limit)
 
     def fit(self, X, y):
         start_time = time.time()
@@ -2979,6 +3005,14 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         #### Use lazytransform to transform all variables to numeric ###
         X_sel, y_sel = self.lazy.fit_transform(X, y)
         ##### Now put a dataframe together of transformed X and y  ####
+        if isinstance(y_sel, np.ndarray):
+            if isinstance(y, pd.Series):
+                y_sel = pd.Series(y_sel, name=target, index=y.index)
+            elif isinstance(y, pd.DataFrame):
+                y_sel = pd.Series(y_sel, columns=target, index=y.index)
+            else:
+                print('y is not formatted correctly: check your input y and try again.')
+                return self
         y_index = y_sel.index
         X_index = X_sel.index
         if (X_index == y_index).all():
@@ -2989,36 +3023,32 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         # Select features using featurewiz
         self.model_type, self.multi_label_type = analyze_problem_type(df[target], target)
         numvars = X_sel.columns.tolist()
-        numvars = FE_remove_variables_using_SULOV_method(df, numvars, model_type, target,
+        numvars = FE_remove_variables_using_SULOV_method(df, numvars, self.model_type, target,
                              self.corr_limit, self.verbose, self.dask_xgboost_flag)
-        features = FE_perform_recursive_xgboost(df, df[target], self.model_type, self.multi_label_type)
+        print('Performing recursive XGBoost feature selection...')
+        features = FE_perform_recursive_xgboost(df[numvars], df[target], self.model_type, 
+                        self.multi_label_type, self.dask_xgboost_flag, self.verbose)
         # find the time taken to run feature selection ####
         difftime = max(1, np.int16(time.time()-start_time))
-        print('    Time taken to create entire pipeline = %s second(s)' %difftime)
+        print('Time taken to run featurewiz = %s second(s)' %difftime)
         # column of labels
         self.features = features
         self.X_sel = df[features]
         self.y_sel = df[target]
-        self.df = df
-        self.target = target
+        print('    Numeric transformed %d features selected' %len(self.features))
         return self
 
     def fit_transform(self, X, y):
-        pdb.set_trace()
         self.fit(X, y)
         self.X_sel = self.transform(X, y)
-        print('Returning featurewiz transformed dataframes with %d features' %len(self.features))
         return self.X_sel, self.y_sel
 
     def transform(self, X, y=None):
-        pdb.set_trace()
         if y is None:
             self.X_sel = self.lazy.transform(X)
-            _, self.X_sel = featurewiz(self.df, self.target, self.corr_limit, self.verbose, self.sep,
-                              self.header, self.X_sel, self.feature_engg, self.category_encoders,
-                              self.dask_xgboost_flag, self.nrows, self.skip_sulov, self.skip_xgboost)
+            print('Selected %d features' %len(self.features))
+            return self.X_sel[self.features]
         else:
-            print('Returning numeric transformed dataframe with %d features' %len(self.features))
             return self.X_sel
 ###################################################################################################
 def EDA_remove_special_chars(df):

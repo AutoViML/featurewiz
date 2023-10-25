@@ -62,17 +62,22 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
     FE stands for Feature Engineering - it means this function performs feature engineering
     ###########################################################################################
     #####              SULOV stands for Searching Uncorrelated List Of Variables  #############
-    This highly efficient method removes variables that are highly correlated using a series of
-    pair-wise correlation knockout rounds. It is extremely fast and hence can work on thousands
-    of variables in less than a minute, even on a laptop. You need to send in a list of numeric
-    variables and that's all! The method defines high Correlation as anything over 0.70 (absolute)
-    but this can be changed. If two variables have absolute correlation higher than this, they
-    will be marked, and using a process of elimination, one of them will get knocked out:
+    ###########################################################################################
+    SULOV method was created by Ram Seshadri in 2018. This highly efficient method removes 
+        variables that are highly correlated using a series of pair-wise correlation knockout 
+        rounds. It is extremely fast and hence can work on thousands of variables in less than
+        a minute, even on a laptop. You need to send in a list of numeric variables and that's
+        all! The method defines high Correlation as anything over 0.70 (absolute) but this can
+        be changed. If two variables have absolute correlation higher than this, they will be 
+        marked, and using a process of elimination, one of them will get knocked out:
     To decide order of variables to keep, we use mutuail information score to select. MIS returns
-    a ranked list of these correlated variables: when we select one, we knock out others
-    that it is correlated to. Then we select next var. This way we knock out correlated variables.
-    Finally we are left with uncorrelated variables that are also highly important in mutual score.
-    ########  YOU MUST INCLUDE THE ABOVE MESSAGE IF YOU COPY THIS CODE IN YOUR LIBRARY ##########
+        a ranked list of these correlated variables: when we select one, we knock out others that
+        are highly correlated to it. Then we select next variable to inspect. This continues until 
+        we knock out all highly correlated variables in each set of variables. Finally we are 
+        left with only uncorrelated variables that are also highly important in mutual score.
+    ###########################################################################################
+    ########  YOU MUST INCLUDE THE ABOVE MESSAGE IF YOU COPY SULOV method IN YOUR LIBRARY ##########
+    ###########################################################################################
     """
     df = copy.deepcopy(df)
     df_target = df[target]
@@ -82,10 +87,10 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
     for each_num in null_vars:
         df[each_num] = df[each_num].fillna(0)
     target = copy.deepcopy(target)
-
-    print('#######################################################################################')
-    print('#####  Searching for Uncorrelated List Of Variables (SULOV) in %s features ############' %len(numvars))
-    print('#######################################################################################')
+    if verbose:
+        print('#######################################################################################')
+        print('#####  Searching for Uncorrelated List Of Variables (SULOV) in %s features ############' %len(numvars))
+        print('#######################################################################################')
     ### This is a shorter version of getting unduplicated and highly correlated vars ##
     #correlation_dataframe = df.corr().abs().unstack().sort_values().drop_duplicates()
     ### This change was suggested by such3r on GitHub issues. Added Dec 30, 2022 ###
@@ -132,6 +137,13 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
             df_fit = df_fit.dropna()
         else:
             print('    there are no null values in dataset...')
+            
+        if df_target.isnull().sum().sum() > 0:
+            print('    there are null values in target. Returning with all vars...')
+            return numvars
+        else:
+            print('    there are no null values in target column...')
+        
         ##### Reduce memory usage and find mutual information score ####       
         #try:
         #    df_fit = reduce_mem_usage(df_fit)
@@ -180,11 +192,12 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
             removed_cols = remove_highly_correlated_vars_fast(df,corr_limit)
             final_list = left_subtract(numvars, removed_cols)
         if len(removed_cols) > 0:
-            print('    Removing (%d) highly correlated variables:' %(len(removed_cols)))
-            if len(removed_cols) <= 30:
-                print('    %s' %removed_cols)
-            if len(final_list) <= 30:
-                print('    Following (%d) vars selected: %s' %(len(final_list),final_list))
+            if verbose:
+                print('    Removing (%d) highly correlated variables:' %(len(removed_cols)))
+                if len(removed_cols) <= 30:
+                    print('    %s' %removed_cols)
+                if len(final_list) <= 30:
+                    print('    Following (%d) vars selected: %s' %(len(final_list),final_list))
         ##############    D R A W   C O R R E L A T I O N   N E T W O R K ##################
         selected = copy.deepcopy(final_list)
         if verbose:

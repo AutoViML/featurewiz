@@ -6,7 +6,7 @@ matplotlib
 seaborn
 scikit-learn>=0.24
 networkx>=2.6.2
-category_encoders>=2.4.0
+category_encoders>=2.6.2
 xlrd>=2.0.0
 imbalanced-learn>=0.7
 tqdm>=4.62.0
