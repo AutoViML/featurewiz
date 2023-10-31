@@ -28,7 +28,7 @@ setuptools.setup(
         "category_encoders>=2.6.2",
         "xlrd>=2.0.0",
         "imbalanced-learn>=0.7",
-        "tqdm>=4.62.0",
+        "tqdm >=4.61.1, <=4.62.0",
         "dask>=2021.11.0",
         "lightgbm>=3.2.1",
         "distributed>=2021.11.0",
