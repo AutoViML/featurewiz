@@ -86,7 +86,7 @@ Once SULOV has selected variables that have high mutual information scores with 
 ## Tips
 Here are some additional tips for ML engineers and data scientists when using featurewiz:
 <ol>
-<li><b>How to cross-validate your results</b>: When you use featurewiz, we automatically perform multiple rounds of feature selection using permutations on the number of columns. However, you can perform feature selection using permutations of rows as follows in [cross_validate using featurewiz](examples/cross_validate.py).</li>
+<li><b>How to cross-validate your results</b>: When you use featurewiz, we automatically perform multiple rounds of feature selection using permutations on the number of columns. However, you can perform feature selection using permutations of rows as follows in <a href="https://github.com/AutoViML/featurewiz/blob/main/examples/cross_validate.py">cross_validate using featurewiz.</a>
 <li><b>Use multiple feature selection tools</b>: It is a good idea to use multiple feature selection tools and compare the results. This will help you to get a better understanding of which features are most important for your data.</li>
 <li><b>Don't forget to engineer new features</b>: Feature selection is only one part of the process of building a good machine learning model. You should also spend time engineering your features to make them as informative as possible. This can involve things like creating new features, transforming existing features, and removing irrelevant features.</li>
 <li><b>Don't overfit your model</b>: It is important to avoid overfitting your model to the training data. Overfitting occurs when your model learns the noise in the training data, rather than the underlying signal. To avoid overfitting, you can use regularization techniques, such as lasso or elasticnet.</li>
@@ -161,7 +161,7 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
 
 ## API
 
-**Input Arguments for old syntax**
+**Input Arguments for both syntax**
 
 - `dataname`: could be a datapath+filename or a dataframe. It will detect whether your input is a filename or a dataframe and load it automatically.
 - `target`: name of the target variable in the data set.
@@ -170,9 +170,8 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
   - `0` - limited output. Great for running this silently and getting fast results.
   - `1` - verbose. Great for knowing how results were and making changes to flags in input.
   - `2` - more charts such as SULOV and output. Great for finding out what happens under the hood for SULOV method.
-- `test_data`: If you want to transform test data in the same way you are transforming dataname, you can.
-    test_data could be the name of a datapath+filename or a dataframe. featurewiz will detect whether
-        your input is a filename or a dataframe and load it automatically. Default is empty string.
+- `test_data`: This is only applicable to the old syntax if you want to transform both train and test data at the same time in the same way. `test_data` could be the name of a datapath+filename or a dataframe. featurewiz will detect whether your input is a filename or a dataframe and load it automatically. Default is empty string.
+- `dask_xgboost_flag`: default False. If you want to use dask with your data, then set this to True.
 - `feature_engg`: You can let featurewiz select its best encoders for your data set by setting this flag
     for adding feature engineering. There are three choices. You can choose one, two or all three.
     - `interactions`: This will add interaction features to your data such as x1*x2, x2*x3, x1**2, x2**2, etc.
@@ -202,7 +201,7 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
 - `skip_sulov`: default `False`. You can set the flag to skip the SULOV method if you wanted. 
 - `skip_xgboost`: default `False`. You can set the flag to skip the Recursive XGBoost method if you wanted. 
 
-**Output values for old syntax**
+**Output values for old syntax** This is applicable only to the old syntax.
 -   `outputs`: Output is always a tuple. We can call our outputs in that tuple as `out1` and `out2` below.
     -   `out1` and `out2`: If you sent in just one dataframe or filename as input, you will get:
         - 1. `features`: It will be a list (of selected features) and
