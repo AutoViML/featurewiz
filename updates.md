@@ -1,9 +1,14 @@
 # featurewiz latest updates
 This is the main page where we will post the latest updates to the featurewiz library. Make sure you upgrade your featurewiz library everytime you run to take advantage of new features. There are new updates almost every week!
 
-#### Update (October 2023): FeatureWiz transformer (version 3.3) now has lazytransformer library
+#### Update (November 2023): The FeatureWiz transformer (version 0.4.3 on) includes an "add_missing" flag
 <ol>
-<li><b>The FeatureWiz transformer now includes a categorical transfomer that transforms all your string, text, date-time columns into numeric variables in one step.</b> You will see a transformed `(all-numeric)` dataset when you use FeatureWiz transformer. Try it out and let us know in your comments via email.
+<li><b>The FeatureWiz transformer now includes an `add_missing` flag which will add a new column for missing values for all your variables in your dataset.</b> This will help you catch missing values as an added signal when you use FeatureWiz library. Try it out and let us know in your comments via email.
+</ol>
+
+#### Update (October 2023): FeatureWiz transformer (version 0.4.0 on) now has lazytransformer library
+<ol>
+<li><b>The new FeatureWiz transformer includes a categorical encoder + date-time + NLP transfomer that transforms all your string, text, date-time columns into numeric variables in one step.</b> You will see a fully transformed `(all-numeric)` dataset when you use FeatureWiz transformer. Try it out and let us know in your comments via email.
 </ol>
 
 #### Update (June 2023): featurewiz now has skip_sulov and skip_xgboost flags

@@ -87,7 +87,6 @@ Once SULOV has selected variables that have high mutual information scores with 
 Here are some additional tips for ML engineers and data scientists when using featurewiz:
 <ol>
 <li><b>How to cross-validate your results</b>: When you use featurewiz, we automatically perform multiple rounds of feature selection using permutations on the number of columns. However, you can perform feature selection using permutations of rows as follows in [cross_validate using featurewiz](examples/cross_validate.py).</li>
-
 <li><b>Use multiple feature selection tools</b>: It is a good idea to use multiple feature selection tools and compare the results. This will help you to get a better understanding of which features are most important for your data.</li>
 <li><b>Don't forget to engineer new features</b>: Feature selection is only one part of the process of building a good machine learning model. You should also spend time engineering your features to make them as informative as possible. This can involve things like creating new features, transforming existing features, and removing irrelevant features.</li>
 <li><b>Don't overfit your model</b>: It is important to avoid overfitting your model to the training data. Overfitting occurs when your model learns the noise in the training data, rather than the underlying signal. To avoid overfitting, you can use regularization techniques, such as lasso or elasticnet.</li>
@@ -131,7 +130,7 @@ As of June 2022, thanks to [arturdaraujo](https://github.com/arturdaraujo), feat
 
 There are two ways to use featurewiz. 
 <ol>
-<li>One way is the old way and it incorporates feature engineering with feature selection. This is the original syntax of featurewiz and is still being used by thousands of researchers in the field. Hence it will continue to be maintained. You can use it if you like.</li>
+<li>One way is the old way and this was the original syntax of featurewiz and is still being used by thousands of researchers in the field. Hence it will continue to be maintained. You can use it if you like it.</li>
 
 ```
 import featurewiz as fwiz
@@ -144,12 +143,12 @@ outputs = fwiz.featurewiz(dataname=train, target=target, corr_limit=0.70, verbos
 - In the first case, it can be `features` and `trainm`: features is a list (of selected features) and trainm is the transformed dataframe (if you sent in train only)
 - In the second case, it can be `trainm` and `testm`: It can be two transformed dataframes when you send in both test and train but with selected features.
 
-<li>The second way is the new way where you use scikit-learn's `fit and predict` syntax. It also includes the `lazytransformer` library that I created to transform categorical variables into numeric variables automatically. So you can now use it as the main syntax for your future needs.</li>
+<li>The second way is the new way where you use scikit-learn's `fit and predict` syntax. It also includes the `lazytransformer` library that I created to transform datetime, NLP and categorical variables into numeric variables automatically. We recommend that you use it as the main syntax for all your future needs.</li>
 
 ```
 from featurewiz import FeatureWiz
-fwiz = FeatureWiz(corr_limit=0.70, feature_engg='', category_encoders='', dask_xgboost_flag=False, nrows=None, verbose=2)
-X_train_selected = fwiz.fit_transform(X_train, y_train)
+fwiz = FeatureWiz(corr_limit=0.70, feature_engg='', category_encoders='', add_missing=False, nrows=None, verbose=0)
+X_train_selected, y_train = fwiz.fit_transform(X_train, y_train)
 X_test_selected = fwiz.transform(X_test)
 ### get list of selected features ###
 fwiz.features  
@@ -166,7 +165,7 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
 
 - `dataname`: could be a datapath+filename or a dataframe. It will detect whether your input is a filename or a dataframe and load it automatically.
 - `target`: name of the target variable in the data set.
-- `corr_limit`: if you want to set your own threshold for removing variables as highly correlated, then give it here. The default is 0.7 which means variables less than -0.7 and greater than 0.7 in pearson's correlation will be candidates for removal.
+- `corr_limit`: if you want to set your own threshold for removing variables as highly correlated, then give it here. The default is 0.9 which means variables less than -0.9 and greater than 0.9 in pearson's correlation will be candidates for removal.
 - `verbose`: This has 3 possible states:
   - `0` - limited output. Great for running this silently and getting fast results.
   - `1` - verbose. Great for knowing how results were and making changes to flags in input.
@@ -180,8 +179,9 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
     - `groupby`: This will generate Group By features to your numeric vars by grouping all categorical vars.
     - `target`:  This will encode and transform all your categorical features using certain target encoders.<br>
     Default is empty string (which means no additional features)
-- `category_encoders`: Instead of above method, you can choose your own kind of category encoders from the list below.
-    Recommend you do not use more than two of these. Featurewiz will automatically select only two from your list. Default is empty string (which means no encoding of your categorical features)<br> These descriptions are derived from the excellent <a href="https://contrib.scikit-learn.org/category_encoders/"> category_encoders</a> python library. Please check it out!
+- `add_missing`: default is False. This is a new flag: the `add_missing` flag will add a new column for missing values for all your variables in your dataset. This will help you catch missing values as an added signal.
+- `category_encoders`: default is "auto". Instead, you can choose your own category encoders from the list below.
+    We Recommend you do not use more than two of these. Featurewiz will automatically select only two if you had more than two in your list. You can set "auto" for our own choice or empty string "" (which means no encoding of your categorical features)<br> These descriptions are derived from the excellent <a href="https://contrib.scikit-learn.org/category_encoders/"> category_encoders</a> python library. Please check it out!
     - `HashingEncoder`: HashingEncoder is a multivariate hashing implementation with configurable dimensionality/precision. The advantage of this encoder is that it does not maintain a dictionary of observed categories. Consequently, the encoder does not grow in size and accepts new values during data scoring by design.
     - `SumEncoder`: SumEncoder is a Sum contrast coding for the encoding of categorical features.
     - `PolynomialEncoder`: PolynomialEncoder is a Polynomial contrast coding for the encoding of categorical features.
@@ -198,7 +198,6 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
     For feature value i, James-Stein estimator returns a weighted average of:
     The mean target value for the observed feature value i.
     The mean target value (regardless of the feature value).
-- `dask_xgboost_flag`: Default is False. Set to True to use dask_xgboost estimator. You can turn it off if it gives an error. Then it will use pandas and regular xgboost to do the job.
 - `nrows`: default `None`. You can set the number of rows to read from your datafile if it is too large to fit into either dask or pandas. But you won't have to if you use dask. 
 - `skip_sulov`: default `False`. You can set the flag to skip the SULOV method if you wanted. 
 - `skip_xgboost`: default `False`. You can set the flag to skip the Recursive XGBoost method if you wanted. 

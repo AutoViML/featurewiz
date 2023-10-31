@@ -45,7 +45,7 @@ else:
 version_number = __version__
 print("""%s featurewiz %s. Use the new scikit-learn syntax:
         wiz = FeatureWiz(feature_engg = ['interactions','groupby'], nrows=None,
-        				    category_encoders=[ "OneHotEncoder"], verbose=0)
+        		category_encoders="auto", add_missing=False, verbose=0)
         X_train_selected, y_train = wiz.fit_transform(X_train, y_train)
         X_test_selected = wiz.transform(X_test)
         wiz.features     
