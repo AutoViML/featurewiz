@@ -481,8 +481,8 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
     #################################################################################################
     Usage:
         MGB = Groupby_Aggregator(categoricals=catcols,aggregates=['mean','skew'], numerics=numerics)
-        trainx = MGB.fit_transform(train)
-        testx = MGB.transform(test)
+        X_train = MGB.fit_transform(X_train)
+        X_test = MGB.transform(X_test)
     """
     def __init__(self, categoricals=[], aggregates=[], numerics='all'):
         # store the number of dimension of the target to predict an array of
@@ -508,11 +508,6 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
 
     def fit(self, X, **fit_params):
         """Fit the model according to the given training data"""
-        try:
-            print('Beware: Potentially creates %d features (some will be dropped due to zero variance)' %(
-                len(self.numerics)*len(self.categoricals)*len(self.agg_types)))
-        except Exception as e:
-            print('Erroring due to %s' %e)
         ##### First make a copy of dataframe ###
         dft_index = X.index
         dft = copy.deepcopy(X)
@@ -525,12 +520,16 @@ class Groupby_Aggregator(BaseEstimator, TransformerMixin):
         if isinstance(self.numerics, str):
             if self.numerics != 'all':
                 self.numerics = [self.numerics]
-        ### Make sure the list of functions they send in are acceptable functions ##
-        
+        ### Make sure the list of functions they send in are acceptable functions ##        
         ls = X.select_dtypes('number').columns.tolist()
         if self.numerics == 'all':
             self.numerics = copy.deepcopy(ls)
         ### Make sure that the numerics are numeric variables! ##
+        try:
+            print('Beware: Potentially creates %d features (some will be dropped due to zero variance)' %(
+                len(self.numerics)*len(self.categoricals)*len(self.agg_types)))
+        except Exception as e:
+            print('Erroring due to %s' %e)
         #self.numerics = list(set(self.numerics).intersection(ls))
         ### Make sure that the aggregate functions are real aggregators! ##
         self.agg_types = list(set(self.agg_types).intersection(self.func_set))

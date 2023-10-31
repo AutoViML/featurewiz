@@ -43,10 +43,11 @@ if __name__ == "__main__":
 else:
     module_type = 'Imported'
 version_number = __version__
-print("""%s %s version. Select nrows to a small number when running on huge datasets.
-output = featurewiz(dataname, target, corr_limit=0.90, verbose=2, sep=',', 
-		header=0, test_data='',feature_engg='', category_encoders='',
-		dask_xgboost_flag=False, nrows=None, skip_sulov=False, skip_xgboost=False)
-Create new features via 'feature_engg' flag : ['interactions','groupby','target']
+print("""%s featurewiz %s. Use the new scikit-learn syntax:
+        wiz = FeatureWiz(feature_engg = ['interactions','groupby'], nrows=None,
+        				    category_encoders=[ "OneHotEncoder"], verbose=0)
+        X_train_selected, y_train = wiz.fit_transform(X_train, y_train)
+        X_test_selected = wiz.transform(X_test)
+        wiz.features     
 """ %(module_type, version_number))
 ################################################################################
