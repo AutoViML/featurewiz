@@ -95,7 +95,7 @@ Here are some additional tips for ML engineers and data scientists when using fe
 
 ## Install
 
-**Prerequsites:**
+**Prerequisites:**
 <ol>
 <li><b>featurewiz is built using xgboost, dask, numpy, pandas and matplotlib</b>. It should run on most Python 3 Anaconda installations. You won't have to import any special libraries other than "dask", "XGBoost" and "networkx" library. Optionally, it uses LightGBM for fast modeling, which it installs automatically. </li>
 <li><b>We use "networkx" library for charts and interpretability</b>. <br>But if you don't have these libraries, featurewiz will install those for you automatically.</li>
