@@ -161,7 +161,7 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
 
 ## API
 
-**Input Arguments for both syntax**
+**Input Arguments for both syntaxes**
 
 - `dataname`: could be a datapath+filename or a dataframe. It will detect whether your input is a filename or a dataframe and load it automatically.
 - `target`: name of the target variable in the data set.
