@@ -8,7 +8,7 @@ closed issues as well.
 * write your feature.
 * submit a pull request on this repo with:
   * a brief description
-  * **detail of the expected change(s) in behaviour**
+  * **detail of the expected change(s) in behavior**
   * how to test it (if it's not obvious)
   
 Ask someone to test it.
