@@ -33,9 +33,9 @@ If you use featurewiz in your research project or paper, please use the followin
 ## Introduction
 `featurewiz` is a new python library for creating and selecting the best features in your data set fast! The differentiating features of featurewiz are:
 <ol>
-<li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR) algorithm) as described by Wikipedia on this page: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
-<li>It selects the best number of un-correlated features that have maximum mutual information about the target without having to specify the number of features</li>
-<li>It is fast and easy to use and comes with a number of helpful features, such as a built-in categorical-to-numeric encoder and a powerful feature engineering module</li>
+<li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR) algorithm) as described by wikipedia in this page: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
+<li>It selects the best number of uncorrelated features that have maximum mutual information about the target without having to specify the number of features</li>
+<li>It is fast and easy to use, and comes with a number of helpful features, such as a built-in categorical-to-numeric encoder and a powerful feature engineering module</li>
 <li>It is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>.</li>
 <li>It is actively maintained, and it is regularly updated with <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">new features and bug fixes</a>.</li>
 </ol>
