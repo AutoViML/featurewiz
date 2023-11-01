@@ -31,7 +31,7 @@ If you use featurewiz in your research project or paper, please use the followin
 <b>Current citations for featurewiz</b> in [Google Scholar](https://scholar.google.com/scholar?hl=en&as_sdt=0%2C31&q=featurewiz&btnG=)
 
 ## Introduction
-`featurewiz` a new python library for creating and selecting the best features in your data set fast! The differentiating features of featurewiz are:
+`featurewiz` is a new python library for creating and selecting the best features in your data set fast! The differentiating features of featurewiz are:
 <ol>
 <li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR) algorithm) as described by wikipedia in this page: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
 <li>It selects the best number of uncorrelated features that have maximum mutual information about the target without having to specify the number of features</li>
@@ -43,7 +43,7 @@ If you use featurewiz in your research project or paper, please use the followin
 `featurewiz` can be used in one or two ways. They are explained below.
 ### 1.  Feature Engineering
 <p>The first step is not absolutely necessary but it can be used to create new features that may or may not be helpful (be careful with automated feature engineering tools!).<p>
-One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions such as Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features to find best features was difficult and left only to "experts" or "professionals". featurewiz was created to help you in this endeavor.<br>
+One of the gaps in open-source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high-powered competitions such as Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features to find the best features was difficult and left only to "experts" or "professionals". featurewiz was created to help you in this endeavor.<br>
 <p>featurewiz now enables you to add hundreds of such features with a single line of code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go. Not only that, using the next step, featurewiz will sift through numerous such variables and find only the least correlated and most relevant features to your model. All in one step!.<br>
 
 ![feature_engg](images/feature_engg.jpg)
@@ -52,7 +52,7 @@ One of the gaps in open source AutoML tools and especially Auto_ViML has been th
 <p>The second step is Feature Selection. `featurewiz` uses the MRMR (Minimum Redundancy Maximum Relevance) algorithm as the basis for its feature selection. <br>
 <b> Why perform Feature Selection</b>? Once you have created 100's of new features, you still have three questions left to answer:
 1. How do we interpret those newly created features?
-2. Which of these features is important and which are useless? How many of them are highly correlated to each other causing redundancy?
+2. Which of these features is important and which is useless? How many of them are highly correlated to each other causing redundancy?
 3. Does the model overfit now on these new features and perform better or worse than before?
 <br>
 All are very important questions and featurewiz answers them by using the SULOV method and Recursive XGBoost to reduce features in your dataset to the best "minimum optimal" features for the model.<br>
@@ -73,11 +73,11 @@ All are very important questions and featurewiz answers them by using the SULOV 
 ![sulov](images/SULOV.jpg)
 
 <b>The working of the Recursive XGBoost</b> is as follows: 
-Once SULOV has selected variables that have high mutual information scores with least less correlation amongst them, featurewiz uses XGBoost to repeatedly find the best features among the remaining variables after SULOV. 
+Once SULOV has selected variables that have high mutual information scores with the least correlation among them, featurewiz uses XGBoost to repeatedly find the best features among the remaining variables after SULOV. 
 <ol>
-<li>Select all variables in data set and the full data split into train and valid sets.</li>
+<li>Select all variables in the data set and the full data split into train and valid sets.</li>
 <li>Find top X features (could be 10) on train using valid for early stopping (to prevent over-fitting)</li>
-<li>Then take next set of vars and find top X</li>
+<li>Then take the next set of vars and find top X</li>
 <li>Do this 5 times. Combine all selected features and de-duplicate them.</li>
 </ol>
 
@@ -161,7 +161,7 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
 
 ## API
 
-**Input Arguments for both syntax**
+**Input Arguments for both syntaxes**
 
 - `dataname`: could be a datapath+filename or a dataframe. It will detect whether your input is a filename or a dataframe and load it automatically.
 - `target`: name of the target variable in the data set.
@@ -173,14 +173,14 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
 - `test_data`: This is only applicable to the old syntax if you want to transform both train and test data at the same time in the same way. `test_data` could be the name of a datapath+filename or a dataframe. featurewiz will detect whether your input is a filename or a dataframe and load it automatically. Default is empty string.
 - `dask_xgboost_flag`: default False. If you want to use dask with your data, then set this to True.
 - `feature_engg`: You can let featurewiz select its best encoders for your data set by setting this flag
-    for adding feature engineering. There are three choices. You can choose one, two or all three.
+    for adding feature engineering. There are three choices. You can choose one, two, or all three.
     - `interactions`: This will add interaction features to your data such as x1*x2, x2*x3, x1**2, x2**2, etc.
     - `groupby`: This will generate Group By features to your numeric vars by grouping all categorical vars.
     - `target`:  This will encode and transform all your categorical features using certain target encoders.<br>
     Default is empty string (which means no additional features)
 - `add_missing`: default is False. This is a new flag: the `add_missing` flag will add a new column for missing values for all your variables in your dataset. This will help you catch missing values as an added signal.
 - `category_encoders`: default is "auto". Instead, you can choose your own category encoders from the list below.
-    We Recommend you do not use more than two of these. Featurewiz will automatically select only two if you had more than two in your list. You can set "auto" for our own choice or empty string "" (which means no encoding of your categorical features)<br> These descriptions are derived from the excellent <a href="https://contrib.scikit-learn.org/category_encoders/"> category_encoders</a> python library. Please check it out!
+    We recommend you do not use more than two of these. Featurewiz will automatically select only two if you have more than two in your list. You can set "auto" for our own choice or the empty string "" (which means no encoding of your categorical features)<br> These descriptions are derived from the excellent <a href="https://contrib.scikit-learn.org/category_encoders/"> category_encoders</a> python library. Please check it out!
     - `HashingEncoder`: HashingEncoder is a multivariate hashing implementation with configurable dimensionality/precision. The advantage of this encoder is that it does not maintain a dictionary of observed categories. Consequently, the encoder does not grow in size and accepts new values during data scoring by design.
     - `SumEncoder`: SumEncoder is a Sum contrast coding for the encoding of categorical features.
     - `PolynomialEncoder`: PolynomialEncoder is a Polynomial contrast coding for the encoding of categorical features.
@@ -189,8 +189,8 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
     - `HelmertEncoder`: HelmertEncoder uses the Helmert contrast coding for encoding categorical features.
     - `OrdinalEncoder`: OrdinalEncoder uses Ordinal encoding to designate a single column of integers to represent the categories in your data. Integers however start in the same order in which the categories are found in your dataset. If you want to change the order, just sort the column and send it in for encoding.
     - `FrequencyEncoder`: FrequencyEncoder is a count encoding technique for categorical features. For a given categorical feature, it replaces the names of the categories with the group counts of each category.
-    - `BaseNEncoder`: BaseNEncoder encodes the categories into arrays of their base-N representation. A base of 1 is equivalent to one-hot encoding (not really base-1, but useful), a base of 2 is equivalent to binary encoding. N=number of actual categories is equivalent to vanilla ordinal encoding.
-    - `TargetEncoder`: TargetEncoder performs Target encoding for categorical features. It supports following kinds of targets: binary and continuous. For multi-class targets it uses a PolynomialWrapper.
+    - `BaseNEncoder`: BaseNEncoder encodes the categories into arrays of their base-N representation. A base of 1 is equivalent to one-hot encoding (not really base-1, but useful), and a base of 2 is equivalent to binary encoding. N=number of actual categories is equivalent to vanilla ordinal encoding.
+    - `TargetEncoder`: TargetEncoder performs Target encoding for categorical features. It supports the following kinds of targets: binary and continuous. For multi-class targets, it uses a PolynomialWrapper.
     - `CatBoostEncoder`: CatBoostEncoder performs CatBoost coding for categorical features. It supports the following kinds of targets: binary and continuous. For polynomial target support, it uses a PolynomialWrapper. This is very similar to leave-one-out encoding, but calculates the values “on-the-fly”. Consequently, the values naturally vary during the training phase and it is not necessary to add random noise.
     - `WOEEncoder`: WOEEncoder uses the Weight of Evidence technique for categorical features. It supports only one kind of target: binary. For polynomial target support, it uses a PolynomialWrapper. It cannot be used for Regression.
     - `JamesSteinEncoder`: JamesSteinEncoder uses the James-Stein estimator. It supports 2 kinds of targets: binary and continuous. For polynomial target support, it uses PolynomialWrapper.
@@ -198,10 +198,10 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
     The mean target value for the observed feature value i.
     The mean target value (regardless of the feature value).
 - `nrows`: default `None`. You can set the number of rows to read from your datafile if it is too large to fit into either dask or pandas. But you won't have to if you use dask. 
-- `skip_sulov`: default `False`. You can set the flag to skip the SULOV method if you wanted. 
-- `skip_xgboost`: default `False`. You can set the flag to skip the Recursive XGBoost method if you wanted. 
+- `skip_sulov`: default `False`. You can set the flag to skip the SULOV method if you want. 
+- `skip_xgboost`: default `False`. You can set the flag to skip the Recursive XGBoost method if you want. 
 
-**Output values for old syntax** This is applicable only to the old syntax.
+**Output values for old syntax** This applies only to the old syntax.
 -   `outputs`: Output is always a tuple. We can call our outputs in that tuple as `out1` and `out2` below.
     -   `out1` and `out2`: If you sent in just one dataframe or filename as input, you will get:
         - 1. `features`: It will be a list (of selected features) and
@@ -226,7 +226,7 @@ featurewiz is every Data Scientist's feature wizard that will:<ol>
 <li><b>Build a fast XGBoost or LightGBM model using the features selected by featurewiz</b>. There is a function called "simple_lightgbm_model" which you can use to build a fast model. It is a new module, so check it out.<br>
 </ol>
 
-<b>*** Special thanks to fellow open sourcers ***</b>:<br>
+<b>*** Special thanks to fellow open source Contributors ***</b>:<br>
 <ol>
 <li><b>Alex Lekov</b> (https://github.com/Alex-Lekov/AutoML_Alex/tree/master/automl_alex) for his DataBunch and encoders modules which are used by the tool (although with some modifications).</li>
 <li><b>Category Encoders</b> library in Python : This is an amazing library. Make sure you read all about the encoders that featurewiz uses here: https://contrib.scikit-learn.org/category_encoders/index.html </li>
