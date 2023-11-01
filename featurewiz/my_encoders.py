@@ -1929,6 +1929,7 @@ class TS_Fourier_Transformer(BaseEstimator, TransformerMixin):
         return self.X_transformed
 #########################################################################################################
 from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
+from pandas.api.types import is_object_dtype
 import copy
 import pdb
 class Column_Names_Transformer(BaseEstimator, TransformerMixin):
@@ -1971,7 +1972,11 @@ class Column_Names_Transformer(BaseEstimator, TransformerMixin):
                 print('X is a DataFrame...')
             pass
         ########## you must save the product uniques so that train and test have consistent columns ##
-        self.old_column_names = X.columns.tolist()
+        if is_object_dtype(X.columns):
+            self.old_column_names = X.columns.tolist()
+        else:
+            X.columns = [str(x) for x in X.columns.tolist()]
+            self.old_column_names = X.columns.tolist()
         if self.verbose:
             print('Before making column names unique, shape of data = %s' %(X.shape,))
         self.new_column_names, self.transformed_flag = EDA_make_column_names_unique(X)

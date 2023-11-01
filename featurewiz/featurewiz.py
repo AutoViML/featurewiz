@@ -490,7 +490,8 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
         elif isinstance(feature_engg, list):
             feature_gen = copy.deepcopy(feature_engg)
     else:
-        print('Skipping feature engineering since no feature_engg input...')
+        print('    Skipping feature engineering since no feature_engg input...')
+    #######     Now start doing the pre-processing   ###################
     feature_type = ''
     if category_encoders:
         if isinstance(category_encoders, str):
@@ -3005,6 +3006,8 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self.grouper = None
         self.numvars = []
         self.catvars = []
+        self.missing_flags = []
+        self.cols_zero_variance = []
         self.target = None
         self.targets = None
         encoders_dict = {
@@ -3064,6 +3067,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         #####      MAKING FEATURE_TYPE AND FEATURE_GEN SELECTIONS HERE           #############
         ######################################################################################
         X_sel = copy.deepcopy(X)
+        print('Loaded input data. Shape = %s' %(X_sel.shape,))
         feature_generators = ['interactions', 'groupby', 'target']
         feature_gen = ''
         if self.feature_engg:
@@ -3076,7 +3080,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             elif isinstance(self.feature_engg, list):
                 feature_gen = copy.deepcopy(self.feature_engg)
         else:
-            print('Skipping feature engineering since no feature_engg input...')
+            print('    Skipping feature engineering since no feature_engg input...')
         self.feature_gen = feature_gen
         ##### This where we find the features  to modify ######################
         preds = [x for x in list(X_sel) if x not in self.targets]
@@ -3102,37 +3106,52 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
     def transform(self, X, y=None):
         start_time = time.time()
         if y is None:
-            #### This is only for test data #################
+            ##########################################################
+            ############# This is only for test data #################
+            ##########################################################
+            ### Now you can process the X dataset ####
+            if isinstance(X, np.ndarray):
+                print('X must be a pd.Series or pd.DataFrame since we use column names to build data pipeline. Returning')
+                return {}
+            print('Loaded input data. Shape = %s' %(X.shape,))
             if self.add_missing:
-                print('Warning: This adds a missing flag column for each column in your dataset. Beware...')
+                print('    Caution: add_missing adds a missing flag column for every column in your dataset. Beware...')
                 X = add_missing(X)
             if self.feature_gen:
                 if np.where('groupby' in self.feature_gen,True, False).tolist():
                     X = self.grouper.transform(X)
                 if np.where('interactions' in self.feature_gen,True, False).tolist():
                     X = FE_create_interaction_vars_train(X, self.catvars)
-                ### this is only for test data ######
-                X_sel = self.lazy.transform(X)
-                print('Selected %d features' %len(self.features))
-                try:
-                    return X_sel[self.features]
-                except:
-                    print('Returning all features since some selected features not found')
-                    return X_sel
+            ### this is only for test data ######
+            X_sel = self.lazy.transform(X)
+            if len(self.cols_zero_variance) > 0:
+                print('    Dropping %d columns due to zero variance...' %len(self.cols_zero_variance))
+                X_sel = X_sel.drop(self.cols_zero_variance, axis=1)
+            print('Returning dataframe with %d features ' %len(self.features))
+            try:
+                return X_sel[self.features]
+            except:
+                print('Returning dataframe with all features since error in feature selection...')
+                return X_sel
         else:
-            ### this is only for train data #######
+            ##########################################################
+            ###################### this is only for train data #######
+            ##########################################################
             X_sel = copy.deepcopy(X)
             X_index = X.index
             y_index = y.index
             #############    This adds a missing flag column for each column ############
             if self.add_missing:
-                print('Warning: This adds a missing flag column for each column in your dataset. Beware...')
+                print('    Caution: add_missing adds a missing flag column for every column in your dataset. Beware...')
+                orig_vars = X_sel.columns.tolist()
                 X_sel = add_missing(X_sel)
+                self.missing_flags = left_subtract(X_sel.columns.tolist(), orig_vars)
             ##################   This is where we do groupby features    #################
             if self.feature_gen:
                 if np.where('groupby' in self.feature_gen,True, False).tolist():
                     if len(self.catvars) >= 1 and len(self.numvars) >= 1:
-                        grp = Groupby_Aggregator(categoricals=self.catvars, aggregates=['mean'], numerics='all')
+                        #### We make sure that only those numvars and catvars in X are used. Not the missing flags!
+                        grp = Groupby_Aggregator(categoricals=self.catvars, aggregates=['mean'], numerics=self.numvars)
                         X_sel = grp.fit_transform(X_sel)
                         self.grouper = grp
                     else:
@@ -3146,8 +3165,10 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                         num_combos = len(list(combinations(self.catvars, 2)))
                         print('Adding %s interactions between categorical_vars %s...' %(
                                             num_combos, self.catvars))
+                        #### We make sure that only those numvars and catvars in X are used. Not the missing flags!
                         X_sel = FE_create_interaction_vars_train(X_sel, self.catvars)
-                        combovars = left_subtract(X_sel.columns.tolist(), self.numvars)
+                        #### Since missing flags are not included in numvars, we are adding them here to select the rest
+                        combovars = left_subtract(X_sel.columns.tolist(), self.numvars+self.missing_flags)
                         self.combovars = combovars
                     else:
                         print('No interactions created for categorical vars since number less than 2')
@@ -3173,6 +3194,11 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                 df.index = X_index
             # Select features using featurewiz
             self.model_type, self.multi_label_type = analyze_problem_type(df[self.targets], self.targets)
+            #### This is where you need to drop columns that have zero variance ######
+            self.cols_zero_variance = X_sel.columns[(X_sel.var()==0)]
+            if len(self.cols_zero_variance) > 0:
+                print('    Dropping %d columns due to zero variance...' %len(self.cols_zero_variance))
+                X_sel = X_sel.drop(self.cols_zero_variance, axis=1)
             self.numvars = X_sel.columns.tolist()
             if not self.skip_sulov:
                 self.numvars = FE_remove_variables_using_SULOV_method(df, self.numvars, self.model_type, self.targets,
@@ -3185,11 +3211,11 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                 features = copy.deepcopy(self.numvars)
             # find the time taken to run feature selection ####
             difftime = max(1, np.int16(time.time()-start_time))
-            print('Time taken to run featurewiz = %s second(s)' %difftime)
+            print('Time taken to run entire featurewiz feature selection = %s second(s)' %difftime)
             # column of labels
             self.features = features
-            print('    Numeric transformed %d features selected' %len(self.features))
-            return X_sel, y_sel
+            print('    Recursive XGBoost selected %d features...' %len(self.features))
+            return X_sel[self.features], y_sel
 ###################################################################################################
 def EDA_remove_special_chars(df):
     """

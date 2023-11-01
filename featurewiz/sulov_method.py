@@ -91,6 +91,7 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
         print('#######################################################################################')
         print('#####  Searching for Uncorrelated List Of Variables (SULOV) in %s features ############' %len(numvars))
         print('#######################################################################################')
+    print('Starting SULOV with %d features...' %len(numvars))
     ### This is a shorter version of getting unduplicated and highly correlated vars ##
     #correlation_dataframe = df.corr().abs().unstack().sort_values().drop_duplicates()
     ### This change was suggested by such3r on GitHub issues. Added Dec 30, 2022 ###
