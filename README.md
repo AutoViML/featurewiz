@@ -52,7 +52,7 @@ One of the gaps in open-source AutoML tools and especially Auto_ViML has been th
 <p>The second step is Feature Selection. `featurewiz` uses the MRMR (Minimum Redundancy Maximum Relevance) algorithm as the basis for its feature selection. <br>
 <b> Why perform Feature Selection</b>? Once you have created 100's of new features, you still have three questions left to answer:
 1. How do we interpret those newly created features?
-2. Which of these features is important and which are useless? How many of them are highly correlated to each other causing redundancy?
+2. Which of these features is important and which is useless? How many of them are highly correlated to each other causing redundancy?
 3. Does the model overfit now on these new features and perform better or worse than before?
 <br>
 All are very important questions and featurewiz answers them by using the SULOV method and Recursive XGBoost to reduce features in your dataset to the best "minimum optimal" features for the model.<br>
@@ -161,7 +161,7 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
 
 ## API
 
-**Input Arguments for both syntax**
+**Input Arguments for both syntaxes**
 
 - `dataname`: could be a datapath+filename or a dataframe. It will detect whether your input is a filename or a dataframe and load it automatically.
 - `target`: name of the target variable in the data set.
