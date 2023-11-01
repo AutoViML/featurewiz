@@ -33,9 +33,9 @@ If you use featurewiz in your research project or paper, please use the followin
 ## Introduction
 `featurewiz` a new python library for creating and selecting the best features in your data set fast! The differentiating features of featurewiz are:
 <ol>
-<li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR) algorithm) as described by wikipedia in this page: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
-<li>It selects the best number of un-correlated features that have maximum mutual information about the target without having to specify the number of features</li>
-<li>It is fast and easy to use, and comes with a number of helpful features, such as a built-in categorical-to-numeric encoder and a powerful feature engineering module</li>
+<li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR) algorithm) as described by Wikipedia on this page: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
+<li>It selects the best number of un-correlated features that have maximum mutual information about the target without having to specify the number of features.</li>
+<li>It is fast and easy to use, and comes with a number of helpful features, such as a built-in categorical-to-numeric encoder and a powerful feature engineering module.</li>
 <li>It is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>.</li>
 <li>It is actively maintained, and it is regularly updated with <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">new features and bug fixes</a>.</li>
 </ol>
@@ -43,7 +43,7 @@ If you use featurewiz in your research project or paper, please use the followin
 `featurewiz` can be used in one or two ways. They are explained below.
 ### 1.  Feature Engineering
 <p>The first step is not absolutely necessary but it can be used to create new features that may or may not be helpful (be careful with automated feature engineering tools!).<p>
-One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions such as Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features to find best features was difficult and left only to "experts" or "professionals". featurewiz was created to help you in this endeavor.<br>
+One of the gaps in open source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high powered competitions such as Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features to find the best features was difficult and left only to "experts" or "professionals". featurewiz was created to help you in this endeavor.<br>
 <p>featurewiz now enables you to add hundreds of such features with a single line of code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go. Not only that, using the next step, featurewiz will sift through numerous such variables and find only the least correlated and most relevant features to your model. All in one step!.<br>
 
 ![feature_engg](images/feature_engg.jpg)
@@ -52,7 +52,7 @@ One of the gaps in open source AutoML tools and especially Auto_ViML has been th
 <p>The second step is Feature Selection. `featurewiz` uses the MRMR (Minimum Redundancy Maximum Relevance) algorithm as the basis for its feature selection. <br>
 <b> Why perform Feature Selection</b>? Once you have created 100's of new features, you still have three questions left to answer:
 1. How do we interpret those newly created features?
-2. Which of these features is important and which are useless? How many of them are highly correlated to each other causing redundancy?
+2. Which of these features is important and which is useless? How many of them are highly correlated to each other causing redundancy?
 3. Does the model overfit now on these new features and perform better or worse than before?
 <br>
 All are very important questions and featurewiz answers them by using the SULOV method and Recursive XGBoost to reduce features in your dataset to the best "minimum optimal" features for the model.<br>
