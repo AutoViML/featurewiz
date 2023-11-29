@@ -2360,9 +2360,6 @@ from sklearn.preprocessing import LabelEncoder
 from collections import Counter, defaultdict
 from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
 
-from imblearn.over_sampling import SMOTE, SVMSMOTE
-from imblearn.over_sampling import ADASYN, SMOTENC
-
 import pandas as pd
 import numpy as np
 from collections import Counter
@@ -2374,6 +2371,7 @@ from sklearn.cluster import KMeans
 def FE_kmeans_resampler(x_train, y_train, target, smote="", verbose=0):
     """
     This function converts a Regression problem into a Classification problem to enable SMOTE!
+    This function needs Imbalanced-Learn library. Please pip install it first!
     It is a very simple way to send your x_train, y_train in and get back an oversampled x_train, y_train.
     Why is this needed in Machine Learning problems?
          In Imbalanced datasets, esp. skewed regression problems where the target variable is skewed, this is needed.
@@ -2444,6 +2442,11 @@ def oversample_SMOTE(X,y):
     #X →Independent Variable in DataFrame\
     #y →dependent Variable in Pandas DataFrame format
     # Get the class distriubtion for perfoming relative sampling in the next line
+    try:
+        from imblearn.over_sampling import SVMSMOTE
+    except:
+        print('This function needs Imbalanced-Learn library. Please pip install it first and try again!')
+        return
     class_weighted_rows = get_class_distribution(y)
     smote = SVMSMOTE( random_state=27,
                   sampling_strategy=class_weighted_rows)
@@ -2455,6 +2458,11 @@ def oversample_ADASYN(X,y):
     #X →Independent Variable in DataFrame\
     #y →dependent Variable in Pandas DataFrame format
     # Get the class distriubtion for perfoming relative sampling in the next line
+    try:
+        from imblearn.over_sampling import ADASYN
+    except:
+        print('This function needs Imbalanced-Learn library. Please pip install it first and try again!')
+        return
     class_weighted_rows = get_class_distribution(y)
     # Your favourite oversampler
     smote = ADASYN(random_state=27,
@@ -2980,7 +2988,6 @@ from lazytransform import LazyTransformer
 class FeatureWiz(BaseEstimator, TransformerMixin):
     """
     FeatureWiz is a scikit-learn transformer that performs automatic feature selection.
-    How to use FeatureWiz? Here is the syntax.
         wiz = FeatureWiz(verbose=1)
         X_train_selected, y_train = wiz.fit_transform(X_train, y_train)
         X_test_selected = wiz.transform(X_test)
@@ -3004,6 +3011,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self.skip_xgboost=skip_xgboost
         self.model_type = ''
         self.grouper = None
+        self.targeter = None
         self.numvars = []
         self.catvars = []
         self.missing_flags = []
@@ -3029,7 +3037,6 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                         'auto': 'auto',
                         }
         encoders = []
-
         for each_encoder in self.category_encoders:
             enc = encoders_dict.get(each_encoder, 'label')
             encoders.append(enc)
@@ -3042,8 +3049,25 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             transform_target=True, imbalanced=False, save=False, 
             combine_rare=False, verbose=self.verbose)
         print('featurewiz is given %0.1f as correlation limit...' %self.corr_limit)
+        feature_generators = ['interactions', 'groupby', 'target']
+        feature_gen = ''
+        if self.feature_engg:
+            if isinstance(self.feature_engg, str):
+                if self.feature_engg in feature_generators:
+                    feature_gen = [self.feature_engg]
+                else:
+                    print('feature engg types must be one of three strings: %s' %feature_generators)
+                    return
+            elif isinstance(self.feature_engg, list):
+                feature_gen = copy.deepcopy(self.feature_engg)
+        else:
+            print('    Skipping feature engineering since no feature_engg input...')
+        self.feature_gen = feature_gen
+        if self.feature_gen:
+            print('    Warning: Too many features will be generated since feature engg specified. This may take time...')
 
     def fit(self, X, y):
+        max_cats = 10
         if isinstance(X, np.ndarray):
             print('X input must be a dataframe since we use column names to build data pipelines. Returning')
             return X, y
@@ -3068,34 +3092,17 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         ######################################################################################
         X_sel = copy.deepcopy(X)
         print('Loaded input data. Shape = %s' %(X_sel.shape,))
-        feature_generators = ['interactions', 'groupby', 'target']
-        feature_gen = ''
-        if self.feature_engg:
-            if isinstance(self.feature_engg, str):
-                if self.feature_engg in feature_generators:
-                    feature_gen = [self.feature_engg]
-                else:
-                    print('feature engg types must be one of three strings: %s' %feature_generators)
-                    return
-            elif isinstance(self.feature_engg, list):
-                feature_gen = copy.deepcopy(self.feature_engg)
-        else:
-            print('    Skipping feature engineering since no feature_engg input...')
-        self.feature_gen = feature_gen
         ##### This where we find the features  to modify ######################
         preds = [x for x in list(X_sel) if x not in self.targets]
         ###   This is where we sort the columns to make sure that the order of columns doesn't matter in selection ###########
-        max_cats = 10
         numvars = X_sel[preds].select_dtypes(include = 'number').columns.tolist()
         self.numvars = numvars
         if self.verbose:
             print('    selecting %d numeric features for further processing...' %len(numvars))
         catvars = left_subtract(preds, numvars)
         self.catvars = catvars
-        self.feature_gen = feature_gen
-        if len(catvars) > max_cats:
-            if feature_gen:
-                print('Warning: Too many features will be generated by feature engg. This may take time...')
+        if len(self.catvars) > max_cats:
+            print('    Warning: Too many features will be generated since categorical vars > %s. This may take time...' %max_cats)
         return self
 
     def fit_transform(self, X, y):
@@ -3117,11 +3124,17 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             if self.add_missing:
                 print('    Caution: add_missing adds a missing flag column for every column in your dataset. Beware...')
                 X = add_missing(X)
+                print('    transformed dataset shape: %s' %(X.shape,))
             if self.feature_gen:
+                print('    Beware! feature_engg will add 100s, if not 1000s of additional features to your dataset!')
                 if np.where('groupby' in self.feature_gen,True, False).tolist():
-                    X = self.grouper.transform(X)
+                    if not self.grouper is None:
+                        X = self.grouper.transform(X)
                 if np.where('interactions' in self.feature_gen,True, False).tolist():
                     X = FE_create_interaction_vars_train(X, self.catvars)
+                if np.where('target' in self.feature_gen,True, False).tolist():
+                    if not self.targeter is None:
+                        X = self.targeter.transform(X)
             ### this is only for test data ######
             X_sel = self.lazy.transform(X)
             if len(self.cols_zero_variance) > 0:
@@ -3146,6 +3159,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                 orig_vars = X_sel.columns.tolist()
                 X_sel = add_missing(X_sel)
                 self.missing_flags = left_subtract(X_sel.columns.tolist(), orig_vars)
+                print('    transformed dataset shape: %s' %(X_sel.shape,))
             ##################   This is where we do groupby features    #################
             if self.feature_gen:
                 if np.where('groupby' in self.feature_gen,True, False).tolist():
@@ -3157,9 +3171,8 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                     else:
                         print('No groupby features created since no categorical or numeric vars in dataset.')
                 else:
-                    print('No groupby features created since groupby feature engg specified')
-            ##################  This is where we test for feature interactions ###########
-            if self.feature_gen:
+                    print('No groupby features created since no groupby feature engg specified')
+                ##################  This is where we test for feature interactions ###########
                 if np.where('interactions' in self.feature_gen,True, False).tolist():
                     if len(self.catvars) > 1:
                         num_combos = len(list(combinations(self.catvars, 2)))
@@ -3173,7 +3186,20 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                     else:
                         print('No interactions created for categorical vars since number less than 2')
                 else:
-                    print('No interactions created for categorical vars since no feature engg specified')
+                    print('No interactions created for categorical vars since no interactions feature engg specified')
+                ##################  This is where we test for Target Encoder ###########
+                if np.where('target' in self.feature_gen,True, False).tolist():
+                    if len(self.catvars) >= 1:
+                        #### We make sure that only those numvars and catvars in X are used. Not the missing flags!
+                        trg = TargetEncoder(verbose=0, cols=self.catvars, drop_invariant=False, return_df=True, 
+                            handle_missing='value', handle_unknown='value', min_samples_leaf=20, 
+                            smoothing=5, hierarchy=None)
+                        X_sel = trg.fit_transform(X_sel, y)
+                        self.targeter = trg
+                    else:
+                        print('No target encoder features created since no categorical vars in dataset.')
+                else:
+                    print('No target encoded features created since no target feature engg specified')
             ##### Now put a dataframe together of transformed X and y  #### 
             X_sel.index = X_index
             #### Use lazytransform to transform all variables to numeric ###
