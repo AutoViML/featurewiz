@@ -130,7 +130,19 @@ As of June 2022, thanks to [arturdaraujo](https://github.com/arturdaraujo), feat
 
 There are two ways to use featurewiz. 
 <ol>
-<li>One way is the old way and this was the original syntax of featurewiz and is still being used by thousands of researchers in the field. Hence it will continue to be maintained. You can use it if you like it.</li>
+<li>The first way is the new way where you use scikit-learn's `fit and predict` syntax. It also includes the `lazytransformer` library that I created to transform datetime, NLP and categorical variables into numeric variables automatically. We recommend that you use it as the main syntax for all your future needs.</li>
+
+```
+from featurewiz import FeatureWiz
+fwiz = FeatureWiz(feature_engg = '', nrows=None, transform_target=True, scalers="std",
+        		category_encoders="auto", add_missing=False, verbose=0)
+X_train_selected, y_train = fwiz.fit_transform(X_train, y_train)
+X_test_selected = fwiz.transform(X_test)
+### get list of selected features ###
+fwiz.features  
+```
+
+<li>The second way is the old way and this was the original syntax of featurewiz. It  is still being used by thousands of researchers in the field. Hence it will continue to be maintained. However, it can be discontinued any time without notice. You can use it if you like it.</li>
 
 ```
 import featurewiz as fwiz
@@ -143,17 +155,6 @@ outputs = fwiz.featurewiz(dataname=train, target=target, corr_limit=0.70, verbos
 - In the first case, it can be `features` and `trainm`: features is a list (of selected features) and trainm is the transformed dataframe (if you sent in train only)
 - In the second case, it can be `trainm` and `testm`: It can be two transformed dataframes when you send in both test and train but with selected features.
 
-<li>The second way is the new way where you use scikit-learn's `fit and predict` syntax. It also includes the `lazytransformer` library that I created to transform datetime, NLP and categorical variables into numeric variables automatically. We recommend that you use it as the main syntax for all your future needs.</li>
-
-```
-from featurewiz import FeatureWiz
-fwiz = FeatureWiz(corr_limit=0.70, feature_engg='', category_encoders='', add_missing=False, nrows=None, verbose=0)
-X_train_selected, y_train = fwiz.fit_transform(X_train, y_train)
-X_test_selected = fwiz.transform(X_test)
-### get list of selected features ###
-fwiz.features  
-```
-
 In both cases, the features and dataframes are ready for you to do further modeling.
 
 Featurewiz works on any multi-class, multi-label data Set. So you can have as many target labels as you want.
@@ -161,7 +162,51 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
 
 ## API
 
-**Input Arguments for both syntaxes**
+**Input Arguments for NEW syntax**
+
+    Parameters
+    ----------
+    corr_limit : float, default=0.90
+        The correlation limit to consider for feature selection. Features with correlations 
+        above this limit may be excluded.
+
+    verbose : int, default=0
+        Level of verbosity in output messages.
+
+    feature_engg : str or list, default=''
+        Specifies the feature engineering methods to apply, such as 'interactions', 'groupby', 
+        and 'target'.
+
+    category_encoders : str or list, default=''
+        Encoders for handling categorical variables. Supported encoders include 'onehot', 
+        'ordinal', 'hashing', 'count', 'catboost', 'target', 'glm', 'sum', 'woe', 'bdc', 
+        'loo', 'base', 'james', 'helmert', 'label', 'auto', etc.
+
+    add_missing : bool, default=False
+        If True, adds indicators for missing values in the dataset.
+
+    dask_xgboost_flag : bool, default=False
+        If set to True, enables the use of Dask for parallel computing with XGBoost.
+
+    nrows : int or None, default=None
+        Limits the number of rows to process.
+
+    skip_sulov : bool, default=False
+        If True, skips the application of the Super Learning Optimized (SULO) method in 
+        feature selection.
+
+    skip_xgboost : bool, default=False
+        If True, bypasses the recursive XGBoost feature selection.
+
+    transform_target : bool, default=False
+        When True, transforms the target variable(s) into numeric format if they are not 
+        already.
+
+    scalers : str or None, default=None
+        Specifies the scaler to use for feature scaling. Available options include 
+        'std', 'standard', 'minmax', 'max', 'robust', 'maxabs'.
+
+**Input Arguments for old syntax**
 
 - `dataname`: could be a datapath+filename or a dataframe. It will detect whether your input is a filename or a dataframe and load it automatically.
 - `target`: name of the target variable in the data set.

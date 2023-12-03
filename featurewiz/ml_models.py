@@ -1812,8 +1812,8 @@ def analyze_problem_type(y_train, target, verbose=0) :
                     model_class = 'Multi_Classification'
     ########### print this for the start of next step ###########
     if multi_label:
-        print('''#### %s %s problem ####''' %('Multi_Label', model_class))
+        print('''    %s %s problem ''' %('Multi_Label', model_class))
     else:
-        print('''#### %s %s problem ####''' %('Single_Label', model_class))
+        print('''    %s %s problem ''' %('Single_Label', model_class))
     return model_class, multi_label
 ###############################################################################

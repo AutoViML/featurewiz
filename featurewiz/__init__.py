@@ -26,7 +26,8 @@ from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe, FE_creat
 from .my_encoders import Column_Names_Transformer, FE_convert_all_object_columns_to_numeric, Numeric_Transformer
 from .my_encoders import TS_Lagging_Transformer, TS_Fourier_Transformer, TS_Trend_Seasonality_Transformer
 from .my_encoders import TS_Lagging_Transformer_Pipe, TS_Fourier_Transformer_Pipe
-
+from lazytransform import LazyTransformer, SuloRegressor, SuloClassifier, print_regression_metrics, print_classification_metrics
+from lazytransform import print_regression_model_stats, YTransformer
 from .sulov_method import FE_remove_variables_using_SULOV_method
 from .featurewiz import FE_transform_numeric_columns_to_bins, FE_create_interaction_vars
 from .stacking_models import Stacking_Classifier, Blending_Regressor, Stacking_Regressor, stacking_models_list
@@ -35,7 +36,7 @@ from .featurewiz import FE_convert_mixed_datatypes_to_string, FE_drop_rows_with_
 from .featurewiz import EDA_find_remove_columns_with_infinity, FE_split_list_into_columns
 from .featurewiz import EDA_remove_special_chars, FE_remove_commas_in_numerics
 from .featurewiz import EDA_randomly_select_rows_from_dataframe, remove_duplicate_cols_in_dataset
-
+from .featurewiz import cross_val_model_predictions
 from .featurewiz import FeatureWiz
 ################################################################################
 if __name__ == "__main__":
@@ -43,11 +44,11 @@ if __name__ == "__main__":
 else:
     module_type = 'Imported'
 version_number = __version__
-print("""%s featurewiz %s. Use the new scikit-learn syntax:
-        wiz = FeatureWiz(feature_engg = '', nrows=None,
+print("""%s featurewiz %s. Use the following syntax:
+    >>> wiz = FeatureWiz(feature_engg = '', nrows=None, transform_target=True, scalers="std",
         		category_encoders="auto", add_missing=False, verbose=0)
-        X_train_selected, y_train = wiz.fit_transform(X_train, y_train)
-        X_test_selected = wiz.transform(X_test)
-        wiz.features     
-""" %(module_type, version_number))
+    >>> X_train_selected, y_train = wiz.fit_transform(X_train, y_train)
+    >>> X_test_selected = wiz.transform(X_test)
+    >>> selected_features = wiz.features
+    """ %(module_type, version_number))
 ################################################################################

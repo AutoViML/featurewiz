@@ -118,7 +118,7 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
     ###### This is for ordering the variables in the highest to lowest importance to target ###
     if len(corr_list) == 0:
         final_list = list(correlation_dataframe)
-        print('Selecting all (%d) variables since none of numeric vars are highly correlated...' %len(numvars))
+        print('    Selecting all (%d) variables since none of numeric vars are highly correlated...' %len(numvars))
         return numvars
     else:
         if isinstance(target, list):

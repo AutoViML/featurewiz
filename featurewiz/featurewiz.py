@@ -861,8 +861,8 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
         if len(catvars) > 1:
             
             num_combos = len(list(combinations(catvars,2)))
-            print('Adding %s interactions between categorical_vars %s...' %(
-                                num_combos, catvars))
+            print('Adding %s interactions between %s categorical_vars %s...' %(
+                                num_combos, len(catvars), catvars))
             dataname = FE_create_interaction_vars(dataname, catvars)
             train = FE_create_interaction_vars(train, catvars)
             catvars = left_subtract(dataname.columns.tolist(), numvars)
@@ -1135,23 +1135,13 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
         if feature_gen or feature_type:
             print('Since %s category encoding is done, dropping original categorical vars from predictors...' %feature_gen)
             preds = left_subtract(preds, catvars)
-        if dask_xgboost_flag:
-            train_p = train[preds]
-        else:
-            train_p = dataname[preds]
-        ### This is to convert the target labels to proper numeric columns ######
-        cat_targets = dataname[target].select_dtypes(include='object').columns.tolist() + dataname[
-                            target].select_dtypes(include='category').columns.tolist()
-        ### check if they are not starting from zero ##################
-        if dask_xgboost_flag:
-            ### train is already a dask dataframe -> you can leave it as it is
-            y_train = train[target]
-        else:
-            ### train is already a regular dataframe -> you can leave it as it is
-            y_train = dataname[target]
         #### Now we process the numeric  values through DASK XGBoost repeatedly ###################
         start_time2 = time.time()
-        important_features = FE_perform_recursive_xgboost(train_p, y_train, 
+        if dask_xgboost_flag:
+            important_features = FE_perform_recursive_xgboost(train, target, 
+                                settings.modeltype, settings.multi_label, dask_xgboost_flag, verbose)
+        else:
+            important_features = FE_perform_recursive_xgboost(dataname, target, 
                                 settings.modeltype, settings.multi_label, dask_xgboost_flag, verbose)
         ######    E    N     D      O  F      X  G  B  O  O  S  T    S E L E C T I O N ##############
         print('    Completed XGBoost feature selection in %0.0f seconds' %(time.time()-start_time2))
@@ -1283,7 +1273,7 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
             print('Warning: Returning with important features and train. Please re-check your outputs.')
             return important_features, dataname[important_features+targets]
 ################################################################################
-def FE_perform_recursive_xgboost(X_train, y_train, model_type, multi_label_type,
+def FE_perform_recursive_xgboost(train, target, model_type, multi_label_type,
                             dask_xgboost_flag=False, verbose=0):
     """
     Perform recursive XGBoost to identify most important features in an all-
@@ -1302,9 +1292,12 @@ def FE_perform_recursive_xgboost(X_train, y_train, model_type, multi_label_type,
         features: a list of top features in dataset.
     
     """
+    ### TO DO: target can be multi-label - need to test for it
+    ### TO DO: train can be DASK dataframe - need to test for it
     ### we need to use the name train_p to start and then change it to X_train 
-    train_p = copy.deepcopy(X_train)
-    y_train = copy.deepcopy(y_train)
+    train_p = train.drop(target, axis=1)
+    ### train is already a dask dataframe -> you can leave it as it is
+    y_train = train[target]
     cpu_tree_method = 'hist'
     cols_sel = train_p.columns.tolist()
     ######## Do the Dask settings here  #######
@@ -1397,7 +1390,12 @@ def FE_perform_recursive_xgboost(X_train, y_train, model_type, multi_label_type,
                                     "silent":True,  "verbosity": 0,  'min_child_weight': 0.5}
                 else:
                     objective = 'multi:softmax'
-                    num_class  =  train_p[target].nunique()[0]
+                    try:
+                        ### This is in case target is a list ###
+                        num_class  =  train[target].nunique()[0]
+                    except:
+                        ### This is in case target is a string ###
+                        num_class  =  train[target].nunique()
                     params = {'objective': objective, 
                                     "silent":True, "verbosity": 0,   'min_child_weight': 0.5, 'num_class': num_class}
             ############################################################################################################
@@ -1425,6 +1423,7 @@ def FE_perform_recursive_xgboost(X_train, y_train, model_type, multi_label_type,
                         bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
                                     
                     except Exception as error_msg:
+                        
                         print('Regular XGBoost is crashing due to: %s' %error_msg)
                         if model_type == 'Regression':
                             params = {'tree_method': cpu_tree_method, 'gpu_id': None}
@@ -1477,7 +1476,7 @@ def FE_perform_recursive_xgboost(X_train, y_train, model_type, multi_label_type,
             ### skip the next statement since it is duplicating the work of sort_values ##
             #imp_feats = dict(sorted(imp_feats.items(),reverse=True, key=lambda item: item[1]))
             ### doing this for single-label is a little different from multi_label_type #########
-
+            
             #imp_feats = model_xgb.get_booster().get_score(importance_type='gain')
             #print('%d iteration: imp_feats = %s' %(i+1,imp_feats))
             if len(pd.Series(imp_feats)[pd.Series(imp_feats).sort_values(ascending=False)/pd.Series(imp_feats).values.max()>=0.5]) > 1:
@@ -1501,6 +1500,7 @@ def FE_perform_recursive_xgboost(X_train, y_train, model_type, multi_label_type,
                 if verbose >= 2:
                     print('            Time taken for regular XGBoost feature selection = %0.0f seconds' %(time.time()-start_time1))
         #### plot all the feature importances in a grid ###########
+        
         if verbose >= 2:
             if multi_label_type:
                 draw_feature_importances_multi_label(bst_models, dask_xgboost_flag)
@@ -2984,31 +2984,121 @@ def EDA_randomly_select_rows_from_dataframe(train_dataframe, targets, nrows_limi
     return train_small
 ################################################################################################
 from lazytransform import LazyTransformer
-
+import pdb
 class FeatureWiz(BaseEstimator, TransformerMixin):
     """
-    FeatureWiz is a scikit-learn transformer that performs automatic feature selection.
-        wiz = FeatureWiz(verbose=1)
-        X_train_selected, y_train = wiz.fit_transform(X_train, y_train)
-        X_test_selected = wiz.transform(X_test)
-        wiz.features  ### provides a list of selected features ###            
-    
+    FeatureWiz is a feature selection and engineering tool compatible with scikit-learn. 
+    It automates the process of selecting the most relevant features for a dataset and 
+    supports various encoding, scaling, and data preprocessing techniques.
+
+    Parameters
+    ----------
+    corr_limit : float, default=0.90
+        The correlation limit to consider for feature selection. Features with correlations 
+        above this limit may be excluded.
+
+    verbose : int, default=0
+        Level of verbosity in output messages.
+
+    feature_engg : str or list, default=''
+        Specifies the feature engineering methods to apply, such as 'interactions', 'groupby', 
+        and 'target'.
+
+    category_encoders : str or list, default=''
+        Encoders for handling categorical variables. Supported encoders include 'onehot', 
+        'ordinal', 'hashing', 'count', 'catboost', 'target', 'glm', 'sum', 'woe', 'bdc', 
+        'loo', 'base', 'james', 'helmert', 'label', 'auto', etc.
+
+    add_missing : bool, default=False
+        If True, adds indicators for missing values in the dataset.
+
+    dask_xgboost_flag : bool, default=False
+        If set to True, enables the use of Dask for parallel computing with XGBoost.
+
+    nrows : int or None, default=None
+        Limits the number of rows to process.
+
+    skip_sulov : bool, default=False
+        If True, skips the application of the Super Learning Optimized (SULO) method in 
+        feature selection.
+
+    skip_xgboost : bool, default=False
+        If True, bypasses the recursive XGBoost feature selection.
+
+    transform_target : bool, default=False
+        When True, transforms the target variable(s) into numeric format if they are not 
+        already.
+
+    scalers : str or None, default=None
+        Specifies the scaler to use for feature scaling. Available options include 
+        'std', 'standard', 'minmax', 'max', 'robust', 'maxabs'.
+
+    Attributes
+    ----------
+    features : list
+        List of selected features after feature selection process.
+
+    Examples
+    --------
+    >>> wiz = FeatureWiz(feature_engg = '', nrows=None, transform_target=True, scalers="std",
+                category_encoders="auto", add_missing=False, verbose=0)
+    >>> X_train_selected, y_train = wiz.fit_transform(X_train, y_train)
+    >>> X_test_selected = wiz.transform(X_test)
+    >>> selected_features = wiz.features
+
+    Notes
+    -----
+    - The class is built to automatically determine the most suitable encoder and scaler 
+      based on the dataset characteristics, unless explicitly specified by the user.
+    - FeatureWiz is designed to work with both numerical and categorical variables, 
+      applying various preprocessing steps such as missing value flagging, feature 
+      engineering, and feature selection.
+    - It's important to note that using extensive feature engineering can lead to a 
+      significant increase in the number of features, which may affect processing time.
+
+    Raises
+    ------
+    ValueError
+        If inputs are not in the expected format or if invalid parameters are provided.
     """
-    def __init__(self, corr_limit=0.90, verbose=2, sep=',', 
-        header=0, feature_engg='', category_encoders='', add_missing=False, 
-        dask_xgboost_flag=False, nrows=None, skip_sulov=False, skip_xgboost=False):
+
+    def __init__(self, corr_limit=0.90, verbose=0, feature_engg='', category_encoders='', 
+                 add_missing=False, dask_xgboost_flag=False, nrows=None, 
+                 skip_sulov=False, skip_xgboost=False, transform_target=False, scalers=None):
+        """
+        Initialize the FeatureWiz class with the given parameters. 
+        """
         self.features = None
         self.corr_limit = corr_limit
-        self.verbose=verbose
-        self.sep=sep
-        self.header=header
-        self.add_missing = add_missing ## This is a new addition ###
-        self.feature_engg=feature_engg
-        self.category_encoders=category_encoders
-        self.dask_xgboost_flag=dask_xgboost_flag
-        self.nrows=nrows
-        self.skip_sulov=skip_sulov
-        self.skip_xgboost=skip_xgboost
+        self.verbose = verbose
+        self.add_missing = add_missing
+        self.feature_engg = self._parse_feature_engg(feature_engg)
+        self.category_encoders = self._parse_category_encoders(category_encoders)
+        self.dask_xgboost_flag = dask_xgboost_flag
+        self.nrows = nrows
+        self.skip_sulov = skip_sulov
+        self.skip_xgboost = skip_xgboost
+        self.transform_target = transform_target
+        self.scalers = scalers
+        self._initialize_other_attributes()
+
+    def _parse_feature_engg(self, feature_engg):
+        if isinstance(feature_engg, str):
+            return [feature_engg]
+        return feature_engg
+
+    def _parse_category_encoders(self, encoders):
+        approved_encoders = {
+            'onehot', 'ordinal', 'hashing', 'count', 'catboost',
+            'target', 'glm', 'sum', 'woe', 'bdc', 'loo', 'base',
+            'james', 'helmert', 'label', 'auto'
+        }
+        if isinstance(encoders, str):
+            encoders = [encoders]
+
+        return [e for e in encoders if e in approved_encoders]
+
+    def _initialize_other_attributes(self):
         self.model_type = ''
         self.grouper = None
         self.targeter = None
@@ -3036,35 +3126,62 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                         'label': 'label',
                         'auto': 'auto',
                         }
+        approved_encoders = ['onehot','ordinal', 'hashing','count','catboost',
+                            'target','glm','sum','woe','bdc','loo','base',
+                            'james','helmert', 'label','auto']
         encoders = []
         for each_encoder in self.category_encoders:
-            enc = encoders_dict.get(each_encoder, 'label')
-            encoders.append(enc)
-        if len(encoders) == 0:
-            encoders = 'auto'
-        elif len(encoders) == 1:
-            encoders += encoders
-        self.lazy = LazyTransformer(model=None, encoders=encoders, 
+            if not each_encoder in approved_encoders:
+                enc = encoders_dict.get(each_encoder, 'label')
+                encoders.append(enc)
+            else:
+                ### if they are in approved list check if they chose auto!
+                if each_encoder == 'auto':
+                    pass
+                else:
+                    encoders = [each_encoder]
+        if len(encoders) > 2:
+            encoders = encoders[:2]
+        self.category_encoders = encoders
+        print('featurewiz is given %0.1f as correlation limit...' %self.corr_limit)
+        feature_generators = ['interactions', 'groupby', 'target']
+        feature_gen = []
+        if self.feature_engg:
+            print('    Warning: Too many features will be generated since feature engg specified')
+            if isinstance(self.feature_engg, str):
+                self.feature_engg = [self.feature_engg]
+            #### Once you have made it into a list, now do all this processing.
+            ### Don't change the next line to elif. It needs to be if! I know!
+            if isinstance(self.feature_engg, list):
+                for each_fe in self.feature_engg:
+                    if each_fe in feature_generators:
+                        if each_fe == 'target':
+                            if self.category_encoders == 'auto':
+                                ### Convert it to two encoders from one since they added target encoding
+                                self.category_encoders = ['label']
+                                self.category_encoders.append(each_fe)
+                            else:
+                                ### otherwise just add 'target' to the existing list of cat encoders
+                                self.category_encoders.append(each_fe)
+                            print('    moving target encoder from feature_engg to category_encoders list')
+                        else:
+                            feature_gen.append(each_fe)
+                    else:
+                        print('feature engg types must be one or more of these three: %s' %feature_generators)
+                        return
+            self.feature_gen = copy.deepcopy(feature_gen)
+            print('    final list of feature engineering given: %s' %self.feature_gen)
+        else:
+            print('    Skipping feature engineering since no feature_engg input...')
+            self.feature_gen = []
+        if len(self.category_encoders) == 1:
+            self.category_encoders = ['label'] + self.category_encoders
+        if self.category_encoders:
+            print('    final list of category encoders given: %s' %self.category_encoders)
+        self.lazy = LazyTransformer(model=None, encoders=self.category_encoders, 
             scalers=None, date_to_string=False,
             transform_target=True, imbalanced=False, save=False, 
             combine_rare=False, verbose=self.verbose)
-        print('featurewiz is given %0.1f as correlation limit...' %self.corr_limit)
-        feature_generators = ['interactions', 'groupby', 'target']
-        feature_gen = ''
-        if self.feature_engg:
-            if isinstance(self.feature_engg, str):
-                if self.feature_engg in feature_generators:
-                    feature_gen = [self.feature_engg]
-                else:
-                    print('feature engg types must be one of three strings: %s' %feature_generators)
-                    return
-            elif isinstance(self.feature_engg, list):
-                feature_gen = copy.deepcopy(self.feature_engg)
-        else:
-            print('    Skipping feature engineering since no feature_engg input...')
-        self.feature_gen = feature_gen
-        if self.feature_gen:
-            print('    Warning: Too many features will be generated since feature engg specified. This may take time...')
 
     def fit(self, X, y):
         max_cats = 10
@@ -3117,6 +3234,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             ############# This is only for test data #################
             ##########################################################
             ### Now you can process the X dataset ####
+            print('#### Starting featurewiz transform for test data ####')
             if isinstance(X, np.ndarray):
                 print('X must be a pd.Series or pd.DataFrame since we use column names to build data pipeline. Returning')
                 return {}
@@ -3132,10 +3250,8 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                         X = self.grouper.transform(X)
                 if np.where('interactions' in self.feature_gen,True, False).tolist():
                     X = FE_create_interaction_vars_train(X, self.catvars)
-                if np.where('target' in self.feature_gen,True, False).tolist():
-                    if not self.targeter is None:
-                        X = self.targeter.transform(X)
             ### this is only for test data ######
+            print('#### Starting lazytransform for test data ####')
             X_sel = self.lazy.transform(X)
             if len(self.cols_zero_variance) > 0:
                 print('    Dropping %d columns due to zero variance...' %len(self.cols_zero_variance))
@@ -3150,6 +3266,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             ##########################################################
             ###################### this is only for train data #######
             ##########################################################
+            print('#### Starting featurewiz transform for train data ####')
             X_sel = copy.deepcopy(X)
             X_index = X.index
             y_index = y.index
@@ -3176,8 +3293,8 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                 if np.where('interactions' in self.feature_gen,True, False).tolist():
                     if len(self.catvars) > 1:
                         num_combos = len(list(combinations(self.catvars, 2)))
-                        print('Adding %s interactions between categorical_vars %s...' %(
-                                            num_combos, self.catvars))
+                        print('Adding %s interactions between %s categorical_vars %s...' %(
+                                            num_combos, len(self.catvars), self.catvars))
                         #### We make sure that only those numvars and catvars in X are used. Not the missing flags!
                         X_sel = FE_create_interaction_vars_train(X_sel, self.catvars)
                         #### Since missing flags are not included in numvars, we are adding them here to select the rest
@@ -3187,19 +3304,6 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                         print('No interactions created for categorical vars since number less than 2')
                 else:
                     print('No interactions created for categorical vars since no interactions feature engg specified')
-                ##################  This is where we test for Target Encoder ###########
-                if np.where('target' in self.feature_gen,True, False).tolist():
-                    if len(self.catvars) >= 1:
-                        #### We make sure that only those numvars and catvars in X are used. Not the missing flags!
-                        trg = TargetEncoder(verbose=0, cols=self.catvars, drop_invariant=False, return_df=True, 
-                            handle_missing='value', handle_unknown='value', min_samples_leaf=20, 
-                            smoothing=5, hierarchy=None)
-                        X_sel = trg.fit_transform(X_sel, y)
-                        self.targeter = trg
-                    else:
-                        print('No target encoder features created since no categorical vars in dataset.')
-                else:
-                    print('No target encoded features created since no target feature engg specified')
             ##### Now put a dataframe together of transformed X and y  #### 
             X_sel.index = X_index
             #### Use lazytransform to transform all variables to numeric ###
@@ -3231,16 +3335,17 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                                      self.corr_limit, self.verbose, self.dask_xgboost_flag)
             if not self.skip_xgboost:
                 print('Performing recursive XGBoost feature selection from %d features...' %len(self.numvars))
-                features = FE_perform_recursive_xgboost(df[self.numvars], df[self.targets], self.model_type, 
+                
+                features = FE_perform_recursive_xgboost(df, self.targets, self.model_type, 
                                 self.multi_label_type, self.dask_xgboost_flag, self.verbose)
             else:
                 features = copy.deepcopy(self.numvars)
             # find the time taken to run feature selection ####
             difftime = max(1, np.int16(time.time()-start_time))
-            print('Time taken to run entire featurewiz feature selection = %s second(s)' %difftime)
+            print('    time taken to run entire featurewiz = %s second(s)' %difftime)
             # column of labels
             self.features = features
-            print('    Recursive XGBoost selected %d features...' %len(self.features))
+            print('Recursive XGBoost selected %d features...' %len(self.features))
             return X_sel[self.features], y_sel
 ###################################################################################################
 def EDA_remove_special_chars(df):
@@ -3372,4 +3477,213 @@ def add_missing(df):
         print('Column names must be strings in dataframe. Returning as is...')
         return df
 ###############################################################################################
+import copy
+from sklearn.model_selection import RepeatedStratifiedKFold, StratifiedKFold, KFold
+from lazytransform import print_classification_metrics, print_regression_metrics
+def cross_val_model_predictions(model, train, test, targets, modeltype, 
+                    feature_engg=[], cv=None, splits=5, feature_selection=False):
+    """
+    Conducts cross-validation and generates predictions using a specified machine learning model.
 
+    This function performs cross-validation on the provided training data and generates predictions for both training
+    and test datasets. It supports both regression and classification models, including special handling for
+    XGBoost models. The function allows for different cross-validation strategies and handles feature engineering
+    and target transformation if required.
+
+    Parameters:
+    - model: A scikit-learn compatible model object. This can be any model that follows scikit-learn's API.
+    - train (pd.DataFrame): Training data as a Pandas DataFrame. It should include both features and the target variable.
+    - test (pd.DataFrame): Test data as a Pandas DataFrame. It should include features but not the target variable.
+    - targets (list): A list containing the names of the target variable(s) in the train DataFrame.
+    - modeltype (string): A string defining the type of model whether "Regression", "Binary_Classification" or "Multi-Classification"
+    - feature_engg (list): default is []. You can add "interactions", "groupby", "target", or all three features to your model.
+    - cv (Optional): A cross-validation strategy object. If None, KFold with 5 splits is used by default.
+    - splits: the number of splits to be used in CV strategy. Default is 5
+    - feature_selection: To use or not use feature_selection using featurewiz. Default is False.
+
+    The function performs the following steps:
+    1. Initializes various variables and sets up the cross-validation strategy.
+    2. Performs feature engineering using the FeatureWiz library if necessary.
+    3. Trains the model on each fold of the cross-validation and makes predictions.
+    4. Evaluates the model performance using appropriate metrics.
+    5. Generates predictions for the test set.
+    
+    Returns:
+    - test_preds (np.array): Array of predictions for the test set.
+    - test_probabs (np.array): Array of prediction probabilities for the test set (if applicable).
+
+    Note:
+    - The function assumes that the input data frames (train and test) are pre-processed and ready for model training.
+    - For XGBoost models, the number of estimators is handled automatically. For other models, a default of 200 estimators is used.
+    - The function uses FeatureWiz for feature selection and transformation, which needs to be installed separately.
+
+    Raises:
+    - ValueError: If the model type is not recognized or if there are issues with the data input.
+
+    Example usage:
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> model = RandomForestClassifier()
+    >>> val_scores, test_preds, test_probabs = cross_val_model_predictions(model, train_df, test_df, 
+                                                targets=['target'], modeltype='Regression', 
+                                                feature_engg=['groupby'], feature_selection=False,
+                                                cv=None, splits=5)
+    """
+    seed = 42
+    enco = 'catboost'
+    np.random.seed(seed)    
+    X = train.copy(deep=True)
+    y = X.pop(targets[0])
+    test_copy = test.copy(deep=True)
+    ### define test set ###
+    X_test = test_copy.drop(targets[0], axis=1)
+    ### Do this only if the model is XGBoost ###
+    if str(model).split("(")[0] == 'XGBRegressor' or str(model).split("(")[0] == 'XGBClassifier' :
+        n_ests = model.get_params()['n_estimators']
+    else:
+        n_ests = 200
+    ### if cv is None, just use KFold ###
+    if cv is None:
+        if modeltype == 'Regression':
+            cv = KFold(n_splits = splits, random_state = 99, shuffle = True)
+        else:
+            cv = StratifiedKFold(n_splits = splits, random_state = 99, shuffle = True)
+
+    #initiate prediction arrays and score lists
+    train_predictions = None
+    val_predictions = None
+    test_predictions = None
+    test_probas = None
+
+    train_scores, val_scores = [], []
+
+    #training model, predicting prognosis probability, and evaluating log loss
+    for fold, (train_idx, val_idx) in enumerate(cv.split(X, train[targets])):
+        print('##################   Fold %s processing   ###############################' %(fold+1))
+        #define train set
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+
+        #define validation set
+        X_val = X.iloc[val_idx]
+        y_val = y.iloc[val_idx]
+
+        if feature_selection:
+            fwiz = FeatureWiz(
+                corr_limit=0.9,
+                feature_engg=feature_engg,
+                category_encoders=enco,
+                add_missing=False,
+                nrows=None,
+                verbose=0,
+                transform_target=True,
+                scalers="std",
+            )
+            X_train, y_train = fwiz.fit_transform(
+                X=X_train,
+                y=y_train,)
+
+            X_val  = fwiz.transform(X_val)
+            ### This transforms y_test alone without touching X_test. Nice trick!
+            if modeltype != 'Regression':
+                y_val = fwiz.lazy.yformer.transform(y_val)
+
+        else:
+            ### use lazy transform with default settings ###########
+            lazy = LazyTransformer(model=None, encoders='label', scalers='', 
+                                transform_target=True, imbalanced=False, verbose=1)
+            X_train, y_train = lazy.fit_transform(X_train, y_train)
+            X_val = lazy.transform(X_val)
+            ### This transforms y_test alone without touching X_test. Nice trick!
+            if modeltype != 'Regression':
+                y_val = lazy.yformer.transform(y_val)
+
+        #train model
+        if str(model).split("(")[0] == 'XGBRegressor' or str(model).split("(")[0] == 'XGBClassifier' :
+            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], early_stopping_rounds=int(0.2*n_ests), verbose=0, )
+        else:
+            model.fit(X_train, y_train)
+
+        #make predictions
+        if modeltype == 'Regression':
+            train_preds = model.predict(X_train)
+            val_preds = model.predict(X_val)
+        else:
+            train_preds = model.predict_proba(X_train)
+            val_preds = model.predict_proba(X_val)
+
+        if fold == 0:
+            if modeltype == 'Regression':
+                train_predictions = copy.deepcopy(train_preds)
+                val_predictions = copy.deepcopy(val_preds)
+            elif modeltype == 'Binary_Classification':
+                train_predictions = copy.deepcopy(train_preds[:,1])
+                val_predictions = copy.deepcopy(val_preds[:,1])
+            else:
+                train_predictions = copy.deepcopy(train_preds)
+                val_predictions = copy.deepcopy(val_preds)
+        else:
+            if modeltype == 'Regression':
+                train_predictions =  np.hstack([train_predictions, train_preds])
+                val_predictions =  np.hstack([val_predictions, val_preds])
+            elif modeltype == 'Binary_Classification':
+                train_predictions = np.hstack([train_predictions, train_preds[:,1]])
+                val_predictions = np.hstack([val_predictions, val_preds[:,1]])
+            else:
+                train_predictions = np.vstack([train_predictions, train_preds])
+                val_predictions = np.vstack([val_predictions, val_preds])
+
+        #evaluate model for a fold
+        if modeltype == 'Regression':
+            print('Model results on Train data:')
+            train_score = print_regression_metrics(y_train, train_preds)
+            print('Model results on Validation data:')
+            val_score = print_regression_metrics(y_val, val_preds)
+        else:
+            print('Model results on Train data:')
+            train_score = print_classification_metrics(y_train, model.predict(X_train), train_preds)
+            print('Model results on Validation data:')
+            val_score = print_classification_metrics(y_val, model.predict(X_val), val_preds)
+
+        #append model score for a fold to list
+        train_scores.append(train_score)
+        val_scores.append(val_score)
+        
+        ### make your predictions now
+        if feature_selection:
+            X_test_trans  = fwiz.transform(X_test)
+        else:
+            X_test_trans  = lazy.transform(X_test)
+            
+        if fold == 0:
+            if modeltype == 'Regression':
+                test_predictions = model.predict(X_test_trans) / splits
+                test_probas = copy.deepcopy(test_predictions)
+            elif modeltype == 'Binary_Classification':
+                test_predictions = model.predict(X_test_trans) / splits
+                test_probas = model.predict_proba(X_test_trans) / splits
+            else:
+                test_predictions = model.predict(X_test_trans) / splits
+                test_probas = model.predict_proba(X_test_trans) / splits
+        else:
+            if modeltype == 'Regression':
+                test_predictions = np.vstack([test_predictions, model.predict(X_test_trans) / splits])
+                test_probas = copy.deepcopy(test_predictions)
+            elif modeltype == 'Binary_Classification':
+                test_predictions = np.dstack([test_predictions, model.predict(X_test_trans) / splits])
+                test_probas = np.dstack([test_probas, model.predict_proba(X_test_trans) / splits])
+            else:
+                test_predictions = np.dstack([test_predictions, model.predict(X_test_trans) / splits])
+                test_probas = np.dstack([test_probas, model.predict_proba(X_test_trans) / splits])
+
+    print(f'Val Scores average: {np.mean(val_scores):.5f} ± {np.std(val_scores):.5f} | Train Scores average: {np.mean(train_scores):.5f} ± {np.std(train_scores):.5f} | {targets}')
+    if modeltype == 'Regression':
+        test_preds = np.sum(test_predictions, axis=0)
+        test_probabs = copy.deepcopy(test_predictions)
+    elif modeltype == 'Binary_Classification':
+        test_preds = np.sum(test_predictions, axis=2).astype(int).squeeze()
+        test_probabs = np.sum(test_probas,axis=2)
+    else:
+        test_preds = np.sum(test_predictions, axis=2).astype(int).squeeze()
+        test_probabs = np.sum(test_probas,axis=2)
+    return test_preds, test_probabs
+#########################################################################################################
