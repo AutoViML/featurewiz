@@ -27,7 +27,7 @@ from .my_encoders import Column_Names_Transformer, FE_convert_all_object_columns
 from .my_encoders import TS_Lagging_Transformer, TS_Fourier_Transformer, TS_Trend_Seasonality_Transformer
 from .my_encoders import TS_Lagging_Transformer_Pipe, TS_Fourier_Transformer_Pipe
 from lazytransform import LazyTransformer, SuloRegressor, SuloClassifier, print_regression_metrics, print_classification_metrics
-from lazytransform import print_regression_model_stats, YTransformer
+from lazytransform import print_regression_model_stats, YTransformer, print_sulo_accuracy
 from .sulov_method import FE_remove_variables_using_SULOV_method
 from .featurewiz import FE_transform_numeric_columns_to_bins, FE_create_interaction_vars
 from .stacking_models import Stacking_Classifier, Blending_Regressor, Stacking_Regressor, stacking_models_list
