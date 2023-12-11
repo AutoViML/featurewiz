@@ -3329,6 +3329,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             if len(self.cols_zero_variance) > 0:
                 print('    Dropping %d columns due to zero variance...' %len(self.cols_zero_variance))
                 X_sel = X_sel.drop(self.cols_zero_variance, axis=1)
+                df = df.drop(self.cols_zero_variance, axis=1)
             self.numvars = X_sel.columns.tolist()
             if not self.skip_sulov:
                 self.numvars = FE_remove_variables_using_SULOV_method(df, self.numvars, self.model_type, self.targets,
