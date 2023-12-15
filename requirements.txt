@@ -17,5 +17,5 @@ fsspec>=0.3.3
 Pillow>=9.0.0
 lazytransform>=1.10
 tqdm>=4.61.1
-
+numexpr>=2.7.3
 

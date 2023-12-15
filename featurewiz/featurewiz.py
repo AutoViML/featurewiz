@@ -2418,6 +2418,7 @@ def FE_kmeans_resampler(x_train, y_train, target, smote="", verbose=0):
 import copy
 from collections import Counter
 from sklearn.utils.class_weight import compute_class_weight
+
 def get_class_distribution(y_input, verbose=0):
     y_input = copy.deepcopy(y_input)
     classes = np.unique(y_input)
@@ -2431,7 +2432,15 @@ def get_class_distribution(y_input, verbose=0):
     class_weights[(class_weights<1)]=1
     class_rows = class_weights*[xp[x] for x in classes]
     class_rows = class_rows.astype(int)
+    min_rows = np.min(class_rows)
     class_weighted_rows = dict(zip(classes,class_rows))
+    ### sometimes the middle classes are not found in the dictionary ###
+    for x in range(np.unique(y_input).max()+1):
+        if x not in list(class_weighted_rows.keys()):
+            class_weighted_rows.update({x:min_rows})
+        else:
+            pass
+    ### return the updated dictionary ###
     if verbose:
         print('    class_weighted_rows = %s' %class_weighted_rows)
     return class_weighted_rows
@@ -3083,9 +3092,19 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self._initialize_other_attributes()
 
     def _parse_feature_engg(self, feature_engg):
+        #### This is complicated logic ### be careful changing it!
         if isinstance(feature_engg, str):
-            return [feature_engg]
-        return feature_engg
+            if feature_engg == '':
+                return []
+            else:
+                return [feature_engg]
+        elif feature_engg is None:
+            return []
+        elif isinstance(feature_engg, list):
+            return feature_engg
+        else:
+            print('feature engg must be a list of strings or a string')
+            return []
 
     def _parse_category_encoders(self, encoders):
         approved_encoders = {
@@ -3093,10 +3112,20 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             'target', 'glm', 'sum', 'woe', 'bdc', 'loo', 'base',
             'james', 'helmert', 'label', 'auto'
         }
+        #### This is complicated logic ### be careful changing it!
         if isinstance(encoders, str):
-            encoders = [encoders]
-
-        return [e for e in encoders if e in approved_encoders]
+            if encoders == '':
+                encoders = 'auto'
+            else:
+                ### first create a list and then check for validity of each one ###
+                encoders = [encoders]
+                encoders = [e for e in encoders if e in approved_encoders]
+        #### Leave the next line as "if" - Don't change it to "elif"
+        if isinstance(encoders, list):
+            if encoders == []:
+                encoders = 'auto'
+        ###### let us find approved encoders, if not send 'auto' ###
+        return encoders
 
     def _initialize_other_attributes(self):
         self.model_type = ''
@@ -3139,9 +3168,10 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                 if each_encoder == 'auto':
                     pass
                 else:
-                    encoders = [each_encoder]
+                    encoders.append(each_encoder)
         if len(encoders) > 2:
             encoders = encoders[:2]
+        #### This is complicated logic. Be careful before changing it! 
         self.category_encoders = encoders
         print('featurewiz is given %0.1f as correlation limit...' %self.corr_limit)
         feature_generators = ['interactions', 'groupby', 'target']
@@ -3167,13 +3197,15 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                         else:
                             feature_gen.append(each_fe)
                     else:
-                        print('feature engg types must be one or more of these three: %s' %feature_generators)
-                        return
+                        print('feature engg types must be one or more of: %s. Continuing...' %feature_generators)
+                        self.feature_engg = []
+                        feature_gen = []
             self.feature_gen = copy.deepcopy(feature_gen)
             print('    final list of feature engineering given: %s' %self.feature_gen)
         else:
             print('    Skipping feature engineering since no feature_engg input...')
             self.feature_gen = []
+        #### This is complicated logic. Be careful before changing it! 
         if len(self.category_encoders) == 1:
             self.category_encoders = ['label'] + self.category_encoders
         if self.category_encoders:
@@ -3688,3 +3720,4 @@ def cross_val_model_predictions(model, train, test, targets, modeltype,
         test_probabs = np.sum(test_probas,axis=2)
     return test_preds, test_probabs
 #########################################################################################################
+

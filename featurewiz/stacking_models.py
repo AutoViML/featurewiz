@@ -450,3 +450,188 @@ def stacking_models_list(X_train, y_train, modeltype='Regression', verbose=0):
     print('List of models chosen for stacking: %s' %estimators_list)
     return dict(estimators_list)
 #########################################################
+import copy
+from collections import Counter
+from sklearn.utils.class_weight import compute_class_weight
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier, StackingClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, f1_score, classification_report
+from sklearn.utils import class_weight
+from imblearn.over_sampling import ADASYN
+from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin, ClassifierMixin
+from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
+from xgboost import XGBClassifier, XGBRegressor
+import pdb
+from .featurewiz import get_class_distribution
+def analyze_problem_type_array(y_train, verbose=0) :  
+    y_train = copy.deepcopy(y_train)
+    cat_limit = 30 ### this determines the number of categories to name integers as classification ##
+    float_limit = 15 ### this limits the number of float variable categories for it to become cat var
+    if y_train.ndim <= 1:
+        multi_label = False
+    else:
+        multi_label = True
+    ####  This is where you detect what kind of problem it is #################
+    if not multi_label:
+        if  y_train.dtype in ['int64', 'int32','int16']:
+            if len(np.unique(y_train)) <= 2:
+                model_class = 'Binary_Classification'
+            elif len(y_train.unique()) > 2 and len(y_train.unique()) <= cat_limit:
+                model_class = 'Multi_Classification'
+            else:
+                model_class = 'Regression'
+        elif  y_train.dtype in ['float16','float32','float64']:
+            if len(y_train.unique()) <= 2:
+                model_class = 'Binary_Classification'
+            elif len(y_train.unique()) > 2 and len(y_train.unique()) <= float_limit:
+                model_class = 'Multi_Classification'
+            else:
+                model_class = 'Regression'
+        else:
+            if len(y_train.unique()) <= 2:
+                model_class = 'Binary_Classification'
+            else:
+                model_class = 'Multi_Classification'
+    else:
+        for i in range(y_train.ndim):
+            ### if target is a list, then we should test dtypes a different way ###
+            if y_train.dtypes.all() in ['int64', 'int32','int16']:
+                if len(np.unique(y_train.iloc[:,0])) <= 2:
+                    model_class = 'Binary_Classification'
+                elif len(np.unique(y_train.iloc[:,0])) > 2 and len(np.unique(y_train.iloc[:,0])) <= cat_limit:
+                    model_class = 'Multi_Classification'
+                else:
+                    model_class = 'Regression'
+            elif  y_train.dtypes.all() in ['float16','float32','float64']:
+                if len(np.unique(y_train.iloc[:,0])) <= 2:
+                    model_class = 'Binary_Classification'
+                elif len(np.unique(y_train.iloc[:,0])) > 2 and len(np.unique(y_train.iloc[:,0])) <= float_limit:
+                    model_class = 'Multi_Classification'
+                else:
+                    model_class = 'Regression'
+            else:
+                if len(np.unique(y_train.iloc[:,0])) <= 2:
+                    model_class = 'Binary_Classification'
+                else:
+                    model_class = 'Multi_Classification'
+    ########### print this for the start of next step ###########
+    if multi_label:
+        print('''    %s %s problem ''' %('Multi_Label', model_class))
+    else:
+        print('''    %s %s problem ''' %('Single_Label', model_class))
+    return model_class, multi_label
+###############################################################################
+def train_evaluate_adasyn(X_train, y_train, X_test, y_test, final_estimator,
+                    n_neighbors, sampling_strategy, class_weights_dict):
+    # ADASYN resampling
+    adasyn = ADASYN(n_neighbors=n_neighbors, sampling_strategy=sampling_strategy, random_state=42)
+    X_resampled, y_resampled = adasyn.fit_resample(X_train, y_train)
+
+    # Simplified base estimators for the stacking classifier
+    base_estimators = [
+        ('rf', RandomForestClassifier(class_weight=None, 
+                                      n_estimators=100,
+                                      random_state=42)),
+        ('log_reg', LogisticRegression(random_state=42)),
+        ('dt', DecisionTreeClassifier(random_state=42))
+            ]
+
+    # Final estimator with class weights
+    if final_estimator is None:
+        #final_estimator = XGBClassifier(learning_rate=0.2, n_estimators=100, random_state=99)
+        final_estimator = RandomForestClassifier(class_weight=class_weights_dict, 
+                                                 n_estimators=100,
+                                                 random_state=42)
+
+    # Creating the Stacking Classifier with simplified base estimators
+    stacking_classifier = StackingClassifier(estimators=base_estimators, 
+                                             final_estimator=final_estimator, cv=5)
+
+    # Fitting the classifier on the resampled training data
+    stacking_classifier.fit(X_resampled, y_resampled)
+
+    # Predicting on the test set
+    y_pred_resampled = stacking_classifier.predict(X_test)
+
+    # Evaluating the classifier
+    accuracy_resampled = accuracy_score(y_test, y_pred_resampled)
+    f1_score_resampled = f1_score(y_test, y_pred_resampled, average='macro')
+    print(f"ADASYN Parameters - n_neighbors: {n_neighbors}, sampling_strategy: {sampling_strategy}")
+    print('F1 score macro = ', f1_score_resampled)
+    print(classification_report(y_test, y_pred_resampled))
+    return stacking_classifier, f1_score_resampled
+
+class StackingClassifier_Multi(BaseEstimator, ClassifierMixin):
+    
+    def __init__(self, final_estimator=None):
+        print('initialized')
+        # Compute class weights
+        self.final_model = None
+        self.final_estimator = final_estimator
+
+    def fit(self, X, y):
+        class_weights_dict = get_class_distribution(y_train)
+        modeltype, multi_label = analyze_problem_type_array(y_train)
+        
+        # Function to train and evaluate the model with ADASYN resampling
+        if modeltype == 'Regression':
+            X_train, X_val, y_train, y_val = train_test_split(X, y, 
+                                                              test_size=0.10, random_state=1,)
+        else:
+            X_train, X_val, y_train, y_val = train_test_split(X, y, 
+                                                              test_size=0.10, 
+                                                            stratify=y_train,
+                                                            random_state=42)
+        print('    Train data: ', X_train.shape, ', Validation data: ', X_val.shape)
+
+        # Parameters to try for ADASYN
+        n_neighbors_options = [5, 10]
+        ### do not use dictionary for multi-class since it doesn't work
+        ### do not try it because I have tried multiple things and they don't work
+        sampling_strategy = 'auto'
+        # Iterating over different combinations of ADASYN parameters
+        best_neighbors = 3
+        best_sampling_strategy = 'auto'
+        f1_score_final = 0
+        model_final = None
+        print('Model results on Validation data:')
+        try:
+            for n_neighbors in n_neighbors_options:
+                if np.unique(y_val).min() > n_neighbors:
+                    n_neighbors = np.int(np.unique(y_val).min()-1)
+                model_temp, f1_score_temp = train_evaluate_adasyn(X_train, y_train, X_val, y_val,
+                                        final_estimator=self.final_estimator,
+                                        n_neighbors=n_neighbors, sampling_strategy=sampling_strategy, 
+                                        class_weights_dict=class_weights_dict)
+                if f1_score_temp > f1_score_final:
+                    best_neighbors = n_neighbors
+                    f1_score_final = copy.deepcopy(f1_score_temp)
+                    model_final = copy.deepcopy(model_temp)
+        except:
+            ### if it fails for any reason, just try auto and the smallest size of n_neighbors
+            model_temp, f1_score_temp = train_evaluate_adasyn(X_train, y_train, X_val, y_val,
+                                        final_estimator=self.final_estimator,
+                                        n_neighbors=3, sampling_strategy='auto', 
+                                        class_weights_dict=class_weights_dict)
+            f1_score_final = copy.deepcopy(f1_score_temp)
+            model_final = copy.deepcopy(model_temp)
+            
+        print('best neighbors for ADASYN selected = ', best_neighbors)
+        ### training the final model on full X and y before sending it out
+        adasyn = ADASYN(n_neighbors=best_neighbors, 
+            sampling_strategy=sampling_strategy, random_state=42)
+        X_resampled, y_resampled = adasyn.fit_resample(X, y)
+        model_final.fit(X_resampled, y_resampled)
+        self.final_model = model_final
+        return self
+    
+    def predict(self, X):
+        return self.final_model.predict(X)
+    
+    def predict_proba(self, X):
+        return self.final_model.predict_proba(X)
+##########################################################################

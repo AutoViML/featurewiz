@@ -31,12 +31,13 @@ from lazytransform import print_regression_model_stats, YTransformer, print_sulo
 from .sulov_method import FE_remove_variables_using_SULOV_method
 from .featurewiz import FE_transform_numeric_columns_to_bins, FE_create_interaction_vars
 from .stacking_models import Stacking_Classifier, Blending_Regressor, Stacking_Regressor, stacking_models_list
+from .stacking_models import StackingClassifier_Multi, analyze_problem_type_array
 from .featurewiz import EDA_binning_numeric_column_displaying_bins, FE_calculate_duration_from_timestamp
 from .featurewiz import FE_convert_mixed_datatypes_to_string, FE_drop_rows_with_infinity
 from .featurewiz import EDA_find_remove_columns_with_infinity, FE_split_list_into_columns
 from .featurewiz import EDA_remove_special_chars, FE_remove_commas_in_numerics
 from .featurewiz import EDA_randomly_select_rows_from_dataframe, remove_duplicate_cols_in_dataset
-from .featurewiz import cross_val_model_predictions
+from .featurewiz import cross_val_model_predictions, get_class_distribution
 from .featurewiz import FeatureWiz
 ################################################################################
 if __name__ == "__main__":
