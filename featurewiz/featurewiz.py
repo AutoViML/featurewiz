@@ -46,6 +46,7 @@ from .ml_models import analyze_problem_type, get_sample_weight_array, check_if_G
 from .my_encoders import Groupby_Aggregator, My_LabelEncoder_Pipe, My_LabelEncoder
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe, FE_create_time_series_features
 from .my_encoders import Column_Names_Transformer
+from .stacking_models import DenoisingAutoEncoder, VariationalAutoEncoder, GANAugmenter, GAN
 
 from . import settings
 settings.init()
@@ -2421,14 +2422,24 @@ from sklearn.utils.class_weight import compute_class_weight
 
 def get_class_distribution(y_input, verbose=0):
     y_input = copy.deepcopy(y_input)
-    classes = np.unique(y_input)
-    xp = Counter(y_input)
-    class_weights = compute_class_weight('balanced', classes=np.unique(y_input), y=y_input)
+    if isinstance(y_input, np.ndarray):
+        class_weights = compute_class_weight('balanced', classes=np.unique(y_input), y=y_input.reshape(-1))
+    elif isinstance(y_input, pd.Series):
+        class_weights = compute_class_weight('balanced', classes=np.unique(y_input.values), y=y_input.values.reshape(-1))
+    elif isinstance(y_input, pd.DataFrame):
+        ### if it is a dataframe, return only if it s one column dataframe ##
+        y_input = y_input.iloc[:,0]
+        class_weights = compute_class_weight('balanced', classes=np.unique(y_input.values), y=y_input.values.reshape(-1))
+    else:
+        ### if you cannot detect the type or if it is a multi-column dataframe, ignore it
+        return None
     if len(class_weights[(class_weights> 10)]) > 0:
         class_weights = (class_weights/10)
     else:
         class_weights = (class_weights)
     #print('    class_weights = %s' %class_weights)
+    classes = np.unique(y_input)
+    xp = Counter(y_input)
     class_weights[(class_weights<1)]=1
     class_rows = class_weights*[xp[x] for x in classes]
     class_rows = class_rows.astype(int)
@@ -3009,9 +3020,35 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
     verbose : int, default=0
         Level of verbosity in output messages.
 
-    feature_engg : str or list, default=''
-        Specifies the feature engineering methods to apply, such as 'interactions', 'groupby', 
-        and 'target'.
+    feature_engg : str or list, default=''. List = ['interactions', 'groupby', 'target', 
+                    'dae', 'vae', 'dae_add', 'vae_add']
+
+        It specifies the feature engineering methods to apply, such as 'interactions', 'groupby', 
+        and 'target'. Two new feature engg types have been added:
+        1. First is called "dae" (or dae_add) which will call a Denoising Auto Encoder to create
+         a low-dimensional representation of the original data by reconstructing the 
+         original data from noisy types for a multi-class problem. Use this selectively
+          for multi-class or highly imbalanced datasets to improve Classifier
+           performance. 'dae' will replace X while 'dae_add' will add features to X.
+        2. The second is called "vae" (or vae_add) which stands for Variational Autoencoder (VAE)
+          which can be very useful for multi-class problemns. VAE is a type of generative model 
+          that not only learns a compressed representation of the data (like a traditional autoencoder)
+          but also models the underlying probability distribution of the data. 
+          This can be particularly useful in multi-class problems, especially when 
+          dealing with complex datasets or when you need to generate new samples for
+          data augmentation. 'vae' will replace X while 'vae_add' will add features to X.
+
+    ae_options : must be a dict, default={}. Possible values for auto encoders can be sent
+        via this dictionary such as the following examples. You can even use it to GridSearch.
+        For 'dae', use this dict: {'encoding_dim': 50, 'noise_factor': 0.1, 'learning_rate': 0.001,
+                                    'epochs': 100, 'batch_size': 16, 
+                'callbacks':keras.callbacks.EarlyStopping(monitor="val_loss", min_delta=0.001, patience=10),
+                                    'use_simple_architecture': None}
+        For 'vae', use this dict: {'intermediate_dim':64, 'latent_dim': 4, 'epochs': 50, 
+                                    'batch_size': 16, 'learning_rate': 0.01}
+        For 'gan', use this dict: {'input_dim':10, "embedding_dim': 100, 'epochs': 50,
+                                    'num_synthetic_samples': }
+
 
     category_encoders : str or list, default=''
         Encoders for handling categorical variables. Supported encoders include 'onehot', 
@@ -3073,7 +3110,8 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
 
     def __init__(self, corr_limit=0.90, verbose=0, feature_engg='', category_encoders='', 
                  add_missing=False, dask_xgboost_flag=False, nrows=None, 
-                 skip_sulov=False, skip_xgboost=False, transform_target=False, scalers=None):
+                 skip_sulov=False, skip_xgboost=False, transform_target=False, 
+                 scalers=None, imbalanced=False, ae_options={}):
         """
         Initialize the FeatureWiz class with the given parameters. 
         """
@@ -3083,12 +3121,18 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self.add_missing = add_missing
         self.feature_engg = self._parse_feature_engg(feature_engg)
         self.category_encoders = self._parse_category_encoders(category_encoders)
+        #print('    %s parsed as encoders...' %self.category_encoders)
         self.dask_xgboost_flag = dask_xgboost_flag
         self.nrows = nrows
         self.skip_sulov = skip_sulov
         self.skip_xgboost = skip_xgboost
         self.transform_target = transform_target
-        self.scalers = scalers
+        if scalers is None:
+            self.scalers = ''
+        elif isinstance(scalers, str):
+            self.scalers = scalers.lower()
+        self.imbalanced=imbalanced
+        self.ae_options = ae_options
         self._initialize_other_attributes()
 
     def _parse_feature_engg(self, feature_engg):
@@ -3137,6 +3181,8 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self.cols_zero_variance = []
         self.target = None
         self.targets = None
+        ### setting autoencoder to None ###
+        self.ae = None
         encoders_dict = {
                         'OneHotEncoder': 'onehot',
                         'OrdinalEncoder': 'ordinal',
@@ -3166,15 +3212,17 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             else:
                 ### if they are in approved list check if they chose auto!
                 if each_encoder == 'auto':
-                    pass
+                    encoders = ['onehot', 'label']
                 else:
                     encoders.append(each_encoder)
+        print('featurewiz is given %0.1f as correlation limit...' %self.corr_limit)
         if len(encoders) > 2:
             encoders = encoders[:2]
+        #print('    %s given as encoders...' %encoders)
         #### This is complicated logic. Be careful before changing it! 
         self.category_encoders = encoders
-        print('featurewiz is given %0.1f as correlation limit...' %self.corr_limit)
-        feature_generators = ['interactions', 'groupby', 'target']
+        feature_generators = ['interactions', 'groupby', 'target', 'dae', 'vae', 'dae_add',
+                             'vae_add', 'gan']
         feature_gen = []
         if self.feature_engg:
             print('    Warning: Too many features will be generated since feature engg specified')
@@ -3210,10 +3258,40 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             self.category_encoders = ['label'] + self.category_encoders
         if self.category_encoders:
             print('    final list of category encoders given: %s' %self.category_encoders)
+        
+        ### all Auto Encoders need their features to be scaled - MinMax works best!
+        try:
+            if 'dae' in self.feature_gen or 'dae_add' in self.feature_gen:
+                self.ae = DenoisingAutoEncoder(**self.ae_options)
+                ### If user does not give input on scalers, then use one of your own
+                if self.scalers is None:
+                    self.scalers='minmax'
+            elif 'vae' in self.feature_gen or 'vae_add' in self.feature_gen:
+                self.ae = VariationalAutoEncoder(**self.ae_options)
+                ### If user does not give input on scalers, then use one of your own
+                if self.scalers is None:
+                    self.scalers='minmax'
+            elif 'gan' in self.feature_gen:
+                self.ae = GANAugmenter(**self.ae_options)
+                #self.ae = GANAugmenter(gan_model=None, input_dim=None, 
+                #            embedding_dim=100, epochs=10, 
+                #            num_synthetic_samples=1000)
+                ### If user does not give input on scalers, then use one of your own
+                if self.scalers is None:
+                    self.scalers='minmax'
+            ### print the options for Auto Encoder if available ##
+            if self.ae:
+                print('AutoEncoder %s\n    AE options: %s' %(self.ae,
+                                         self.ae_options.items()))
+        except Exception as e:
+            print('ae_options erroring due to %s. Please check documentation and try again.' %e)
+
+        print('    final list of scalers given: [%s]' %self.scalers)
+        #### Now you can set up the parameters for Lazy Transformer
         self.lazy = LazyTransformer(model=None, encoders=self.category_encoders, 
-            scalers=None, date_to_string=False,
-            transform_target=True, imbalanced=False, save=False, 
-            combine_rare=False, verbose=self.verbose)
+            scalers=self.scalers, date_to_string=False,
+            transform_target=self.transform_target, imbalanced=self.imbalanced, 
+            save=False, combine_rare=False, verbose=self.verbose)
 
     def fit(self, X, y):
         max_cats = 10
@@ -3261,6 +3339,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
 
     def transform(self, X, y=None):
         start_time = time.time()
+        
         if y is None:
             ##########################################################
             ############# This is only for test data #################
@@ -3280,15 +3359,45 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                 if np.where('groupby' in self.feature_gen,True, False).tolist():
                     if not self.grouper is None:
                         X = self.grouper.transform(X)
+
                 if np.where('interactions' in self.feature_gen,True, False).tolist():
                     X = FE_create_interaction_vars_train(X, self.catvars)
+
             ### this is only for test data ######
             print('#### Starting lazytransform for test data ####')
             X_sel = self.lazy.transform(X)
+
+            ### Sometimes the index becomes huge after imabalanced flag is set!
+            X_index = X_sel.index
+            #### This is where you transform using the Denoising Auto Encoder
+            if not self.ae is None:
+                #### It is okay if y is None ########
+                if not 'gan' in self.feature_gen:
+                    X_sel_ae = self.ae.transform(X_sel)
+                else:
+                    ### if it is GAN just return the dataframe as it is
+                    return X_sel[self.features]
+
+                if np.all(np.isnan(X_sel_ae)):
+                    print('Auto encoder is erroring. Using existing features shape: %s' %(X_sel.shape,))
+                else:
+                    ### Since this results in a higher dimension you need to create new columns ##
+                    new_vars = ['feature_'+str(x) for x in range(X_sel_ae.shape[1])]
+                    X_sel_ae = pd.DataFrame(X_sel_ae, columns=new_vars, index=X_index)
+                    if 'dae_add' in self.feature_gen or 'vae_add' in self.feature_gen:
+                        ### Only if add is specified do you add the features to X
+                        X_sel = pd.concat([X_sel, X_sel_ae], axis=1)
+                    else:
+                        ### Just replace X_sel with X_sel_ae ###
+                        X_sel = copy.deepcopy(X_sel_ae)
+                    print('Shape of transformed data due to auto encoder = %s' %(X_sel.shape,))
+
+            ### return either fitted features or all features depending on error ###
             if len(self.cols_zero_variance) > 0:
                 print('    Dropping %d columns due to zero variance...' %len(self.cols_zero_variance))
                 X_sel = X_sel.drop(self.cols_zero_variance, axis=1)
             print('Returning dataframe with %d features ' %len(self.features))
+
             try:
                 return X_sel[self.features]
             except:
@@ -3338,8 +3447,15 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                     print('No interactions created for categorical vars since no interactions feature engg specified')
             ##### Now put a dataframe together of transformed X and y  #### 
             X_sel.index = X_index
+
             #### Use lazytransform to transform all variables to numeric ###
             X_sel, y_sel = self.lazy.fit_transform(X_sel, y)
+            
+            ### Sometimes after imbalanced flag, this index becomes different!
+            X_index = X_sel.index
+            y_index = y_sel.index
+
+            #### Now check if y is transformed properly ###############
             if isinstance(y_sel, np.ndarray):
                 if isinstance(y, pd.Series):
                     y_sel = pd.Series(y_sel, name=self.target, index=y_index)
@@ -3348,9 +3464,49 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                 else:
                     print('y is not formatted correctly: check your input y and try again.')
                     return self
+
+            ## Fit DAE transformer to the data. This method trains the autoencoder model.
+            if not self.ae is None:
+                ### since you cannot fit model before transforming data, leave it here ###
+                self.ae.fit(X_sel, y_sel)
+                if 'gan' in self.feature_gen:
+                    print('Fitting and transforming a GAN for each class...')
+                    X_sel_ae, y_sel = self.ae.transform(X_sel, y_sel)
+                else:
+                    print('Fitting and transforming an Auto Encoder for dataset...')
+                    X_sel_ae = self.ae.transform(X_sel, y_sel)
+                if np.all(np.isnan(X_sel_ae)):
+                    print('Auto encoder is erroring. Using existing features shape: %s' %(X_sel.shape,))
+                else:
+                    ### You need to check for both 'vae' and 'vae_add': this does both!!
+                    if [y for y in self.feature_gen if 'dae' in y] or [y for y in self.feature_gen if 'vae' in y]:
+                        new_vars = ['feature_'+str(x) for x in range(X_sel_ae.shape[1])]
+                        ## Since this results in a higher dimension you need to create new columns ##
+                        X_sel_ae = pd.DataFrame(X_sel_ae, columns=new_vars, index=X_index)
+                    else:
+                        #### This is for GAN only since it doesn't add columns but adds rows! ###
+                        old_rows = X_index.max()
+                        add_rows = len(X_sel_ae) - len(X_index) 
+                        new_vars = X_sel.columns
+                        X_index = np.concatenate((X_index, np.arange(old_rows+1, old_rows+add_rows+1)))
+                        X_sel_ae = pd.DataFrame(X_sel_ae, columns=new_vars, index=X_index)
+                        y_index = X_sel_ae.index
+                        y_sel = pd.DataFrame(y_sel, columns=self.targets, index=y_index)
+                    #### Don't change this next line since it applies new rules to above! ###
+                    if 'dae_add' in self.feature_gen or 'vae_add' in self.feature_gen:
+                        ### Only if add is specified do you add the features to X
+                        X_sel = pd.concat([X_sel, X_sel_ae], axis=1)
+                    else:
+                        ### Just replace X_sel with X_sel_ae for all other values ###
+                        X_sel = copy.deepcopy(X_sel_ae)
+                    print('Shape of transformed data due to auto encoder = %s' %(X_sel.shape,))
             #####  Put the dataframe together #######################
             if (X_index == y_index).all():
-                df = pd.concat([X_sel, y_sel], axis=1)
+                if isinstance(X_sel, pd.DataFrame) and (isinstance(y_sel, pd.DataFrame) or isinstance(y_sel, pd.Series)):
+                    df = pd.concat([X_sel, y_sel], axis=1)
+                else:
+                    print('X and y are not pandas dataframes or series. Check your input and try again')
+                    return X, y
             else:
                 df = pd.concat([X_sel.reset_index(drop=True), y_sel], axis=1)
                 df.index = X_index
@@ -3368,7 +3524,6 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                                      self.corr_limit, self.verbose, self.dask_xgboost_flag)
             if not self.skip_xgboost:
                 print('Performing recursive XGBoost feature selection from %d features...' %len(self.numvars))
-                
                 features = FE_perform_recursive_xgboost(df, self.targets, self.model_type, 
                                 self.multi_label_type, self.dask_xgboost_flag, self.verbose)
             else:

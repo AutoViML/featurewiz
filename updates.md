@@ -1,6 +1,11 @@
 # featurewiz latest updates
 This is the main page where we will post the latest updates to the featurewiz library. Make sure you upgrade your featurewiz library everytime you run to take advantage of new features. There are new updates almost every week!
 
+#### Update (December 2023): FeatureWiz 0.5 is here! Includes powerful deep learning autoencoders!
+<ol>
+<li><b>The FeatureWiz transformer now includes powerful deep learning auto encoders in the `feature_engg` argument. You can set them to `vae` for Variational Auto Encoder, `dae` for Denoising Auto Encoder and `gan` for GAN data augmentation for generating synthetic data. I have uploaded a sample noetbook for you to test and improve your Classifier performance in Imbalanced datasets. Please send me comments via email which is displayed on my Github main page.
+</ol>
+
 #### Update (November 2023): The FeatureWiz transformer (version 0.4.3 on) includes an "add_missing" flag
 <ol>
 <li><b>The FeatureWiz transformer now includes an `add_missing` flag which will add a new column for missing values for all your variables in your dataset.</b> This will help you catch missing values as an added signal when you use FeatureWiz library. Try it out and let us know in your comments via email.

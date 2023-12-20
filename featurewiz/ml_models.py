@@ -1,6 +1,8 @@
-import pandas as pd
 import numpy as np
 np.random.seed(99)
+import random
+random.seed(42)
+import pandas as pd
 ################################################################################
 import warnings
 warnings.filterwarnings("ignore")
@@ -781,38 +783,35 @@ def get_sample_weight_array(y_train):
     return wt_array
 ###############################################################################
 from collections import OrderedDict
+from collections import Counter
+from sklearn.utils.class_weight import compute_class_weight
+import copy
 def get_class_weights(y_input):    
+    ### get_class_weights has lower ROC_AUC but higher F1 scores than get_class_distribution
     y_input = copy.deepcopy(y_input)
     if isinstance(y_input, np.ndarray):
-        y_input = pd.Series(y_input)
+        class_weights = compute_class_weight('balanced', classes=np.unique(y_input), y=y_input.reshape(-1))
     elif isinstance(y_input, pd.Series):
-        pass
+        class_weights = compute_class_weight('balanced', classes=np.unique(y_input.values), y=y_input.values.reshape(-1))
     elif isinstance(y_input, pd.DataFrame):
         ### if it is a dataframe, return only if it s one column dataframe ##
         y_input = y_input.iloc[:,0]
+        class_weights = compute_class_weight('balanced', classes=np.unique(y_input.values), y=y_input.values.reshape(-1))
     else:
         ### if you cannot detect the type or if it is a multi-column dataframe, ignore it
         return None
     classes = np.unique(y_input)
-    rare_class = find_rare_class(y_input)
-    xp = Counter(y_input)
-    class_weights = compute_class_weight('balanced', classes=classes, y=y_input)
-    
+    xp = Counter(y_input)    
     if len(class_weights[(class_weights < 1)]) > 0:
         ### if the weights are less than 1, then divide them until the lowest weight is 1.
         class_weights = class_weights/min(class_weights)
     else:
         class_weights = (class_weights)
-    ### even after you change weights if they are all below 1.5 do this ##
-    #if (class_weights<=1.5).all():
-    #    class_weights = np.around(class_weights+0.49)
-    
+    ### This is the best version that returns correct weights ###   
     class_weights = class_weights.astype(int)
     class_weights[(class_weights<1)]=1
-    class_rows = class_weights*[xp[x] for x in classes]
-    class_rows = class_rows.astype(int)
-    class_weighted_rows = dict(zip(classes,class_weights))
-    return class_weighted_rows
+    class_weights_dict_corrected = dict(zip(classes,class_weights))
+    return class_weights_dict_corrected
 ##################################################################################
 from collections import OrderedDict
 def get_scale_pos_weight(y_input):
