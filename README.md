@@ -34,26 +34,26 @@ If you use featurewiz in your research project or paper, please use the followin
 
 ## Highlights
 `featurewiz` stands out as a versatile and powerful tool for feature selection and engineering, capable of significantly enhancing model performance through intelligent feature transformation and selection techniques. Its unique methods like SULOV and recursive XGBoost, combined with advanced feature engineering options, make it a valuable addition to any data scientist's toolkit:
-
+<br>
 <b>Best Feature Selection Algorithm</b>
 <li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR) algorithm) as described by wikipedia in this page: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
-
+<br>
 <b>Advanced Feature Engineering Options</b>
 featurewiz extends beyond traditional feature selection by including powerful feature engineering capabilities such as:
 <li>Auto Encoders, including Denoising Auto Encoders (DAEs) Variational Auto Encoders (VAEs), and GANs (Generative Adversarial Networks) for additional feature extraction, especially on imbalanced datasets.</li>
 <li>A variety of category encoders like HashingEncoder, SumEncoder, PolynomialEncoder, BackwardDifferenceEncoder, OneHotEncoder, HelmertEncoder, OrdinalEncoder, and BaseNEncoder.</li>
 <li>The ability to add interaction features (e.g., x1x2, x2x3, x1^2), group by features, and target encoding</li>
-
+<br>
 <b>SULOV Method for Feature Selection</b>
 <li>SULOV stands for "Searching for Uncorrelated List Of Variables". It selects features that are uncorrelated with each other but have high correlation with the target variable, based on the Minimum Redundancy Maximum Relevance (mRMR) principle. This method effectively reduces redundancy in features while retaining those with high relevance to the target.</li>
-
+<br>
 <b>Recursive XGBoost Method</b>
 <li>After applying the SULOV method, featurewiz employs a recursive approach using XGBoost's feature importance. This process is repeated multiple times on subsets of data, combining and deduplicating selected features to identify the most impactful ones.</li>
-
+<br>
 <b>Comprehensive Encoding and Transformation</b>
 <li>featurewiz allows for extensive customization in how features are encoded and transformed, making it highly adaptable to various types of data.</li>
 <li>The ability to combine multiple encoding and transformation methods enhances its flexibility and effectiveness in feature engineering.</li>
-
+<br>
 <b>Used by PhD's and Researchers  and actively maintained</b>
 <li>featurewiz is used by researchers and PhD data scientists around the world: there are 64 citations for featurewiz since its release:
 </li>
@@ -61,7 +61,7 @@ featurewiz extends beyond traditional feature selection by including powerful fe
 <li>It's efficient in handling large datasets, making it suitable for a wide range of applications from small to big data scenarios.</li>
 <li>It is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>.</li>
 <li>It is actively maintained, and it is regularly updated with <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">new features and bug fixes</a>.</li>
-
+<br>
 ## Internals
 ### featurewiz - Transform Your Data Science Workflow using two modules:
 <b>1. Feature Engineering Module</b>
