@@ -41,7 +41,7 @@ If you use featurewiz in your research project or paper, please use the followin
 
 ### Advanced Feature Engineering Options
 featurewiz extends beyond traditional feature selection by including powerful feature engineering capabilities such as:
-<li>Auto Encoders, including Denoising Auto Encoders (DAEs) Variational Auto Encoders (VAEs), and GANs (Generative Adversarial Networks) for additional feature extraction, especially on imbalanced datasets.</li>
+<li>Auto Encoders, including Denoising Auto Encoders (DAEs) and Variational Auto Encoders (VAEs), for improved model performance, especially on imbalanced datasets.</li>
 <li>A variety of category encoders like HashingEncoder, SumEncoder, PolynomialEncoder, BackwardDifferenceEncoder, OneHotEncoder, HelmertEncoder, OrdinalEncoder, and BaseNEncoder.</li>
 <li>The ability to add interaction features (e.g., x1x2, x2x3, x1^2), group by features, and target encoding.</li>
 
@@ -64,27 +64,25 @@ featurewiz extends beyond traditional feature selection by including powerful fe
 <li>It is actively maintained, and it is regularly updated with <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">new features and bug fixes</a>.</li>
 
 ## Internals
-### featurewiz - Transform Your Data Science Workflow using two modules:
-#### 1. Feature Engineering Module
-<li>Advanced Feature Creation: use Deep Learning based Auto Encoders and GAN's to extract features to add to your data. These powerful capabilities will help you in solving your toughest problems.</li>
-<li>Options for Enhancement: Use "interactions", "groupby", or "target" flags to enable advanced feature engineering techniques.</li>
-<li>Kaggle-Ready: Designed to meet the high standards of feature engineering required in competitive data science, like Kaggle.</li>
-<li>Efficient and User-Friendly: Generate and sift through thousands of features, selecting only the most impactful ones for your model.</li><p>
+`featurewiz` has two major internal modules. They are explained below.
+### 1.  Feature Engineering module
+<p>The first step is not absolutely necessary but it can be used to create new features that may or may not be helpful (be careful with automated feature engineering tools!).<p>
+One of the gaps in open-source AutoML tools and especially Auto_ViML has been the lack of feature engineering capabilities that high-powered competitions such as Kaggle required. The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables was difficult and sifting through those hundreds of new features to find the best features was difficult and left only to "experts" or "professionals". featurewiz was created to help you in this endeavor.<br>
+<p>featurewiz now enables you to add hundreds of such features with a single line of code. Set the "feature_engg" flag to "interactions", "groupby" or "target" and featurewiz will select the best encoders for each of those options and create hundreds (perhaps thousands) of features in one go. Not only that, using the next step, featurewiz will sift through numerous such variables and find only the least correlated and most relevant features to your model. All in one step!.<br>
 
-![feature_engg](images/feature_engg.png)
+![feature_engg](images/feature_engg.jpg)
 
-#### 2. Feature Selection Module
-<li>MRMR Algorithm: Employs Minimum Redundancy Maximum Relevance (MRMR) for effective feature selection.</li>
-<li>SULOV Method: Stands for 'Searching for Uncorrelated List of Variables', ensuring low redundancy and high relevance in feature selection.</li>
-<li>Addressing Key Questions: Helps interpret new features, assess their importance, and evaluate the model's performance with these features.</li>
-<li>Optimal Feature Subset: Uses Recursive XGBoost in combination with SULOV to identify the most critical features, reducing overfitting and improving model interpretability.</li>
+### 2.  Feature Selection module
+<p>The second step is Feature Selection. `featurewiz` uses the MRMR (Minimum Redundancy Maximum Relevance) algorithm as the basis for its feature selection. <br>
+<b> Why perform Feature Selection</b>? Once you have created 100's of new features, you still have three questions left to answer:
+1. How do we interpret those newly created features?
+2. Which of these features is important and which is useless? How many of them are highly correlated to each other causing redundancy?
+3. Does the model overfit now on these new features and perform better or worse than before?
+<br>
+All are very important questions and featurewiz answers them by using the SULOV method and Recursive XGBoost to reduce features in your dataset to the best "minimum optimal" features for the model.<br>
+<p><b>SULOV</b>: SULOV stands for `Searching for Uncorrelated List of Variables`. The SULOV algorithm is based on the Minimum-Redundancy-Maximum-Relevance (MRMR) <a href="https://towardsdatascience.com/mrmr-explained-exactly-how-you-wished-someone-explained-to-you-9cf4ed27458b">algorithm explained in this article</a> as one of the best feature selection methods. To understand how MRMR works and how it is different from `Boruta` and other feature selection methods, see the chart below. Here "Minimal Optimal" refers to MRMR  (featurewiz) while "all-relevant" refers to Boruta.<br>
 
-#### Chart Comparison:
-Minimal Optimal (MRMR - featurewiz) vs. All-Relevant (Boruta): Understand how featurewiz's MRMR approach differs from other methods like Boruta for comprehensive feature selection. The SULOV algorithm is based on the Minimum-Redundancy-Maximum-Relevance (MRMR) <a href="https://towardsdatascience.com/mrmr-explained-exactly-how-you-wished-someone-explained-to-you-9cf4ed27458b">algorithm explained in this article</a> as one of the best feature selection methods.
-
-![Learn More About MRMR](images/MRMR.png)
-
-Transform your feature engineering and selection process with featurewiz - the tool that brings expert-level capabilities to your fingertips!
+![MRMR_chart](images/MRMR.png)
 
 ## Working
 `featurewiz` performs feature selection in 2 steps. Each step is explained below.
@@ -114,7 +112,7 @@ Here are some additional tips for ML engineers and data scientists when using fe
 <ol>
 <li><b>How to cross-validate your results</b>: When you use featurewiz, we automatically perform multiple rounds of feature selection using permutations on the number of columns. However, you can perform feature selection using permutations of rows as follows in <a href="https://github.com/AutoViML/featurewiz/blob/main/examples/cross_validate.py">cross_validate using featurewiz.</a>
 <li><b>Use multiple feature selection tools</b>: It is a good idea to use multiple feature selection tools and compare the results. This will help you to get a better understanding of which features are most important for your data.</li>
-<li><b>Don't forget to use Auto Encoders!</b>: Autoencoders are like skilled artists who can draw a quick sketch of a complex picture. They learn to capture the essence of the data and then recreate it with as few strokes as possible. This process helps in understanding and compressing data efficiently.</li>
+<li><b>Don't forget to engineer new features</b>: Feature selection is only one part of the process of building a good machine learning model. You should also spend time engineering your features to make them as informative as possible. This can involve things like creating new features, transforming existing features, and removing irrelevant features.</li>
 <li><b>Don't overfit your model</b>: It is important to avoid overfitting your model to the training data. Overfitting occurs when your model learns the noise in the training data, rather than the underlying signal. To avoid overfitting, you can use regularization techniques, such as lasso or elasticnet.</li>
 <li><b>Start with a small number of features</b>: When you are first starting out, it is a good idea to start with a small number of features. This will help you to avoid overfitting your model. As you become more experienced, you can experiment with adding more features.</li>
 </ol>
@@ -161,8 +159,7 @@ There are two ways to use featurewiz.
 ```
 from featurewiz import FeatureWiz
 fwiz = FeatureWiz(feature_engg = '', nrows=None, transform_target=True, scalers="std",
-        		category_encoders="auto", add_missing=False, verbose=0, imbalanced=False, 
-                ae_options={})
+        		category_encoders="auto", add_missing=False, verbose=0)
 X_train_selected, y_train = fwiz.fit_transform(X_train, y_train)
 X_test_selected = fwiz.transform(X_test)
 ### get list of selected features ###
@@ -202,13 +199,7 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
 
     feature_engg : str or list, default=''
         Specifies the feature engineering methods to apply, such as 'interactions', 'groupby', 
-        and 'target'. 
-<b>Update</b>: Five new options have been added recently to `feature_engg` (starting in version 0.5.0): `dae`, `vae`, `dae_add`, `vae_add` and `gan`. These are auto encoders that can extract the most important patterns in your data and add them as extra features to your data using neural networks. Try them for your toughest ML problems!
-
-    ae_options : dict, default={}
-        You can provide a dictionary for tuning auto encoders above. Supported auto encoders include 'dae', 
-        'vae', and 'gan'. You must use the help function to see how to send a dict to each auto encoder. You can also check out this example:
-[Auto Encoder demo notebook](https://github.com/AutoViML/featurewiz/blob/main/examples/Featurewiz_with_AutoEncoder_Demo.ipynb)
+        and 'target'.
 
     category_encoders : str or list, default=''
         Encoders for handling categorical variables. Supported encoders include 'onehot', 
@@ -238,9 +229,6 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
     scalers : str or None, default=None
         Specifies the scaler to use for feature scaling. Available options include 
         'std', 'standard', 'minmax', 'max', 'robust', 'maxabs'.
-
-    imbalanced : True or False, default=False
-        Specifies whether to use SMOTE technique for imbalanced datasets.
 
 **Input Arguments for old syntax**
 
@@ -301,7 +289,7 @@ In most cases, featurewiz builds models with 20%-99% fewer features than your or
 <p>
 featurewiz is every Data Scientist's feature wizard that will:<ol>
 <li><b>Automatically pre-process data</b>: you can send in your entire dataframe "as is" and featurewiz will classify and change/label encode categorical variables changes to help XGBoost processing. It classifies variables as numeric or categorical or NLP or date-time variables automatically so it can use them correctly to model.<br>
-<li><b>Perform feature engineering automatically</b>: The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables is difficult and sifting through those hundreds of new features is painstaking and left only to "experts". Now, with featurewiz you can use deep learning to extract features with the click of a mouse. This is very helpful when you have imbalanced classes or 1000's of features to deal with. However, be careful with this option. You can very easily spend a lot of time tuning these neural networks.
+<li><b>Perform feature engineering automatically</b>: The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables is difficult and sifting through those hundreds of new features is painstaking and left only to "experts". Now, with featurewiz you can create hundreds or even thousands of new features with the click of a mouse. This is very helpful when you have a small number of features to start with. However, be careful with this option. You can very easily create a monster with this option.
 <li><b>Perform feature reduction automatically</b>. When you have small data sets and you know your domain well, it is easy to perhaps do EDA and identify which variables are important. But when you have a very large data set with hundreds if not thousands of variables, selecting the best features from your model can mean the difference between a bloated and highly complex model or a simple model with the fewest and most information-rich features. featurewiz uses XGBoost repeatedly to perform feature selection. You must try it on your large data sets and compare!<br>
 <li><b>Explain SULOV method graphically </b> using networkx library so you can see which variables are highly correlated to which ones and which of those have high or low mutual information scores automatically. Just set verbose = 2 to see the graph. <br>
 <li><b>Build a fast XGBoost or LightGBM model using the features selected by featurewiz</b>. There is a function called "simple_lightgbm_model" which you can use to build a fast model. It is a new module, so check it out.<br>
