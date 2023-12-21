@@ -34,7 +34,7 @@ If you use featurewiz in your research project or paper, please use the followin
 
 ## Highlights
 <ol>`featurewiz` stands out as a versatile and powerful tool for feature selection and engineering, capable of significantly enhancing model performance through intelligent feature transformation and selection techniques. Its unique methods like SULOV and recursive XGBoost, combined with advanced feature engineering options, make it a valuable addition to any data scientist's toolkit:
-</ol>ol>
+</ol>
 <b>Best Feature Selection Algorithm</b>
 <li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR) algorithm) as described by wikipedia in this page: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
 <br>
