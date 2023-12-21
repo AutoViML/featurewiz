@@ -26,10 +26,8 @@
 <br>
 
 ## Citation
-If you use featurewiz in your research project or paper, please use the following format for citations:
-<p>
+If you use featurewiz in your research project or paper, please use the following format for citations:<p>
 "Seshadri, Ram (2020). GitHub - AutoViML/featurewiz: Use advanced feature engineering strategies and select the best features from your data set fast with a single line of code. source code: https://github.com/AutoViML/featurewiz"</p>
-
 <b>Current citations for featurewiz</b>
 
 [Google Scholar](https://scholar.google.com/scholar?hl=en&as_sdt=0%2C31&q=featurewiz&btnG=)
@@ -44,7 +42,7 @@ If you use featurewiz in your research project or paper, please use the followin
 featurewiz extends beyond traditional feature selection by including powerful feature engineering capabilities such as:
 <li>Auto Encoders, including Denoising Auto Encoders (DAEs) Variational Auto Encoders (VAEs), and GANs (Generative Adversarial Networks) for additional feature extraction, especially on imbalanced datasets.</li>
 <li>A variety of category encoders like HashingEncoder, SumEncoder, PolynomialEncoder, BackwardDifferenceEncoder, OneHotEncoder, HelmertEncoder, OrdinalEncoder, and BaseNEncoder.</li>
-<li>The ability to add interaction features (e.g., x1x2, x2x3, x1^2), group by features, and target encoding.</li>
+<li>The ability to add interaction features (e.g., x1x2, x2x3, x1^2), group by features, and target encoding</li>
 
 <b>SULOV Method for Feature Selection</b>
 <li>SULOV stands for "Searching for Uncorrelated List Of Variables". It selects features that are uncorrelated with each other but have high correlation with the target variable, based on the Minimum Redundancy Maximum Relevance (mRMR) principle. This method effectively reduces redundancy in features while retaining those with high relevance to the target.</li>
@@ -70,7 +68,7 @@ featurewiz extends beyond traditional feature selection by including powerful fe
 <li>Advanced Feature Creation: use Deep Learning based Auto Encoders and GAN's to extract features to add to your data. These powerful capabilities will help you in solving your toughest problems.</li>
 <li>Options for Enhancement: Use "interactions", "groupby", or "target" flags to enable advanced feature engineering techniques.</li>
 <li>Kaggle-Ready: Designed to meet the high standards of feature engineering required in competitive data science, like Kaggle.</li>
-<li>Efficient and User-Friendly: Generate and sift through thousands of features, selecting only the most impactful ones for your model.</li><p>
+<li>Efficient and User-Friendly: Generate and sift through thousands of features, selecting only the most impactful ones for your model.</li><br>
 
 ![feature_engg](images/feature_engg.png)
 
@@ -299,7 +297,7 @@ To learn more about how featurewiz works under the hood, watch this [video](http
 
 featurewiz was designed for selecting High Performance variables with the fewest steps.
 In most cases, featurewiz builds models with 20%-99% fewer features than your original data set with nearly the same or slightly lower performance (this is based on my trials. Your experience may vary).<br>
-<p>
+
 featurewiz is every Data Scientist's feature wizard that will:<ol>
 <li><b>Automatically pre-process data</b>: you can send in your entire dataframe "as is" and featurewiz will classify and change/label encode categorical variables changes to help XGBoost processing. It classifies variables as numeric or categorical or NLP or date-time variables automatically so it can use them correctly to model.<br>
 <li><b>Perform feature engineering automatically</b>: The ability to create "interaction" variables or adding "group-by" features or "target-encoding" categorical variables is difficult and sifting through those hundreds of new features is painstaking and left only to "experts". Now, with featurewiz you can use deep learning to extract features with the click of a mouse. This is very helpful when you have imbalanced classes or 1000's of features to deal with. However, be careful with this option. You can very easily spend a lot of time tuning these neural networks.
