@@ -56,8 +56,8 @@ featurewiz extends beyond traditional feature selection by including powerful fe
 
 <b>Used by PhD's and Researchers  and actively maintained</b>
 <li>featurewiz is used by researchers and PhD data scientists around the world: there are 64 citations for featurewiz since its release:
-
-[Google Scholar](https://scholar.google.com/scholar?hl=en&as_sdt=0%2C31&q=featurewiz&btnG=) </li>
+</li>
+[Google Scholar](https://scholar.google.com/scholar?hl=en&as_sdt=0%2C31&q=featurewiz&btnG=) 
 <li>It's efficient in handling large datasets, making it suitable for a wide range of applications from small to big data scenarios.</li>
 <li>It is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>.</li>
 <li>It is actively maintained, and it is regularly updated with <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">new features and bug fixes</a>.</li>
