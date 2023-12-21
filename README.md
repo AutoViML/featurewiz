@@ -28,8 +28,8 @@
 ## Citation
 If you use featurewiz in your research project or paper, please use the following format for citations:
 <p>
-"Seshadri, Ram (2020). GitHub - AutoViML/featurewiz: Use advanced feature engineering strategies and select the best features from your data set fast with a single line of code. source code: https://github.com/AutoViML/featurewiz "
-<p>
+"Seshadri, Ram (2020). GitHub - AutoViML/featurewiz: Use advanced feature engineering strategies and select the best features from your data set fast with a single line of code. source code: https://github.com/AutoViML/featurewiz"</p>
+
 <b>Current citations for featurewiz</b>
 
 [Google Scholar](https://scholar.google.com/scholar?hl=en&as_sdt=0%2C31&q=featurewiz&btnG=)
