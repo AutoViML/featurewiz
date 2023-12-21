@@ -33,8 +33,8 @@ If you use featurewiz in your research project or paper, please use the followin
 [Google Scholar](https://scholar.google.com/scholar?hl=en&as_sdt=0%2C31&q=featurewiz&btnG=)
 
 ## Highlights
-`featurewiz` stands out as a versatile and powerful tool for feature selection and engineering, capable of significantly enhancing model performance through intelligent feature transformation and selection techniques. Its unique methods like SULOV and recursive XGBoost, combined with advanced feature engineering options, make it a valuable addition to any data scientist's toolkit:
-<br>
+<ol>`featurewiz` stands out as a versatile and powerful tool for feature selection and engineering, capable of significantly enhancing model performance through intelligent feature transformation and selection techniques. Its unique methods like SULOV and recursive XGBoost, combined with advanced feature engineering options, make it a valuable addition to any data scientist's toolkit:
+</ol>ol>
 <b>Best Feature Selection Algorithm</b>
 <li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR) algorithm) as described by wikipedia in this page: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
 <br>
@@ -61,7 +61,7 @@ featurewiz extends beyond traditional feature selection by including powerful fe
 <li>It's efficient in handling large datasets, making it suitable for a wide range of applications from small to big data scenarios.</li>
 <li>It is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>.</li>
 <li>It is actively maintained, and it is regularly updated with <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">new features and bug fixes</a>.</li>
-<br>
+
 ## Internals
 ### featurewiz - Transform Your Data Science Workflow using two modules:
 <b>1. Feature Engineering Module</b>
