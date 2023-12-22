@@ -639,169 +639,6 @@ class StackingClassifier_Multi(BaseEstimator, ClassifierMixin):
     def predict_proba(self, X):
         return self.final_model.predict_proba(X)
 ##########################################################################
-from sklearn.base import BaseEstimator, TransformerMixin
-import numpy as np
-
-class DenoisingAutoEncoder(BaseEstimator, TransformerMixin):
-    """
-    A denoising autoencoder transformer for feature extraction from tabular datasets. 
-    
-    This implementation is based on a research paper by: 
-    Pascal Vincent et al. "Extracting and Composing Robust Features with Denoising Autoencoders"
-    Appearing in Proceedings of the 25th International Conference on Machine Learning, Helsinki, Finland, 
-    2008.Copyright 2008 by the author(s)/owner(s).
-
-    This transformer adds noise to the input data and then trains an autoencoder to 
-    reconstruct the original data, thereby learning robust features. It can automatically 
-    select between a simple and a complex architecture based on the size of the dataset, 
-    or this selection can be overridden by user input.
-
-    Recommendation: Best is DAE with MinMax Scaling. But DAE_ADD also gives similar but slightly less performance.
-
-    Parameters
-    ----------
-    encoding_dim : int, default=50
-        The size of the encoding layer. This determines the dimensionality of the output 
-        features from the transformer.
-
-    noise_factor : float, default=0.1
-        The factor by which noise is added to the input data. Noise is generated from a 
-        normal distribution and scaled by this factor.
-
-    learning_rate : float, default=0.001
-        The learning rate for the Adam optimizer used in training the autoencoder.
-
-    epochs : int, default=100
-        The number of epochs to train the autoencoder.
-
-    batch_size : int, default=16
-        The batch size used during the training of the autoencoder.
-
-    callbacks : list of keras.callbacks.Callback, optional
-        Callbacks to apply during training of the autoencoder.
-
-    simple_architecture : bool or None, default=None
-        If set to True, the transformer always uses a simple architecture regardless of the dataset size.
-        If set to False, it always uses a more complex architecture. If set to None, the architecture
-        is chosen automatically based on the dataset size (simple for less than 10,000 samples).
-
-    Attributes
-    ----------
-    autoencoder : keras.Model
-        The complete autoencoder model.
-
-    encoder : keras.Model
-        The encoder part of the autoencoder model, used for feature extraction.
-
-    Methods
-    -------
-    fit(X, y=None)
-        Fit the transformer to the data. This method trains the autoencoder model.
-
-    transform(X)
-        Apply the dimensionality reduction learned by the autoencoder, returning the encoded features.
-
-    Examples
-    --------
-    >>> from sklearn.preprocessing import MinMaxScaler
-    >>> scaler = MinMaxScaler()
-    >>> X_train_scaled = scaler.fit_transform(X_train)
-    >>> dae = DenoisingAutoEncoder()
-    >>> dae.fit(X_train_scaled, y_train)
-    >>> encoded_X_train = dae.transform(X_train_scaled)
-    >>> encoded_X_test = dae.transform(X_test_scaled)
-
-    Notes:
-    Here are the recommende values for ae_options dictionary for DAE:
-    dae_dicto = {
-        'noise_factor': 0.2,
-        'encoding_dim': 10,
-        'epochs': 100, 
-        'batch_size': 32,
-        'simple_architecture': None
-         }
-
-    """
-
-    def __init__(self, encoding_dim=50, noise_factor=0.1, 
-                 learning_rate=0.001, epochs=100, batch_size=16, 
-                 callbacks=None, simple_architecture=None):
-        try:
-            import tensorflow as tf
-            def set_seed(seed=42):
-                np.random.seed(seed)
-                random.seed(seed)
-                tf.random.set_seed(seed)
-            set_seed(42)
-            from tensorflow import keras
-        except:
-            print('tensorflow>= 2.5 not installed in machine. Please install and try again. ')
-        self.encoding_dim = encoding_dim
-        self.noise_factor = noise_factor
-        self.learning_rate = learning_rate
-        self.epochs = epochs
-        self.batch_size = batch_size
-        if callbacks is None:
-            es = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0.00001, patience=5,
-                            verbose=1, mode='min', baseline=None, restore_best_weights=False)
-            self.callbacks = [es]
-        else:
-            self.callbacks = callbacks
-        self.simple_architecture = simple_architecture
-        self.autoencoder = None
-        self.encoder = None
-
-    def _build_autoencoder(self, input_dim):
-        import tensorflow as tf
-        def set_seed(seed=42):
-            np.random.seed(seed)
-            random.seed(seed)
-            tf.random.set_seed(seed)
-        set_seed(42)
-        from tensorflow.keras.layers import Input, Dense
-        from tensorflow.keras.models import Model
-        
-        input_layer = Input(shape=(input_dim,))
-        if self.simple_architecture or (self.simple_architecture is None and input_dim < 10000):
-            print('Performing Denoising Auto Encoder transform using Simple architecture...')
-            encoded = Dense(self.encoding_dim, activation='relu')(input_layer)
-            decoded = Dense(input_dim, activation='sigmoid')(encoded)
-        else:
-            print('Performing Denoising Auto Encoder transform using Complex architecture...')
-            encoded = Dense(self.encoding_dim, activation='relu')(input_layer)
-            encoded = Dense(self.encoding_dim // 2, activation='relu')(encoded)
-            decoded = Dense(self.encoding_dim, activation='relu')(encoded)
-            decoded = Dense(input_dim, activation='sigmoid')(decoded)
-
-        return Model(input_layer, decoded), Model(input_layer, encoded)
-
-    def fit(self, X, y=None):
-        import tensorflow as tf
-        def set_seed(seed=42):
-            np.random.seed(seed)
-            random.seed(seed)
-            tf.random.set_seed(seed)
-        set_seed(42)
-
-        # Add noise to the training data
-        X_noisy = X + self.noise_factor * np.random.normal(size=X.shape)
-
-        # Build the autoencoder
-        self.autoencoder, self.encoder = self._build_autoencoder(X.shape[1])
-        
-        # Compile and train the autoencoder
-        self.autoencoder.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate), 
-                                 loss='mean_squared_error')
-        self.autoencoder.fit(X_noisy, X, batch_size=self.batch_size, epochs=self.epochs, 
-                             callbacks=self.callbacks, shuffle=True, validation_split=0.20)
-
-        return self
-
-    def transform(self, X, y=None):
-        # Extract the features from the input data
-        encoded_X = self.encoder.predict(X)
-        return encoded_X
-#########################################################################
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -815,6 +652,32 @@ class VariationalAutoEncoder(BaseEstimator, TransformerMixin):
 
     Recommendation: Try VAE with MinMax Scaling which is good. 
             Even better try VAE_ADD with MinMax scaling which might improve performance.
+
+    Key Enhancements:
+    ##################
+    Encoder with SELU Activation: The encoder uses the SELU activation 
+        functions for its dense layers, providing self-normalizing properties 
+        that can be particularly beneficial in deep neural networks
+    Adjusting Encoder and Decoder: Use similar structures and activations, 
+        ensuring they are suitable for the type of data ie. tabular data.
+    Training Process: Adapt the training procedure to optimize both the 
+        reconstruction and latent aspects of the model.
+    Generative Capabilities: Include methods to generate new data samples 
+        from the learned latent space.
+    Sampling Layer: Integrated for the probabilistic encoding of the latent space.
+    Encoder and Decoder: Both parts are constructed to suit tabular data, with 
+        a structure that's more appropriate for non-image data.
+    Loss Function: The loss function now includes the Kullback-Leibler divergence term, 
+        important for the VAE's generative properties.
+    Latent Space and Reconstruction: The transform method returns the latent 
+        representation of the data, and a generate method is added to create new 
+        data samples from the latent space.
+    Dynamic Network Depth: The number of hidden layers in both the encoder and 
+        decoder is adjusted based on the input dimension.
+    Layer Size: The neuron count for each layer is dynamically set based 
+        on the input dimension.
+    Loss Function Adjustment: The loss function calculation is adjusted to ensure proper 
+        scaling of the reconstruction and KL divergence losses.
 
     Parameters
     ----------
@@ -869,18 +732,29 @@ class VariationalAutoEncoder(BaseEstimator, TransformerMixin):
          }
 
     """
+    try:
+        from tensorflow.keras import layers
+    except:
+        print('tensorflow>= 2.5 not installed in machine. Please install and try again. ')
 
-    def __init__(self, intermediate_dim=64, latent_dim=4, epochs=300, batch_size=64, learning_rate=0.001):
-        self.original_intermediate_dim = intermediate_dim
-        self.intermediate_dim = intermediate_dim
-        self.original_latent_dim = latent_dim
-        self.latent_dim = latent_dim
-        self.epochs = epochs
-        self.batch_size = batch_size
-        self.original_batch_size = batch_size
-        self.learning_rate = learning_rate
-        self.vae = None
-        self.encoder = None
+    class Sampling(layers.Layer):
+        """Uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
+        def call(self, inputs):
+            import tensorflow as tf
+            def set_seed(seed=42):
+                np.random.seed(seed)
+                random.seed(seed)
+                tf.random.set_seed(seed)
+            set_seed(42)
+            from tensorflow.keras import backend as K
+            z_mean, z_log_var = inputs
+            batch = tf.shape(z_mean)[0]
+            dim = tf.shape(z_mean)[1]
+            epsilon = K.random_normal(shape=(batch, dim))
+            return z_mean + tf.exp(0.5 * z_log_var) * epsilon
+
+    def __init__(self, latent_dim=2, intermediate_dim=64, epochs=50, 
+                    batch_size=32, learning_rate=0.001):
         try:
             import tensorflow as tf
             def set_seed(seed=42):
@@ -891,6 +765,15 @@ class VariationalAutoEncoder(BaseEstimator, TransformerMixin):
             from tensorflow import keras
         except:
             print('tensorflow>= 2.5 not installed in machine. Please install and try again. ')
+        self.latent_dim = latent_dim
+        self.original_latent_dim = latent_dim
+        self.intermediate_dim = intermediate_dim
+        self.original_intermediate_dim = intermediate_dim
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.original_batch_size = batch_size
+        self.learning_rate = learning_rate
+        self.input_dim = None
         es = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0.00001, patience=5,
                         verbose=1, mode='min', baseline=None, restore_best_weights=False)
         # Learning rate scheduler
@@ -899,97 +782,86 @@ class VariationalAutoEncoder(BaseEstimator, TransformerMixin):
 
         self.callbacks = [es, lr_scheduler]
 
-    def _sampling(self, args):
+    def _build_model(self):
         import tensorflow as tf
-        def set_seed(seed=42):
-            np.random.seed(seed)
-            random.seed(seed)
-            tf.random.set_seed(seed)
-        set_seed(42)
-        from tensorflow.keras import backend as K
-        z_mean, z_log_var = args
-        batch = K.shape(z_mean)[0]
-        dim = K.int_shape(z_mean)[1]
-        epsilon = K.random_normal(shape=(batch, dim))
-        return z_mean + K.exp(0.5 * z_log_var) * epsilon
-
-    def _build_vae(self, input_shape):
-        import tensorflow as tf
-        def set_seed(seed=42):
-            np.random.seed(seed)
-            random.seed(seed)
-            tf.random.set_seed(seed)
-        set_seed(42)
-        from tensorflow.keras.layers import Input, Dense, Lambda
-        from tensorflow.keras.models import Model
+        from tensorflow.keras import layers, Model, backend as K
         from tensorflow.keras.losses import mse
-        from tensorflow.keras import backend as K
 
+        def set_seed(seed=42):
+            np.random.seed(seed)
+            random.seed(seed)
+            tf.random.set_seed(seed)
+        set_seed(42)
         # Manually specify the activation function of the last layer
         # Adjust based on your model's specific configuration
         last_layer_activation = 'sigmoid'  # or 'linear', as appropriate
 
-        # Encoder
-        inputs = Input(shape=input_shape, name='encoder_input')
-        x = Dense(self.intermediate_dim, activation='relu')(inputs)
-        z_mean = Dense(self.latent_dim, name='z_mean')(x)
-        z_log_var = Dense(self.latent_dim, name='z_log_var')(x)
-        
-        # Latent space
-        z = Lambda(self._sampling, output_shape=(self.latent_dim,), name='z')([z_mean, z_log_var])
+        # Dynamically adjust the depth and width based on input dimension
+        hidden_layers = max(2, min(6, self.input_dim // 20))  # Between 2 and 6 hidden layers
+        layer_size = max(32, min(256, self.input_dim * 2))  # Layer size between 32 and 256 neurons
 
-        # Instantiate the encoder
-        encoder = Model(inputs, [z_mean, z_log_var, z], name='encoder')
+        # Encoder
+        original_inputs = tf.keras.Input(shape=(self.input_dim,), name='encoder_input')
+        x = original_inputs
+        for _ in range(hidden_layers):
+            x = layers.Dense(layer_size, activation='selu')(x)
+        z_mean = layers.Dense(self.latent_dim, name='z_mean')(x)
+        z_log_var = layers.Dense(self.latent_dim, name='z_log_var')(x)
+        z = self.Sampling()([z_mean, z_log_var])
+        encoder = Model(inputs=original_inputs, outputs=[z_mean, z_log_var, z], name='encoder')
 
         # Decoder
-        latent_inputs = Input(shape=(self.latent_dim,), name='z_sampling')
-        x = Dense(self.intermediate_dim, activation='relu')(latent_inputs)
-        outputs = Dense(input_shape[0], activation=last_layer_activation)(x)
+        latent_inputs = tf.keras.Input(shape=(self.latent_dim,), name='z_sampling')
+        x = latent_inputs
+        for _ in range(hidden_layers):
+            x = layers.Dense(layer_size, activation='relu')(x)
+        outputs = layers.Dense(self.input_dim, activation=last_layer_activation)(x)
+        decoder = Model(inputs=latent_inputs, outputs=outputs, name='decoder')
 
-        # Instantiate the decoder
-        decoder = Model(latent_inputs, outputs, name='decoder')
-
-        # VAE model
-        outputs = decoder(encoder(inputs)[2])
-        vae = Model(inputs, outputs, name='vae')
+        # VAE Model
+        outputs = decoder(encoder(original_inputs)[2])
+        vae = Model(inputs=original_inputs, outputs=outputs, name='vae')
 
         # Adjust the reconstruction loss depending on the activation function of the last layer
         if last_layer_activation == 'sigmoid':
-            reconstruction_loss = mse(K.flatten(inputs), K.flatten(outputs))
+            reconstruction_loss = mse(K.flatten(original_inputs), K.flatten(outputs))
         else:
-            reconstruction_loss = mse(inputs, outputs)
-        
-        reconstruction_loss *= input_shape[0]
-        kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
-        kl_loss = K.sum(kl_loss, axis=-1)
-        kl_loss *= -0.5
+            reconstruction_loss = mse(original_inputs, outputs)
+        reconstruction_loss *= self.input_dim
+        kl_loss = -0.5 * K.sum(1 + z_log_var - K.square(z_mean) - K.exp(z_log_var), axis=-1)
         epsilon = 1e-7  # Small epsilon for numerical stability
         vae_loss = K.mean(reconstruction_loss + kl_loss + epsilon)
-
         vae.add_loss(vae_loss)
-        vae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate)) 
-        return vae, encoder
+        vae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate))
 
+        return vae, encoder, decoder
 
     def fit(self, X, y=None):
+        self.input_dim = X.shape[1]
         # Adjust dimensions if they exceed the number of features
         n_features = X.shape[1]
         self.intermediate_dim = min(self.original_intermediate_dim, int(3*n_features/4))
-        self.latent_dim = min(self.original_latent_dim, int(n_features/2))
+        self.latent_dim = max(self.original_latent_dim, int(n_features/4))
 
         # Adjust batch size based on the sample size of X
         n_samples = X.shape[0]
         self.batch_size = min(self.original_batch_size, int(n_samples/10))
 
-        self.vae, self.encoder = self._build_vae((n_features,))
+        self.vae, self.encoder, self.decoder = self._build_model()
         print('Using Variational Auto Encoder to extract features...')
-        self.vae.fit(X, X, epochs=self.epochs, batch_size=self.batch_size, 
+
+        self.vae.fit(X, X, epochs=self.epochs, batch_size=self.batch_size,
             callbacks=self.callbacks, shuffle=True, validation_split=0.20,
             verbose=1)
         return self
 
     def transform(self, X, y=None):
         return self.encoder.predict(X)[0]
+
+    def generate(self, num_samples):
+        z_sample = np.random.normal(size=(num_samples, self.latent_dim))
+        return self.decoder.predict(z_sample)
+
 ###############################################################################
 import numpy as np
 import pandas as pd
@@ -1395,3 +1267,187 @@ class GANAugmenter(BaseEstimator, TransformerMixin):
 
         return combined_data, combined_labels
 #############################################################################
+from sklearn.base import BaseEstimator, TransformerMixin
+import numpy as np
+
+class DenoisingAutoEncoder(BaseEstimator, TransformerMixin):
+    """
+    A Denoising Autoencoder for tabular data. It is designed to learn a representation 
+    that is robust to noise, which can be useful for feature extraction and data denoising.
+
+    DENOISING Autoencoders were first introduced in a research paper by: Pascal Vincent et al. 
+        "Extracting and Composing Robust Features with Denoising Autoencoders"
+        Appearing in Proceedings of the 25th International Conference on Machine Learning, 
+        Helsinki, Finland, 2008. Copyright 2008 by the author(s)/owner(s).
+
+    This transformer adds noise to the input data and then trains an autoencoder to 
+    reconstruct the original data, thereby learning robust features. It can automatically 
+    select between a simple and a complex architecture based on the size of the dataset, 
+    or this selection can be overridden by user input.
+
+    Key highlights of this model:
+    #############################
+    Noise Introduction: Added methods to introduce noise ('gaussian' or 'dropout') to the input
+         data, making the model suitable for denoising tasks.
+    Flexibility in Architecture: The architecture is kept relatively simple but can be 
+        expanded based on the complexity of the tabular data.
+    Binary Crossentropy Loss: Suitable for a range of tabular data, especially when
+         normalized between 0 and 1.
+    Dynamic Network Depth: The number of hidden layers is determined based on the input dimension, 
+        allowing for a deeper network for high-dimensional data.
+    Layer Size: The size of each layer is also dynamically set based on the input dimension, 
+        ensuring the network has sufficient capacity to model complex data relationships.
+    Range Limits: Both the number of layers and the size of each layer are constrained within 
+        reasonable ranges to avoid overly large models, especially for very high-dimensional data.
+
+    Parameters:
+    ----------
+    input_dim : int
+        Number of features in the input data.
+
+    encoding_dim : int
+        The size of the encoded representation.
+
+    noise_type : str, optional (default='gaussian')
+        Type of noise to use for denoising. Options: 'gaussian', 'dropout'.
+
+    noise_factor : float, optional (default=0.1)
+        The level or intensity of noise to add. For 'gaussian', it's the standard deviation.
+        For 'dropout', it's the dropout rate.
+
+    learning_rate : float, optional (default=0.001)
+        The learning rate for the optimizer.
+
+    epochs : int, optional (default=50)
+        The number of epochs to train the autoencoder.
+
+    batch_size : int, optional (default=32)
+        The batch size used during training.
+
+    Attributes
+    ----------
+    autoencoder : keras.Model
+        The complete autoencoder model.
+
+    encoder : keras.Model
+        The encoder part of the autoencoder model.
+
+    Methods
+    -------
+    fit(X, y=None)
+        Fit the autoencoder model to the data.
+
+    transform(X)
+        Apply the dimensionality reduction learned by the autoencoder.
+
+    Examples
+    --------
+    >>> from sklearn.preprocessing import MinMaxScaler
+    >>> scaler = MinMaxScaler()
+    >>> X_train_scaled = scaler.fit_transform(X_train)
+    >>> dae = DenoisingAutoEncoder()
+    >>> dae.fit(X_train_scaled, y_train)
+    >>> encoded_X_train = dae.transform(X_train_scaled)
+    >>> encoded_X_test = dae.transform(X_test_scaled)
+
+    Notes:
+    Here are the recommende values for ae_options dictionary for DAE:
+    dae_dicto = {
+        'noise_factor': 0.2,
+        'encoding_dim': 10,
+        'epochs': 100, 
+        'batch_size': 32,        
+         }
+
+    """
+
+    def __init__(self, encoding_dim=4, noise_type='gaussian', noise_factor=0.1,
+                 learning_rate=0.001, epochs=50, batch_size=32):
+        try:
+            import tensorflow as tf
+            def set_seed(seed=42):
+                np.random.seed(seed)
+                random.seed(seed)
+                tf.random.set_seed(seed)
+            set_seed(42)
+            from tensorflow import keras
+            from tensorflow.keras.models import Model
+        except:
+            print('tensorflow>= 2.5 not installed in machine. Please install and try again. ')
+        self.encoding_dim = encoding_dim
+        self.noise_type = noise_type
+        self.noise_factor = noise_factor
+        self.learning_rate = learning_rate
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.input_dim = None
+        self.input_size = None
+        es = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0.00001, patience=5,
+                        verbose=1, mode='min', baseline=None, restore_best_weights=False)
+        self.callbacks = [es]
+
+    def _add_noise(self, X):
+        if self.noise_type == 'gaussian':
+            noise = np.random.normal(0, self.noise_factor, X.shape)
+            return X + noise
+        elif self.noise_type == 'dropout':
+            # Randomly sets input units to 0 with the noise_factor frequency
+            dropout_mask = np.random.binomial(1, 1-self.noise_factor, X.shape)
+            return X * dropout_mask
+        else:
+            raise ValueError("Invalid noise_type. Expected 'gaussian' or 'dropout'.")
+
+    def _build_model(self):
+        import tensorflow as tf
+        from tensorflow.keras.layers import Dense, Input, Activation, Dropout
+        from tensorflow.keras import Sequential, Model
+        from tensorflow.keras.optimizers import Adam
+        def set_seed(seed=42):
+            np.random.seed(seed)
+            random.seed(seed)
+            tf.random.set_seed(seed)
+        set_seed(42)
+
+        # Adjust the network depth and width based on input dimension and data size
+        hidden_layers = max(1, min(6, self.input_dim // 20))  # Between 2 and 6 hidden layers
+        layer_size = max(32, min(256, self.input_dim * 2))  # Layer size between 16 and 128 neurons
+
+        # Encoder
+        encoder_layers = [Input(shape=(self.input_dim, ))]
+        for _ in range(hidden_layers):
+            encoder_layers.append(Dense(layer_size, activation='relu'))
+
+        # Decoder
+        decoder_layers = []
+        for _ in range(hidden_layers):
+            decoder_layers.append(Dense(layer_size, activation='relu'))
+        decoder_layers.append(Dense(self.input_dim, activation='sigmoid'))
+
+        # Assembling the Model
+        encoder = Sequential(encoder_layers)
+        decoder = Sequential(decoder_layers)
+        autoencoder = Model(inputs=encoder.input, outputs=decoder(encoder.output))
+
+        autoencoder.compile(optimizer=Adam(learning_rate=self.learning_rate), loss='binary_crossentropy')
+        return autoencoder, encoder
+
+    def fit(self, X, y=None):
+        import tensorflow as tf
+        def set_seed(seed=42):
+            np.random.seed(seed)
+            random.seed(seed)
+            tf.random.set_seed(seed)
+        set_seed(42)
+        self.input_dim = X.shape[1]
+        self.input_size = X.shape[0]
+        # Add noise to the training data
+        X_noisy = self._add_noise(X)
+        self.autoencoder, self.encoder = self._build_model()
+        self.autoencoder.fit(X_noisy, X, epochs=self.epochs, batch_size=self.batch_size,
+                        shuffle=True, callbacks=self.callbacks, validation_split=0.2)
+        return self
+
+    def transform(self, X, y=None):
+        # Extract the features from the input data
+        return self.encoder.predict(X)
+########################################################################

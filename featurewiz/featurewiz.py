@@ -3281,7 +3281,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                     self.scalers='minmax'
             ### print the options for Auto Encoder if available ##
             if self.ae:
-                print('AutoEncoder %s\n    AE options: %s' %(self.ae,
+                print('%s\n    AE options: %s' %(self.ae,
                                          self.ae_options.items()))
         except Exception as e:
             print('ae_options erroring due to %s. Please check documentation and try again.' %e)
