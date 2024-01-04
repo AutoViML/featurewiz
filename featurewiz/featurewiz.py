@@ -27,8 +27,8 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.multioutput import MultiOutputClassifier, MultiOutputRegressor
 from sklearn.multiclass import OneVsRestClassifier
 import xgboost as xgb
-from xgboost.sklearn import XGBClassifier
-from xgboost.sklearn import XGBRegressor
+from xgboost import XGBClassifier
+from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.multiclass import OneVsRestClassifier
@@ -47,6 +47,7 @@ from .my_encoders import Groupby_Aggregator, My_LabelEncoder_Pipe, My_LabelEncod
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe, FE_create_time_series_features
 from .my_encoders import Column_Names_Transformer
 from .stacking_models import DenoisingAutoEncoder, VariationalAutoEncoder, GANAugmenter, GAN
+from .stacking_models import dae_hyperparam_selection, get_class_distribution
 
 from . import settings
 settings.init()
@@ -1417,9 +1418,9 @@ def FE_perform_recursive_xgboost(train, target, model_type, multi_label_type,
                     ################################################################################
                     #########  Training Regular XGBoost on pandas dataframes only ##################
                     ################################################################################
-                    #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##
                     #print('cols order: ',cols_sel)
                     try:
+                        #### now this training via bst works well for both xgboost 0.0.90 as well as 1.5.1 ##                        
                         dtrain = xgb.DMatrix(X_train, y_train, enable_categorical=True, feature_names=cols_sel)
                         bst = xgb.train(params, dtrain, num_boost_round=num_rounds)                
                                     
@@ -1515,23 +1516,6 @@ def FE_perform_recursive_xgboost(train, target, model_type, multi_label_type,
         important_features = copy.deepcopy(cols_sel)
     return important_features
 ################################################################################
-def remove_highly_correlated_vars_fast(df, corr_limit=0.70):
-    """
-    This is a simple method to remove highly correlated features fast using Pearson's Correlation.
-    Use this only for float and integer variables. It will automatically select those only.
-    It can be used for very large data sets where featurewiz has trouble with memory
-    """
-    # Creating correlation matrix
-    correlation_dataframe = df.corr().abs().astype(np.float16)
-    # Selecting upper triangle of correlation matrix
-    upper_tri = correlation_dataframe.where(np.triu(np.ones(correlation_dataframe.shape),
-                                  k=1).astype(np.bool))
-    # Finding index of feature columns with correlation greater than 0.95
-    to_drop = [column for column in upper_tri.columns if any(upper_tri[column] > corr_limit)]
-    print();
-    print('Highly correlated columns to remove: %s' %to_drop)
-    return to_drop
-#####################################################################################
 import multiprocessing
 def get_cpu_worker_count():
     return multiprocessing.cpu_count()
@@ -2415,47 +2399,6 @@ def FE_kmeans_resampler(x_train, y_train, target, smote="", verbose=0):
     return (x_train_ext, y_train_ext)
 
 ###################################################################################################
-# Calculate class weight
-import copy
-from collections import Counter
-from sklearn.utils.class_weight import compute_class_weight
-
-def get_class_distribution(y_input, verbose=0):
-    y_input = copy.deepcopy(y_input)
-    if isinstance(y_input, np.ndarray):
-        class_weights = compute_class_weight('balanced', classes=np.unique(y_input), y=y_input.reshape(-1))
-    elif isinstance(y_input, pd.Series):
-        class_weights = compute_class_weight('balanced', classes=np.unique(y_input.values), y=y_input.values.reshape(-1))
-    elif isinstance(y_input, pd.DataFrame):
-        ### if it is a dataframe, return only if it s one column dataframe ##
-        y_input = y_input.iloc[:,0]
-        class_weights = compute_class_weight('balanced', classes=np.unique(y_input.values), y=y_input.values.reshape(-1))
-    else:
-        ### if you cannot detect the type or if it is a multi-column dataframe, ignore it
-        return None
-    if len(class_weights[(class_weights> 10)]) > 0:
-        class_weights = (class_weights/10)
-    else:
-        class_weights = (class_weights)
-    #print('    class_weights = %s' %class_weights)
-    classes = np.unique(y_input)
-    xp = Counter(y_input)
-    class_weights[(class_weights<1)]=1
-    class_rows = class_weights*[xp[x] for x in classes]
-    class_rows = class_rows.astype(int)
-    min_rows = np.min(class_rows)
-    class_weighted_rows = dict(zip(classes,class_rows))
-    ### sometimes the middle classes are not found in the dictionary ###
-    for x in range(np.unique(y_input).max()+1):
-        if x not in list(class_weighted_rows.keys()):
-            class_weighted_rows.update({x:min_rows})
-        else:
-            pass
-    ### return the updated dictionary ###
-    if verbose:
-        print('    class_weighted_rows = %s' %class_weighted_rows)
-    return class_weighted_rows
-
 
 def oversample_SMOTE(X,y):
     #input DataFrame
@@ -3037,6 +2980,9 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
           This can be particularly useful in multi-class problems, especially when 
           dealing with complex datasets or when you need to generate new samples for
           data augmentation. 'vae' will replace X while 'vae_add' will add features to X.
+        3. If Autoencoders are selected in feature engg, then Recursive XGBoost will be skipped.
+          That's because Recursive XGBoost tends to remove too many features and may hurt performance.
+
 
     ae_options : must be a dict, default={}. Possible values for auto encoders can be sent
         via this dictionary such as the following examples. You can even use it to GridSearch.
@@ -3094,6 +3040,8 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
 
     Notes
     -----
+    - If Autoencoders are selected in feature engg, then Recursive XGBoost will be skipped.
+      That's because Recursive XGBoost tends to remove too many features and may hurt performance.
     - The class is built to automatically determine the most suitable encoder and scaler 
       based on the dataset characteristics, unless explicitly specified by the user.
     - FeatureWiz is designed to work with both numerical and categorical variables, 
@@ -3263,31 +3211,44 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         try:
             if 'dae' in self.feature_gen or 'dae_add' in self.feature_gen:
                 self.ae = DenoisingAutoEncoder(**self.ae_options)
-                ### If user does not give input on scalers, then use one of your own
-                if self.scalers is None:
-                    self.scalers='minmax'
+                ### Even if user gives input on scalers, then use this as it is the best\
+                print('Since Auto Encoders are selected for feature extraction,')
+                self.scalers='minmax'
+                self.skip_xgboost = True
+                if 'dae' in self.feature_gen:
+                    print('    SULOV is skipped...')
+                    self.skip_sulov = True
             elif 'vae' in self.feature_gen or 'vae_add' in self.feature_gen:
                 self.ae = VariationalAutoEncoder(**self.ae_options)
-                ### If user does not give input on scalers, then use one of your own
-                if self.scalers is None:
-                    self.scalers='minmax'
+                ### Even if user gives input on scalers, then use this as it is the best
+                print('Since Auto Encoders are selected for feature extraction,')
+                self.scalers='minmax'
+                self.skip_xgboost = True
+                if 'vae' in self.feature_gen:
+                    print('    SULOV is skipped...')
+                    self.skip_sulov = True
             elif 'gan' in self.feature_gen:
+                print('Since Auto Encoders are selected for feature extraction,')
                 self.ae = GANAugmenter(**self.ae_options)
                 #self.ae = GANAugmenter(gan_model=None, input_dim=None, 
                 #            embedding_dim=100, epochs=10, 
                 #            num_synthetic_samples=1000)
                 ### If user does not give input on scalers, then use one of your own
-                if self.scalers is None:
-                    self.scalers='minmax'
+                self.scalers='minmax'
+                self.skip_xgboost = True
+                print('    SULOV is skipped...')
+                self.skip_sulov = True
             ### print the options for Auto Encoder if available ##
             if self.ae:
-                print('%s\n    AE options: %s' %(self.ae,
+                print('    Recursive XGBoost is skipped...')
+                print('%s\n    AE dictionary given: %s' %(self.ae,
                                          self.ae_options.items()))
         except Exception as e:
             print('ae_options erroring due to %s. Please check documentation and try again.' %e)
 
         print('    final list of scalers given: [%s]' %self.scalers)
         #### Now you can set up the parameters for Lazy Transformer
+
         self.lazy = LazyTransformer(model=None, encoders=self.category_encoders, 
             scalers=self.scalers, date_to_string=False,
             transform_target=self.transform_target, imbalanced=self.imbalanced, 
@@ -3319,6 +3280,24 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         ######################################################################################
         X_sel = copy.deepcopy(X)
         print('Loaded input data. Shape = %s' %(X_sel.shape,))
+        ##### Now we set up the hyper params for DAE if it is selected ########
+        if 'dae' in self.feature_gen or 'dae_add' in self.feature_gen:
+            if not self.ae_options:
+                # Perform Hyperparam selection only when DAE_DICTO is empty ###
+                import time
+                start_time = time.time()
+                print('Performing hyper param selection for DAE. Will take approx. %s seconds' %(27*3))
+                grid_search = dae_hyperparam_selection(self.ae, X_sel, y)
+                best_model = grid_search.best_estimator_
+                best_model = best_model.named_steps['feature_extractor']
+                ## Print the best parameters
+                print('    time taken for DAE hyper param selection = %0.0f seconds' %(time.time()-start_time))
+                print(grid_search.best_params_)
+                # Assuming best_model is the best estimator from GridSearchCV
+                # Update the epochs parameter of the feature_extractor
+                new_epochs = 150  # Set the desired number of epochs
+                best_model.epochs = 100
+                self.ae = best_model
         ##### This where we find the features  to modify ######################
         preds = [x for x in list(X_sel) if x not in self.targets]
         ###   This is where we sort the columns to make sure that the order of columns doesn't matter in selection ###########
@@ -3373,6 +3352,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             if not self.ae is None:
                 #### It is okay if y is None ########
                 if not 'gan' in self.feature_gen:
+                    ### This is for VAE and DAE #####
                     X_sel_ae = self.ae.transform(X_sel)
                 else:
                     ### if it is GAN just return the dataframe as it is
@@ -3382,11 +3362,14 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                     print('Auto encoder is erroring. Using existing features shape: %s' %(X_sel.shape,))
                 else:
                     ### Since this results in a higher dimension you need to create new columns ##
-                    new_vars = ['feature_'+str(x) for x in range(X_sel_ae.shape[1])]
+                    new_vars = ['ae_feature_'+str(x+1) for x in range(X_sel_ae.shape[1])]
                     X_sel_ae = pd.DataFrame(X_sel_ae, columns=new_vars, index=X_index)
                     if 'dae_add' in self.feature_gen or 'vae_add' in self.feature_gen:
                         ### Only if add is specified do you add the features to X
+                        ## Since this results in a higher dimension you need to create new columns ##
+                        old_vars = list(X_sel)
                         X_sel = pd.concat([X_sel, X_sel_ae], axis=1)
+                        X_sel.columns = old_vars+new_vars
                     else:
                         ### Just replace X_sel with X_sel_ae ###
                         X_sel = copy.deepcopy(X_sel_ae)
@@ -3394,10 +3377,12 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
 
             ### return either fitted features or all features depending on error ###
             if len(self.cols_zero_variance) > 0:
-                print('    Dropping %d columns due to zero variance...' %len(self.cols_zero_variance))
+                if self.verbose:
+                    print('    Dropping %d columns due to zero variance: %s' %(len(
+                                    self.cols_zero_variance), self.cols_zero_variance))
                 X_sel = X_sel.drop(self.cols_zero_variance, axis=1)
             print('Returning dataframe with %d features ' %len(self.features))
-
+            
             try:
                 return X_sel[self.features]
             except:
@@ -3472,15 +3457,19 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                 if 'gan' in self.feature_gen:
                     print('Fitting and transforming a GAN for each class...')
                     X_sel_ae, y_sel = self.ae.transform(X_sel, y_sel)
+                elif ('dae' in self.feature_gen) | ('dae_add' in self.feature_gen):
+                    print('Fitting and transforming an Auto Encoder for dataset...')
+                    X_sel_ae = self.ae.transform(X_sel)
                 else:
                     print('Fitting and transforming an Auto Encoder for dataset...')
                     X_sel_ae = self.ae.transform(X_sel, y_sel)
+                #### After transforming X_sel, you need to figure out whether to add it or not ####
                 if np.all(np.isnan(X_sel_ae)):
                     print('Auto encoder is erroring. Using existing features shape: %s' %(X_sel.shape,))
                 else:
                     ### You need to check for both 'vae' and 'vae_add': this does both!!
                     if [y for y in self.feature_gen if 'dae' in y] or [y for y in self.feature_gen if 'vae' in y]:
-                        new_vars = ['feature_'+str(x) for x in range(X_sel_ae.shape[1])]
+                        new_vars = ['ae_feature_'+str(x+1) for x in range(X_sel_ae.shape[1])]
                         ## Since this results in a higher dimension you need to create new columns ##
                         X_sel_ae = pd.DataFrame(X_sel_ae, columns=new_vars, index=X_index)
                     else:
@@ -3494,8 +3483,10 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                         y_sel = pd.DataFrame(y_sel, columns=self.targets, index=y_index)
                     #### Don't change this next line since it applies new rules to above! ###
                     if 'dae_add' in self.feature_gen or 'vae_add' in self.feature_gen:
-                        ### Only if add is specified do you add the features to X
+                        ## Since this results in a higher dimension you need to create new columns ##
+                        old_vars = list(X_sel)
                         X_sel = pd.concat([X_sel, X_sel_ae], axis=1)
+                        X_sel.columns = old_vars+new_vars
                     else:
                         ### Just replace X_sel with X_sel_ae for all other values ###
                         X_sel = copy.deepcopy(X_sel_ae)
@@ -3515,17 +3506,21 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             #### This is where you need to drop columns that have zero variance ######
             self.cols_zero_variance = X_sel.columns[(X_sel.var()==0)]
             if len(self.cols_zero_variance) > 0:
-                print('    Dropping %d columns due to zero variance...' %len(self.cols_zero_variance))
+                if self.verbose:
+                    print('    Dropping %d columns due to zero variance: %s' %(
+                        len(self.cols_zero_variance), self.cols_zero_variance))
                 X_sel = X_sel.drop(self.cols_zero_variance, axis=1)
                 df = df.drop(self.cols_zero_variance, axis=1)
             self.numvars = X_sel.columns.tolist()
             if not self.skip_sulov:
                 self.numvars = FE_remove_variables_using_SULOV_method(df, self.numvars, self.model_type, self.targets,
                                      self.corr_limit, self.verbose, self.dask_xgboost_flag)
+            #### Now you need to send the selected numvars to next stage  ###
             if not self.skip_xgboost:
                 print('Performing recursive XGBoost feature selection from %d features...' %len(self.numvars))
-                features = FE_perform_recursive_xgboost(df, self.targets, self.model_type, 
-                                self.multi_label_type, self.dask_xgboost_flag, self.verbose)
+                features = FE_perform_recursive_xgboost(df[self.numvars+self.targets], self.targets, 
+                                self.model_type, self.multi_label_type, 
+                                self.dask_xgboost_flag, self.verbose)
             else:
                 features = copy.deepcopy(self.numvars)
             # find the time taken to run feature selection ####

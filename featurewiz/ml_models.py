@@ -17,8 +17,6 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.multioutput import MultiOutputClassifier, MultiOutputRegressor
 from sklearn.multiclass import OneVsRestClassifier
 import xgboost as xgb
-from xgboost.sklearn import XGBClassifier
-from xgboost.sklearn import XGBRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import LabelEncoder
@@ -37,8 +35,6 @@ import time
 import copy
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from collections import Counter, defaultdict
-import pdb
-from tqdm.notebook import tqdm
 from pathlib import Path
 
 #sklearn data_preprocessing
@@ -46,6 +42,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 #sklearn categorical encoding
 import category_encoders as ce
 from .my_encoders import My_LabelEncoder
+from .stacking_models import get_class_distribution
 
 #sklearn modelling
 from sklearn.model_selection import KFold
@@ -182,9 +179,14 @@ from sklearn.model_selection import RandomizedSearchCV
 import scipy as sp
 import time
 ##################################################################################
-import lightgbm as lgbm
 def lightgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modeltype,
                          multi_label, log_y, model=""):
+    try:
+        import lightgbm as lgbm
+    except:
+        print('Please pip install lightgbm before trying this function. Returning...')
+        return None
+    #####################################################################
     start_time = time.time()
     if multi_label:
         ######   This is for Multi_Label problems ############
@@ -906,6 +908,12 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     y_preds: Predicted values for your X_XGB_test dataframe.
         It has been averaged after repeatedly predicting on X_XGB_test. So likely to be better than one model.
     """
+    try:
+        import lightgbm as lgbm
+        from tqdm import tqdm
+    except:
+        print('Please pip install xgboost tqdm before trying this function. Returning...')
+        return None
     X_XGB = copy.deepcopy(X_train)
     Y_XGB = copy.deepcopy(y_train)
     X_XGB_test = copy.deepcopy(X_test)
@@ -1243,6 +1251,11 @@ def complex_LightGBM_model(X_train, y_train, X_test, log_y=False, GPU_flag=False
     y_preds: Predicted values for your X_XGB_test dataframe.
         It has been averaged after repeatedly predicting on X_XGB_test. So likely to be better than one model.
     """
+    try:
+        import lightgbm as lgbm
+    except:
+        print('Please pip install lightgbm before trying this function. Returning...')
+        return None
     X_XGB = copy.deepcopy(X_train)
     Y_XGB = copy.deepcopy(y_train)
     X_XGB_test = copy.deepcopy(X_test)
@@ -1426,7 +1439,12 @@ def simple_LightGBM_model(X_train, y_train, X_test, log_y=False,
     """
     This is a simple lightGBM model that works only on single label problems.
     """
-    from tqdm import tqdm
+    try:
+        import lightgbm as lgbm
+        from tqdm import tqdm
+    except:
+        print('Please pip install lightgbm tqdm before trying this function. Returning...')
+        return None
     X_index = X_train.index
     if isinstance(y_train, np.ndarray):
         y_train = pd.Series(y_train, index=X_index)
@@ -1816,3 +1834,430 @@ def analyze_problem_type(y_train, target, verbose=0) :
         print('''    %s %s problem ''' %('Single_Label', model_class))
     return model_class, multi_label
 ###############################################################################
+import pandas as pd
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.base import clone
+
+class IterativeBinaryClassifier(BaseEstimator, ClassifierMixin):
+    def __init__(self, base_classifier=XGBClassifier()):
+        self.base_classifier = base_classifier
+        self.classifiers = []
+        self.classes_ = []
+
+    def fit(self, X, y):
+        self.classifiers = []
+        unique_classes = sorted(np.unique(y))
+        self.classes_ = unique_classes
+
+        for class_label in unique_classes:
+            binary_y_train = np.where(y == class_label, 1, 0)  # 1 for the current class, 0 for the rest
+
+            clf = clone(self.base_classifier)
+            clf.fit(X, binary_y_train)
+
+            self.classifiers.append(clf)
+
+        return self
+
+    def predict(self, X):
+        # Initialize a DataFrame to store probability scores for each class
+        prob_scores = pd.DataFrame(index=X.index, columns=self.classes_)
+
+        for class_label, clf in zip(self.classes_, self.classifiers):
+            # Store the probability of the positive class (class_label)
+            prob_scores[class_label] = clf.predict_proba(X)[:, 1]
+
+        # The final prediction is the class with the highest probability score
+        final_predictions = prob_scores.idxmax(axis=1)
+
+        return final_predictions
+
+    def predict_proba(self, X):
+        # Initialize a DataFrame to store probability scores for each class
+        prob_scores = pd.DataFrame(index=X.index, columns=self.classes_)
+
+        for class_label, clf in zip(self.classes_, self.classifiers):
+            # Store the probability of the positive class (class_label)
+            prob_scores[class_label] = clf.predict_proba(X)[:, 1]
+
+        # Normalize the probabilities so they sum to 1 for each sample
+        normalized_probs = prob_scores.div(prob_scores.sum(axis=1), axis=0)
+
+        return normalized_probs.values
+#########################################################################
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.base import clone
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+class IterativeDoubleClassifier(BaseEstimator, ClassifierMixin):
+    """
+    ### The IterativeDoubleClassifier is best for Multi-class problems with default RFC Settings!
+    ### The Double Classifier provides very high ROC_AUC but low bal_accuracy for Multi-Class
+    """
+    def __init__(self, base_classifier1=None, 
+        base_classifier2=None, weights=None):
+        self.base_classifier1 = base_classifier1
+        self.base_classifier2 = base_classifier2
+        self.weights = weights if weights else {1: 0.5, 2: 0.5}  # Default to equal weighting if none provided
+
+        self.classifiers1 = []
+        self.classifiers2 = []
+        self.classes_ = []
+
+    def fit(self, X, y):
+        if self.base_classifier1 is None:
+            class_weights_dict_corrected = get_class_weights(y)
+            self.base_classifier1 = RandomForestClassifier(class_weight=class_weights_dict_corrected,
+                             random_state=42)
+        if self.base_classifier2 is None:
+            class_weights_dict_corrected = get_class_weights(y)
+            #self.base_classifier2 = RandomForestClassifier(class_weight=class_weights_dict_corrected, random_state=42)
+            self.base_classifier2 = LinearDiscriminantAnalysis()
+        #### No start training the models ####
+        self.classifiers1 = []
+        self.classifiers2 = []
+        unique_classes = sorted(np.unique(y))
+        self.classes_ = unique_classes
+
+        for class_label in unique_classes:
+            binary_y_train = np.where(y == class_label, 1, 0)  # 1 for the current class, 0 for the rest
+
+            clf1 = clone(self.base_classifier1)
+            clf1.fit(X, binary_y_train)
+            self.classifiers1.append(clf1)
+
+            clf2 = clone(self.base_classifier2)
+            clf2.fit(X, binary_y_train)
+            self.classifiers2.append(clf2)
+
+        return self
+
+    def predict(self, X):
+        combined_probs = self.predict_proba(X)
+        # Convert combined_probs to a DataFrame with class labels as columns
+        prob_df = pd.DataFrame(combined_probs, index=X.index, columns=self.classes_)
+        final_predictions = prob_df.idxmax(axis=1)
+        return final_predictions
+
+    def predict_proba(self, X):
+        prob_scores = pd.DataFrame(0, index=X.index, columns=self.classes_)
+
+        for class_label, (clf1, clf2) in zip(self.classes_, zip(self.classifiers1, self.classifiers2)):
+            prob1 = clf1.predict_proba(X)[:, 1]
+            prob2 = clf2.predict_proba(X)[:, 1]
+            weighted_prob = prob1 * self.weights[1] + prob2 * self.weights[2]
+            prob_scores[class_label] = weighted_prob
+
+        normalized_probs = prob_scores.div(prob_scores.sum(axis=1), axis=0)
+        return normalized_probs.values
+####################################################################
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.base import clone
+class IterativeDoubleClassifier_XGB(BaseEstimator, ClassifierMixin):
+
+    def __init__(self, base_classifier1=None, 
+        base_classifier2=None, 
+        weights=None):
+        self.base_classifier1 = base_classifier1
+        self.base_classifier2 = base_classifier2
+        self.weights = weights if weights else {1: 0.5, 2: 0.5}  # Default to equal weighting if none provided
+
+        self.classifiers1 = []
+        self.classifiers2 = []
+        self.classes_ = []
+
+    def fit(self, X, y):
+        if self.base_classifier1 is None:
+            class_weights_dict_corrected = get_class_weights(y)
+            self.base_classifier1 = XGBClassifier(n_estimators=100, eta=0.01, 
+                                class_weight=class_weights_dict_corrected,
+                             random_state=42)
+        if self.base_classifier2 is None:
+            class_weights_dict_corrected = get_class_weights(y)
+            self.base_classifier2 = XGBClassifier(n_estimators=100, eta=0.01, 
+                            class_weight=class_weights_dict_corrected,
+                             random_state=42)
+        self.classifiers1 = []
+        self.classifiers2 = []
+        unique_classes = sorted(np.unique(y))
+        self.classes_ = unique_classes
+
+        for class_label in unique_classes:
+            binary_y_train = np.where(y == class_label, 1, 0)
+
+            clf1 = clone(self.base_classifier1)
+            clf1.fit(X, binary_y_train)
+            self.classifiers1.append(clf1)
+
+            clf2 = clone(self.base_classifier2)
+            clf2.fit(X, binary_y_train)
+            self.classifiers2.append(clf2)
+
+        return self
+
+    def predict_proba(self, X):
+        # Initialize a DataFrame to store the weighted sum of probabilities for each class
+        combined_probs = pd.DataFrame(0, index=X.index, columns=self.classes_)
+
+        for class_label, (clf1, clf2) in zip(self.classes_, zip(self.classifiers1, self.classifiers2)):
+            prob1 = clf1.predict_proba(X)[:, 1]
+            prob2 = clf2.predict_proba(X)[:, 1]
+            weighted_prob = prob1 * self.weights[1] + prob2 * self.weights[2]
+            combined_probs[class_label] = weighted_prob
+
+        # Normalize probabilities
+        normalized_probs = combined_probs.div(combined_probs.sum(axis=1), axis=0)
+        return normalized_probs
+
+    def predict(self, X):
+        prob_scores = self.predict_proba(X)
+        max_prob_indices = np.argmax(prob_scores.values, axis=1)
+        final_predictions = [self.classes_[index] for index in max_prob_indices]
+        return final_predictions
+######################################################################################
+class IterativeForwardClassifier(BaseEstimator, ClassifierMixin):
+    def __init__(self, early_classifier=None, 
+                 late_classifier=None, 
+                 late_params=None, threshold=None):
+        self.early_classifier = early_classifier
+        self.late_classifier = late_classifier
+        self.threshold = threshold
+        self.classifiers = []
+        self.classes_ = []
+        self.late_params = late_params
+
+    def fit(self, X, y):
+        self.classifiers = []
+        unique_classes = sorted(np.unique(y), key=lambda x: -np.sum(y == x))
+        self.classes_ = unique_classes
+        iteration = 1
+        for class_label in unique_classes:
+            binary_y_train = np.where(y == class_label, 1, 0)
+            if self.early_classifier is None:
+                class_weights_dict_corrected = get_class_weights(binary_y_train)
+                self.early_classifier = RandomForestClassifier(class_weight=class_weights_dict_corrected, random_state=42)
+                self.early_classifier = LinearDiscriminantAnalysis()
+            if self.late_classifier is None:
+                class_weights_dict_corrected = get_class_weights(binary_y_train)
+                self.late_classifier = RandomForestClassifier(class_weight=class_weights_dict_corrected,
+                                 random_state=42)
+            current_class_size = np.sum(binary_y_train)
+            print('Current class size = %s' %current_class_size)
+            # Dynamic threshold: e.g., 50% of the current class size
+            if self.threshold is None:
+                dynamic_threshold = max(100, current_class_size * 0.5)  # Ensuring a minimum threshold
+            else:
+                dynamic_threshold =  copy.deepcopy(self.threshold)
+            print('Current threshold = %s' %dynamic_threshold)
+            print('Forward Iteration %s:' % iteration)
+            if current_class_size <= dynamic_threshold:
+                classifier_string = str(self.late_classifier).split("(")[0]
+                print(classifier_string, "used as Late classifier")
+                if self.late_params:  # If hyperparameters are provided
+                    if classifier_string in ['SVC', 'NuSVC', 'GaussianNB']:
+                        print('    Using RandomizedSearchCV')
+                        ### don't use different kernels = just use one sigmoid or rbf
+                        randomized_search = RandomizedSearchCV(self.late_classifier, 
+                                            param_distributions=self.late_params, 
+                                            n_iter=15, cv=3, n_jobs=-1)
+                        randomized_search.fit(X, binary_y_train)
+                        clf = randomized_search.best_estimator_
+                    else:
+                        print('    Using GridSearchCV')
+                        grid_search = GridSearchCV(self.late_classifier, self.late_params, 
+                                        cv=3, n_jobs=-1)
+                        grid_search.fit(X, binary_y_train)
+                        clf = grid_search.best_estimator_
+                else:
+                    clf = clone(self.late_classifier)
+                    clf.fit(X, binary_y_train)
+            else:
+                print(str(self.early_classifier).split("(")[0], "used as Early classifier")
+                clf = clone(self.early_classifier)
+                clf.fit(X, binary_y_train)
+                
+            self.classifiers.append(clf)
+            iteration += 1 
+            
+            # Filter out the samples classified as the current class for the next iteration
+            rest_indices = np.where(clf.predict(X) == 0)[0]
+            if len(rest_indices) == 0:
+                break
+            X, y = X.iloc[rest_indices], y.iloc[rest_indices]
+
+        return self
+
+    def predict(self, X):
+        prob_scores = pd.DataFrame(index=X.index, columns=self.classes_)
+
+        for class_label, clf in zip(self.classes_, self.classifiers):
+            try:
+                prob_scores[class_label] = clf.predict_proba(X)[:, 1]
+            except:
+                prob_scores[class_label] = np.vstack([np.zeros(X.shape[0]),clf.predict_proba(X).ravel()]).T[:,1]
+        
+        final_predictions = prob_scores.fillna(0).idxmax(axis=1)
+        return final_predictions
+
+    def predict_proba(self, X):
+        prob_scores = pd.DataFrame(index=X.index, columns=self.classes_)
+
+        for class_label, clf in zip(self.classes_, self.classifiers):
+            try:
+                prob_scores[class_label] = clf.predict_proba(X)[:, 1]
+            except:
+                prob_scores[class_label] = np.vstack([np.zeros(X.shape[0]),clf.predict_proba(X).ravel()]).T[:,1]
+
+        normalized_probs = prob_scores.div(prob_scores.sum(axis=1), axis=0)
+        return normalized_probs.values
+##########################################################################
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.model_selection import RandomizedSearchCV, GridSearchCV
+from sklearn.base import clone
+import pandas as pd
+
+class IterativeBackwardClassifier(BaseEstimator, ClassifierMixin):
+    def __init__(self, early_classifier=None, 
+                 late_classifier=None, 
+                 late_params=None, threshold=1000):
+        self.early_classifier = early_classifier
+        self.late_classifier = late_classifier
+        self.threshold = threshold
+        self.classifiers = []
+        self.classes_ = []
+        self.late_params = late_params
+
+    def fit(self, X, y):
+        self.classifiers = []
+        # Sort classes by frequency in ascending order
+        unique_classes = sorted(np.unique(y), key=lambda x: np.sum(y == x))
+        self.classes_ = unique_classes
+        iteration = 1
+
+        for class_label in unique_classes:
+            binary_y_train = np.where(y == class_label, 1, 0)
+            if self.early_classifier is None:
+                class_weights_dict_corrected = get_class_weights(binary_y_train)
+                #self.early_classifier = RandomForestClassifier(class_weight=class_weights_dict_corrected, random_state=42)
+                self.early_classifier = LinearDiscriminantAnalysis()
+            if self.late_classifier is None:
+                class_weights_dict_corrected = get_class_weights(binary_y_train)
+                self.late_classifier = RandomForestClassifier(class_weight=class_weights_dict_corrected,
+                                 random_state=42)
+            current_class_size = np.sum(binary_y_train)
+            print('Current class size = %s' %current_class_size)
+            # Dynamic threshold: e.g., 50% of the current class size
+            dynamic_threshold = max(100, current_class_size * 0.5)  # Ensuring a minimum threshold
+            print('Current threshold = %s' %dynamic_threshold)
+            print('Backward Iteration %s:' % iteration)
+            if current_class_size <= dynamic_threshold:
+                classifier_string = str(self.late_classifier).split("(")[0]
+                print(classifier_string, "used as Late classifier")
+                if self.late_params:
+                    if classifier_string in ['SVC', 'NuSVC', 'GaussianNB']:
+                        print('    Using RandomizedSearchCV')
+                        randomized_search = RandomizedSearchCV(self.late_classifier, 
+                                            param_distributions=self.late_params, n_iter=15, cv=3, n_jobs=-1)
+                        randomized_search.fit(X, binary_y_train)
+                        clf = randomized_search.best_estimator_
+                    else:
+                        print('    Using GridSearchCV')
+                        grid_search = GridSearchCV(self.late_classifier, self.late_params, cv=3)
+                        grid_search.fit(X, binary_y_train)
+                        clf = grid_search.best_estimator_
+                else:
+                    clf = clone(self.late_classifier)
+                    clf.fit(X, binary_y_train)
+            else:
+                print(str(self.early_classifier).split("(")[0], "used as Early classifier")
+                clf = clone(self.early_classifier)
+                clf.fit(X, binary_y_train)
+                
+            self.classifiers.append(clf)
+            iteration += 1 
+
+            # Filter out the samples classified as the current class for the next iteration
+            rest_indices = np.where(clf.predict(X) == 0)[0]
+            if len(rest_indices) == 0:
+                break
+            X, y = X.iloc[rest_indices], y.iloc[rest_indices]
+
+        return self
+
+    def predict(self, X):
+        prob_scores = pd.DataFrame(index=X.index, columns=self.classes_)
+
+        for class_label, clf in zip(self.classes_, self.classifiers):
+            try:
+                prob_scores[class_label] = clf.predict_proba(X)[:, 1]
+            except:
+                prob_scores[class_label] = np.vstack([np.zeros(X.shape[0]),clf.predict_proba(X).ravel()]).T[:,1]
+
+        final_predictions = prob_scores.fillna(0).idxmax(axis=1)
+        return final_predictions
+
+    def predict_proba(self, X):
+        prob_scores = pd.DataFrame(index=X.index, columns=self.classes_)
+
+        for class_label, clf in zip(self.classes_, self.classifiers):
+            try:
+                prob_scores[class_label] = clf.predict_proba(X)[:, 1]
+            except:
+                prob_scores[class_label] = np.vstack([np.zeros(X.shape[0]),clf.predict_proba(X).ravel()]).T[:,1]
+
+        normalized_probs = prob_scores.div(prob_scores.sum(axis=1), axis=0)
+        return normalized_probs.values
+#######################################################################
+from sklearn.base import BaseEstimator, ClassifierMixin
+import numpy as np
+import pandas as pd
+
+class IterativeClassifier(BaseEstimator, ClassifierMixin):
+    def __init__(self, 
+        early_classifier=None, late_classifier=None, 
+        late_params=None, threshold=1000):
+        self.early_classifier = early_classifier
+        self.late_classifier = late_classifier
+        self.late_params = late_params
+        self.threshold = threshold
+        self.forward_classifier = IterativeForwardClassifier(
+            early_classifier=early_classifier, late_classifier=late_classifier, 
+            late_params=late_params, threshold=threshold
+        )
+        self.backward_classifier = IterativeBackwardClassifier(
+            early_classifier=early_classifier, late_classifier=late_classifier, 
+            late_params=late_params, threshold=threshold
+        )
+
+    def fit(self, X, y):
+        self.forward_classifier.fit(X, y)
+        self.backward_classifier.fit(X, y)
+        return self
+
+    def predict(self, X):
+        forward_predictions = self.forward_classifier.predict(X)
+        backward_predictions = self.backward_classifier.predict(X)
+
+        # Simple voting or averaging scheme
+        final_predictions = (forward_predictions + backward_predictions) / 2
+        final_predictions = np.round(final_predictions).astype(int)
+
+        return final_predictions
+
+    def predict_proba(self, X):
+        forward_probas = self.forward_classifier.predict_proba(X)
+        backward_probas = self.backward_classifier.predict_proba(X)
+
+        # Example of weighted averaging - weights can be adjusted
+        forward_weight = 0.5
+        backward_weight = 0.5
+        final_probas = forward_probas * forward_weight + backward_probas * backward_weight
+        return final_probas
+#######################################################################
+
+

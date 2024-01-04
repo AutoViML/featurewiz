@@ -917,6 +917,12 @@ def _create_ts_features(df, tscol, verbose=0):
     try:
         df[tscol+'_dayofweek'] = df[tscol].dt.dayofweek.fillna(0).astype(int)
         dt_adds.append(tscol+'_dayofweek')
+        # day of week Sine and Cos functions
+        df[tscol+'_dayofweek_sin'] = df[tscol+'_dayofweek'].apply( lambda x: np.sin( x * ( 2. * np.pi/7 ) ) )
+        df[tscol+'_dayofweek_cos'] = df[tscol+'_dayofweek'].apply( lambda x: np.cos( x * ( 2. * np.pi/7 ) ) )
+        dt_adds.append(tscol+'_dayofweek_sin')
+        dt_adds.append(tscol+'_dayofweek_cos')
+        ######  Create some Feature Crosses with day of week ###################        
         if tscol+'_hour' in dt_adds:
             DAYS = dict(zip(range(7),['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']))
             df[tscol+'_dayofweek'] = df[tscol+'_dayofweek'].map(DAYS)
@@ -925,6 +931,12 @@ def _create_ts_features(df, tscol, verbose=0):
         df[tscol+'_quarter'] = df[tscol].dt.quarter.fillna(0).astype(int)
         dt_adds.append(tscol+'_quarter')
         df[tscol+'_month'] = df[tscol].dt.month.fillna(0).astype(int)
+        ####  Add some Sine and Cos functions for Month #################
+        df[tscol+'_month_sin'] = df[tscol+'_month'].apply( lambda x: np.sin( x * ( 2. * np.pi/12 )) )
+        df[tscol+'_month_cos'] = df[tscol+'_month'].apply( lambda x: np.cos( x * ( 2. * np.pi/12 )) )
+        dt_adds.append(tscol+'_month_sin')
+        dt_adds.append(tscol+'_month_cos')
+        ##############   Convert Months from numeric to object strings ############
         MONTHS = dict(zip(range(1,13),['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul',
                                     'Aug', 'Sep', 'Oct', 'Nov', 'Dec']))
         df[tscol+'_month'] = df[tscol+'_month'].map(MONTHS)
@@ -978,6 +990,12 @@ def _create_ts_features(df, tscol, verbose=0):
         dt_adds.append(tscol+'_dayofyear')
         df[tscol+'_dayofmonth'] = df[tscol].dt.day.fillna(0).astype(int)
         dt_adds.append(tscol+'_dayofmonth')
+        ##### Add Sine and cos functions for Day of Month ##############
+        df[tscol+'_dayofmonth_sin'] = df[tscol+'_dayofmonth'].apply( lambda x: np.sin( x * ( 2. * np.pi/30 ) ) )
+        df[tscol+'_dayofmonth_cos'] = df[tscol+'_dayofmonth'].apply( lambda x: np.cos( x * ( 2. * np.pi/30 ) ) )
+        dt_adds.append(tscol+'_dayofmonth_sin')
+        dt_adds.append(tscol+'_dayofmonth_cos')
+        ######### Continue with other functions ##########        
         df[tscol+'_weekofyear'] = df[tscol].dt.weekofyear.fillna(0).astype(int)
         dt_adds.append(tscol+'_weekofyear')
         weekends = (df[tscol+'_dayofweek'] == 'Sat') | (df[tscol+'_dayofweek'] == 'Sun')

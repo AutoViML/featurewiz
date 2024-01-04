@@ -49,6 +49,50 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler
 
 #########################################################################################
+# Calculate class weight
+import copy
+from collections import Counter
+from sklearn.utils.class_weight import compute_class_weight
+
+def get_class_distribution(y_input, verbose=0):
+    y_input = copy.deepcopy(y_input)
+    if isinstance(y_input, np.ndarray):
+        class_weights = compute_class_weight('balanced', classes=np.unique(y_input), y=y_input.reshape(-1))
+    elif isinstance(y_input, pd.Series):
+        class_weights = compute_class_weight('balanced', classes=np.unique(y_input.values), y=y_input.values.reshape(-1))
+    elif isinstance(y_input, pd.DataFrame):
+        ### if it is a dataframe, return only if it s one column dataframe ##
+        y_input = y_input.iloc[:,0]
+        class_weights = compute_class_weight('balanced', classes=np.unique(y_input.values), y=y_input.values.reshape(-1))
+    else:
+        ### if you cannot detect the type or if it is a multi-column dataframe, ignore it
+        return None
+    if len(class_weights[(class_weights> 10)]) > 0:
+        class_weights = (class_weights/10)
+    else:
+        class_weights = (class_weights)
+    #print('    class_weights = %s' %class_weights)
+    classes = np.unique(y_input)
+    xp = Counter(y_input)
+    class_weights[(class_weights<1)]=1
+    class_rows = class_weights*[xp[x] for x in classes]
+    class_rows = class_rows.astype(int)
+    min_rows = np.min(class_rows)
+    class_weighted_rows = dict(zip(classes,class_rows))
+    ### sometimes the middle classes are not found in the dictionary ###
+    for x in range(np.unique(y_input).max()+1):
+        if x not in list(class_weighted_rows.keys()):
+            class_weighted_rows.update({x:min_rows})
+        else:
+            pass
+    ### return the updated dictionary with reduced weights > 1000 ###
+    keys = np.array(list(class_weighted_rows.keys()))
+    val = np.array(list(class_weighted_rows.values()))
+    class_weighted_rows = dict(zip(keys, np.where(val>=1000,val//10,val)))
+    if verbose:
+        print('    class_weighted_rows = %s' %class_weighted_rows)
+    return class_weighted_rows
+############################################################################
 def rmse(y_true,y_pred):
     return np.sqrt(mean_squared_error(y_true,y_pred))
 ##################################################
@@ -484,19 +528,19 @@ def analyze_problem_type_array(y_train, verbose=0) :
         if  y_train.dtype in ['int64', 'int32','int16']:
             if len(np.unique(y_train)) <= 2:
                 model_class = 'Binary_Classification'
-            elif len(y_train.unique()) > 2 and len(y_train.unique()) <= cat_limit:
+            elif len(np.unique(y_train)) > 2 and len(np.unique(y_train)) <= cat_limit:
                 model_class = 'Multi_Classification'
             else:
                 model_class = 'Regression'
         elif  y_train.dtype in ['float16','float32','float64']:
-            if len(y_train.unique()) <= 2:
+            if len(np.unique(y_train)) <= 2:
                 model_class = 'Binary_Classification'
-            elif len(y_train.unique()) > 2 and len(y_train.unique()) <= float_limit:
+            elif len(np.unique(y_train)) > 2 and len(np.unique(y_train)) <= float_limit:
                 model_class = 'Multi_Classification'
             else:
                 model_class = 'Regression'
         else:
-            if len(y_train.unique()) <= 2:
+            if len(np.unique(y_train)) <= 2:
                 model_class = 'Binary_Classification'
             else:
                 model_class = 'Multi_Classification'
@@ -569,8 +613,8 @@ def train_evaluate_adasyn(X_train, y_train, X_test, y_test, final_estimator,
     print(classification_report(y_test, y_pred_resampled))
     return stacking_classifier, f1_score_resampled
 
+#######################################################################################
 class StackingClassifier_Multi(BaseEstimator, ClassifierMixin):
-    
     def __init__(self, final_estimator=None):
         print('initialized')
         # Compute class weights
@@ -578,8 +622,8 @@ class StackingClassifier_Multi(BaseEstimator, ClassifierMixin):
         self.final_estimator = final_estimator
 
     def fit(self, X, y):
-        class_weights_dict = get_class_distribution(y_train)
-        modeltype, multi_label = analyze_problem_type_array(y_train)
+        class_weights_dict = get_class_distribution(y)
+        modeltype, multi_label = analyze_problem_type_array(y)
         
         # Function to train and evaluate the model with ADASYN resampling
         if modeltype == 'Regression':
@@ -588,7 +632,7 @@ class StackingClassifier_Multi(BaseEstimator, ClassifierMixin):
         else:
             X_train, X_val, y_train, y_val = train_test_split(X, y, 
                                                               test_size=0.10, 
-                                                            stratify=y_train,
+                                                            stratify=y,
                                                             random_state=42)
         print('    Train data: ', X_train.shape, ', Validation data: ', X_val.shape)
 
@@ -655,6 +699,7 @@ class VariationalAutoEncoder(BaseEstimator, TransformerMixin):
 
     Key Enhancements:
     ##################
+    Flexible architecture: This works for both Regression and Classification problems.
     Encoder with SELU Activation: The encoder uses the SELU activation 
         functions for its dense layers, providing self-normalizing properties 
         that can be particularly beneficial in deep neural networks
@@ -774,17 +819,19 @@ class VariationalAutoEncoder(BaseEstimator, TransformerMixin):
         self.original_batch_size = batch_size
         self.learning_rate = learning_rate
         self.input_dim = None
-        es = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0.00001, patience=5,
+        self.tasktype = 'Classification'
+        es = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0.00001, patience=10,
                         verbose=1, mode='min', baseline=None, restore_best_weights=False)
         # Learning rate scheduler
         lr_scheduler = keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, 
-                            patience=5, min_lr=0.0001)
+                            patience=10, min_lr=0.0001)
 
         self.callbacks = [es, lr_scheduler]
 
     def _build_model(self):
         import tensorflow as tf
         from tensorflow.keras import layers, Model, backend as K
+        from tensorflow.keras.layers import Dense, Input, LeakyReLU, BatchNormalization, Dropout, Lambda
         from tensorflow.keras.losses import mse
 
         def set_seed(seed=42):
@@ -794,7 +841,10 @@ class VariationalAutoEncoder(BaseEstimator, TransformerMixin):
         set_seed(42)
         # Manually specify the activation function of the last layer
         # Adjust based on your model's specific configuration
-        last_layer_activation = 'sigmoid'  # or 'linear', as appropriate
+        if self.task_type == 'Regression':
+            last_layer_activation = 'linear'
+        else:
+            last_layer_activation = 'sigmoid'  # or 'linear', as appropriate
 
         # Dynamically adjust the depth and width based on input dimension
         hidden_layers = max(2, min(6, self.input_dim // 20))  # Between 2 and 6 hidden layers
@@ -805,6 +855,9 @@ class VariationalAutoEncoder(BaseEstimator, TransformerMixin):
         x = original_inputs
         for _ in range(hidden_layers):
             x = layers.Dense(layer_size, activation='selu')(x)
+            x = BatchNormalization()(x)
+            x = LeakyReLU(alpha=0.1)(x)
+            x = Dropout(0.1)(x)  # Assuming a dropout rate of 10%
         z_mean = layers.Dense(self.latent_dim, name='z_mean')(x)
         z_log_var = layers.Dense(self.latent_dim, name='z_log_var')(x)
         z = self.Sampling()([z_mean, z_log_var])
@@ -815,6 +868,10 @@ class VariationalAutoEncoder(BaseEstimator, TransformerMixin):
         x = latent_inputs
         for _ in range(hidden_layers):
             x = layers.Dense(layer_size, activation='relu')(x)
+            x = BatchNormalization()(x)
+            x = LeakyReLU(alpha=0.1)(x)
+            x = Dropout(0.1)(x)
+
         outputs = layers.Dense(self.input_dim, activation=last_layer_activation)(x)
         decoder = Model(inputs=latent_inputs, outputs=outputs, name='decoder')
 
@@ -838,6 +895,8 @@ class VariationalAutoEncoder(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None):
         self.input_dim = X.shape[1]
+        if not y is None:
+            self.task_type = analyze_problem_type_array(y)
         # Adjust dimensions if they exceed the number of features
         n_features = X.shape[1]
         self.intermediate_dim = min(self.original_intermediate_dim, int(3*n_features/4))
@@ -862,7 +921,7 @@ class VariationalAutoEncoder(BaseEstimator, TransformerMixin):
         z_sample = np.random.normal(size=(num_samples, self.latent_dim))
         return self.decoder.predict(z_sample)
 
-###############################################################################
+#########################################################################################
 import numpy as np
 import pandas as pd
 
@@ -917,6 +976,8 @@ class GAN:
     a component in more complex generative models. They require careful tuning of 
     parameters and architecture for stable and meaningful output.
 
+    Highlights of the model:
+    ### This can be used only for Classification problems. It does not work for Regression problems.
     ### Early Stopping: The implementation of early stopping in GANs can be a bit tricky, 
     ### as it typically involves monitoring a validation metric. GANs don't use validation 
     ### data in the same way as traditional supervised learning models. 
@@ -1025,7 +1086,7 @@ class GAN:
         from tensorflow.keras.models import Model
         from tensorflow.keras.optimizers import Adam
         from sklearn.base import BaseEstimator
-        from tensorflow.keras.losses import BinaryCrossentropy
+        from tensorflow.keras.losses import BinaryCrossentropy, mse
 
         # Define the loss function
         loss_fn = BinaryCrossentropy()
@@ -1139,6 +1200,8 @@ class GANAugmenter(BaseEstimator, TransformerMixin):
 
     Notes
     -----
+    The GANAugmenter can be used only for Classifications. It does not work for Regression problems.
+
     The GANAugmenter is useful in scenarios where certain classes in a dataset are underrepresented. 
     By generating additional synthetic samples, it can help create a more balanced dataset, 
     which can be beneficial for training machine learning models.
@@ -1269,6 +1332,11 @@ class GANAugmenter(BaseEstimator, TransformerMixin):
 #############################################################################
 from sklearn.base import BaseEstimator, TransformerMixin
 import numpy as np
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import make_scorer
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import f1_score
 
 class DenoisingAutoEncoder(BaseEstimator, TransformerMixin):
     """
@@ -1287,6 +1355,8 @@ class DenoisingAutoEncoder(BaseEstimator, TransformerMixin):
 
     Key highlights of this model:
     #############################
+    Flexible architecture: This Denoising AE Works for all types of problems: regression, 
+        binary classification and multi-class classification.
     Noise Introduction: Added methods to introduce noise ('gaussian' or 'dropout') to the input
          data, making the model suitable for denoising tasks.
     Flexibility in Architecture: The architecture is kept relatively simple but can be 
@@ -1302,9 +1372,6 @@ class DenoisingAutoEncoder(BaseEstimator, TransformerMixin):
 
     Parameters:
     ----------
-    input_dim : int
-        Number of features in the input data.
-
     encoding_dim : int
         The size of the encoded representation.
 
@@ -1341,18 +1408,23 @@ class DenoisingAutoEncoder(BaseEstimator, TransformerMixin):
         Apply the dimensionality reduction learned by the autoencoder.
 
     Examples
-    --------
-    >>> from sklearn.preprocessing import MinMaxScaler
-    >>> scaler = MinMaxScaler()
-    >>> X_train_scaled = scaler.fit_transform(X_train)
-    >>> dae = DenoisingAutoEncoder()
-    >>> dae.fit(X_train_scaled, y_train)
-    >>> encoded_X_train = dae.transform(X_train_scaled)
-    >>> encoded_X_test = dae.transform(X_test_scaled)
-
+    -------------
+    from sklearn.preprocessing import MinMaxScaler
+    from sklearn.pipeline import Pipeline
+    from sklearn.model_selection import GridSearchCV
+    from sklearn.linear_model import LogisticRegression
+    pipeline = Pipeline([
+        ('scaler', MinMaxScaler()),
+        ('feature_extractor', DenoisingAutoEncoder()),
+        ('classifier', LogisticRegression())
+        ])
+    pipeline.fit(X_train)
+    y_preds = pipeline.predict(X_test)
+    y_probas = pipeline.predict_proba(X_test)
+    --------------
     Notes:
-    Here are the recommende values for ae_options dictionary for DAE:
-    dae_dicto = {
+        Here are the recommended values for ae_options dictionary for DAE:
+        dae_dicto = {
         'noise_factor': 0.2,
         'encoding_dim': 10,
         'epochs': 100, 
@@ -1360,9 +1432,9 @@ class DenoisingAutoEncoder(BaseEstimator, TransformerMixin):
          }
 
     """
-
-    def __init__(self, encoding_dim=4, noise_type='gaussian', noise_factor=0.1,
-                 learning_rate=0.001, epochs=50, batch_size=32):
+    def __init__(self, encoding_dim=8, noise_type='gaussian', noise_factor=0.2,
+                 learning_rate=0.001, epochs=1, batch_size=32):
+        #### Try out the imports and see if they work here ###
         try:
             import tensorflow as tf
             def set_seed(seed=42):
@@ -1372,64 +1444,99 @@ class DenoisingAutoEncoder(BaseEstimator, TransformerMixin):
             set_seed(42)
             from tensorflow import keras
             from tensorflow.keras.models import Model
+            from tensorflow.keras.callbacks import LearningRateScheduler, ReduceLROnPlateau
+            from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, Callback
         except:
             print('tensorflow>= 2.5 not installed in machine. Please install and try again. ')
+
         self.encoding_dim = encoding_dim
         self.noise_type = noise_type
         self.noise_factor = noise_factor
         self.learning_rate = learning_rate
         self.epochs = epochs
         self.batch_size = batch_size
+        reduce_lr = ReduceLROnPlateau(monitor='val_mse', factor=0.90, patience=5, min_lr=0.0001)
+        early_stopping = EarlyStopping(monitor='val_mse', patience=5, restore_best_weights=True)
+        callbacks = [early_stopping]
+        self.callbacks = callbacks
         self.input_dim = None
-        self.input_size = None
-        es = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0.00001, patience=5,
-                        verbose=1, mode='min', baseline=None, restore_best_weights=False)
-        self.callbacks = [es]
+        self.autoencoder = None
+        self.encoder = None
 
     def _add_noise(self, X):
         if self.noise_type == 'gaussian':
             noise = np.random.normal(0, self.noise_factor, X.shape)
-            return X + noise
+            #  By ensuring that data stays in [0, 1] range we assume that we use MinMax scaler
+            ### This would apply to both Regression and Classification tasks since we are 
+            ###   scaling only X which will lie within the 0 to 1 range.
+            return np.clip(X + noise, 0, 1)  
         elif self.noise_type == 'dropout':
-            # Randomly sets input units to 0 with the noise_factor frequency
-            dropout_mask = np.random.binomial(1, 1-self.noise_factor, X.shape)
+            # Not using Dropout layer here since this is a manual injection before training
+            dropout_mask = np.random.binomial(1, 1 - self.noise_factor, X.shape)
             return X * dropout_mask
         else:
             raise ValueError("Invalid noise_type. Expected 'gaussian' or 'dropout'.")
 
     def _build_model(self):
-        import tensorflow as tf
-        from tensorflow.keras.layers import Dense, Input, Activation, Dropout
-        from tensorflow.keras import Sequential, Model
+        from tensorflow.keras.layers import Dense, Input, BatchNormalization, Activation, Dropout, Add
+        from tensorflow.keras.models import Model
         from tensorflow.keras.optimizers import Adam
-        def set_seed(seed=42):
-            np.random.seed(seed)
-            random.seed(seed)
-            tf.random.set_seed(seed)
-        set_seed(42)
+        from tensorflow.keras.layers import LeakyReLU
 
-        # Adjust the network depth and width based on input dimension and data size
-        hidden_layers = max(1, min(6, self.input_dim // 20))  # Between 2 and 6 hidden layers
-        layer_size = max(32, min(256, self.input_dim * 2))  # Layer size between 16 and 128 neurons
+        inputs = Input(shape=(self.input_dim,))
+        x = inputs
+        min_layers = max(3, self.input_dim // 20)
 
-        # Encoder
-        encoder_layers = [Input(shape=(self.input_dim, ))]
-        for _ in range(hidden_layers):
-            encoder_layers.append(Dense(layer_size, activation='relu'))
+        ### set the basic size of neurons here ##
+        if self.input_dim <= 5:
+            base_size = min(512, self.input_dim*20)  # Increased the potential size for more complexity
+        else:
+            base_size = min(512, self.input_dim*10)  # Increased the potential size for more complexity
 
-        # Decoder
-        decoder_layers = []
-        for _ in range(hidden_layers):
-            decoder_layers.append(Dense(layer_size, activation='relu'))
-        decoder_layers.append(Dense(self.input_dim, activation='sigmoid'))
+        # Encoder - DO NOT MODIFY THIS SINCE IT GIVES A PERFECTLY BALANCED NETWORK
+        layer_num = min(6, min_layers)
+        for ee in range(layer_num-1):
+            x = Dense(max(16, base_size // (ee+2))) (x)
+            x = BatchNormalization()(x)
+            x = LeakyReLU(alpha=0.1)(x)  # Using LeakyReLU
+            x = Dropout(self.noise_factor)(x)
 
-        # Assembling the Model
-        encoder = Sequential(encoder_layers)
-        decoder = Sequential(decoder_layers)
-        autoencoder = Model(inputs=encoder.input, outputs=decoder(encoder.output))
+        # Bottleneck
+        encoded = Dense(self.encoding_dim, activation='relu')(x)
 
-        autoencoder.compile(optimizer=Adam(learning_rate=self.learning_rate), loss='binary_crossentropy')
+        # Decoder - DO NOT MODIFY THIS SINCE IT GIVES A PERFECTLY BALANCED NETWORK
+        x = encoded
+        x = Dense(self.encoding_dim, activation='relu') (x)
+        x = BatchNormalization()(x)
+        x = LeakyReLU(alpha=0.1)(x)  # Using LeakyReLU
+        x = Dropout(self.noise_factor)(x)
+        for dd in range(layer_num-1):
+            x = Dense(max(16, base_size // (layer_num-dd) )) (x)
+            x = BatchNormalization()(x)
+            x = LeakyReLU(alpha=0.1)(x)  # Using LeakyReLU
+            x = Dropout(self.noise_factor)(x)
+
+        # Output layer
+        x = Dense(self.input_dim, activation='linear')(x)  # Linear activation for regression and Classification
+
+        # Add residual connections if the dimensions allow for it
+        if self.input_dim == max(32, min(256, self.input_dim * 2)):
+            x = Add()([x, inputs])
+
+        # Create autoencoder model
+        autoencoder = Model(inputs, x)
+        loss_function = 'mse'
+        metrics = 'mse'
+
+        autoencoder.compile(optimizer=Adam(learning_rate=self.learning_rate), 
+                        loss=loss_function,
+                        metrics=[metrics])
+
+        # Create encoder model
+        encoder = Model(inputs, encoded)
+
         return autoencoder, encoder
+
 
     def fit(self, X, y=None):
         import tensorflow as tf
@@ -1438,16 +1545,457 @@ class DenoisingAutoEncoder(BaseEstimator, TransformerMixin):
             random.seed(seed)
             tf.random.set_seed(seed)
         set_seed(42)
+
         self.input_dim = X.shape[1]
-        self.input_size = X.shape[0]
-        # Add noise to the training data
         X_noisy = self._add_noise(X)
         self.autoencoder, self.encoder = self._build_model()
         self.autoencoder.fit(X_noisy, X, epochs=self.epochs, batch_size=self.batch_size,
-                        shuffle=True, callbacks=self.callbacks, validation_split=0.2)
+                             shuffle=True, callbacks=self.callbacks, validation_split=0.2)
         return self
 
     def transform(self, X, y=None):
-        # Extract the features from the input data
         return self.encoder.predict(X)
-########################################################################
+
+def dae_hyperparam_selection(dae, X_train, y_train):
+    if X_train.max().max() > 1.0:
+        print('    defining a pipeline with MinMaxScaler and DAE')
+        pipeline = Pipeline([
+            ('scaler', MinMaxScaler()),
+            ('feature_extractor', dae),
+        ])
+    else:
+        print('    defining a pipeline with DAE')
+        pipeline = Pipeline([
+            ('feature_extractor', dae),
+        ])
+
+    #### This is for DEAFeatureExtractor #####
+    param_grid = {
+        'feature_extractor__batch_size': [16, 32, 64],
+        'feature_extractor__encoding_dim': [5, 10, 15],
+        #'feature_extractor__noise_type': ['gaussian', 'dropout'],
+        #'feature_extractor__noise_factor': [0.1, 0.2],
+        'feature_extractor__epochs': [3],
+        #'feature_extractor__learning_rate': [0.001, 0.01],    
+    }
+
+    # Setup grid search
+    grid_search = GridSearchCV(pipeline, param_grid, scoring='neg_mean_squared_error', 
+                               cv=3, n_jobs=-1,verbose=1)
+
+    # Fit the grid search to the data
+    grid_search.fit(X_train, y_train)
+
+    return grid_search
+
+##########################################################################
+from sklearn.model_selection import StratifiedKFold
+class SupervisedDenoisingAutoEncoder(BaseEstimator, TransformerMixin):
+    def __init__(self, encoding_dim=8, noise_type='gaussian', noise_factor=0.2,
+                 learning_rate=0.001, ae_epochs=1, classifier_epochs=1, 
+                 batch_size=32, n_splits=3):
+        # Import necessary libraries here
+
+        self.encoding_dim = encoding_dim
+        self.noise_type = noise_type
+        self.noise_factor = noise_factor
+        self.learning_rate = learning_rate
+        self.ae_epochs = ae_epochs
+        self.classifier_epochs = classifier_epochs
+        self.batch_size = batch_size
+        self.n_splits = n_splits
+        self.input_dim = None
+        self.autoencoder = None
+        self.encoder = None
+        self.classifier = None
+        # Initialize a list to store the trained classifiers
+        self.classifiers = []
+
+        # Initialize a list to store the trained encoders
+        self.encoders = []
+        self.num_classes = None
+        self.modeltype = None
+
+    def _add_noise(self, X):
+        if self.noise_type == 'gaussian':
+            noise = np.random.normal(0, self.noise_factor, X.shape)
+            #  By ensuring that data stays in [0, 1] range we assume that we use MinMax scaler
+            ### This would apply to both Regression and Classification tasks since we are 
+            ###   scaling only X which will lie within the 0 to 1 range.
+            return np.clip(X + noise, 0, 1)  
+        elif self.noise_type == 'dropout':
+            # Not using Dropout layer here since this is a manual injection before training
+            dropout_mask = np.random.binomial(1, 1 - self.noise_factor, X.shape)
+            return X * dropout_mask
+        else:
+            raise ValueError("Invalid noise_type. Expected 'gaussian' or 'dropout'.")
+
+    def _build_model(self):
+        from tensorflow.keras.layers import Dense, Input, BatchNormalization, Activation, Dropout, Add
+        from tensorflow.keras.models import Model
+        from tensorflow.keras.optimizers import Adam
+        from tensorflow.keras.layers import LeakyReLU
+
+        inputs = Input(shape=(self.input_dim,))
+        x = inputs
+        min_layers = max(3, self.input_dim // 20)
+
+        ### set the basic size of neurons here ##
+        if self.input_dim <= 5:
+            base_size = min(512, self.input_dim*20)  # Increased the potential size for more complexity
+        else:
+            base_size = min(512, self.input_dim*10)  # Increased the potential size for more complexity
+
+        # Encoder - DO NOT MODIFY THIS SINCE IT GIVES A PERFECTLY BALANCED NETWORK
+        layer_num = min(6, min_layers)
+        for ee in range(layer_num-1):
+            x = Dense(max(16, base_size // (ee+2))) (x)
+            x = BatchNormalization()(x)
+            x = LeakyReLU(alpha=0.1)(x)  # Using LeakyReLU
+            x = Dropout(self.noise_factor)(x)
+
+        # Bottleneck
+        encoded = Dense(self.encoding_dim, activation='relu')(x)
+
+        # Decoder - DO NOT MODIFY THIS SINCE IT GIVES A PERFECTLY BALANCED NETWORK
+        x = encoded
+        x = Dense(self.encoding_dim, activation='relu') (x)
+        x = BatchNormalization()(x)
+        x = LeakyReLU(alpha=0.1)(x)  # Using LeakyReLU
+        x = Dropout(self.noise_factor)(x)
+        for dd in range(layer_num-1):
+            x = Dense(max(16, base_size // (layer_num-dd) )) (x)
+            x = BatchNormalization()(x)
+            x = LeakyReLU(alpha=0.1)(x)  # Using LeakyReLU
+            x = Dropout(self.noise_factor)(x)
+
+        # Output layer
+        x = Dense(self.input_dim, activation='linear')(x)  # Linear activation for regression and Classification
+
+        # Add residual connections if the dimensions allow for it
+        if self.input_dim == max(32, min(256, self.input_dim * 2)):
+            x = Add()([x, inputs])
+
+        # Create autoencoder model
+        autoencoder = Model(inputs, x)
+        loss_function = 'mse'
+        metrics = 'mse'
+
+        autoencoder.compile(optimizer=Adam(learning_rate=self.learning_rate), 
+                        loss=loss_function,
+                        metrics=[metrics])
+
+        # Create encoder model
+        encoder = Model(inputs, encoded)
+
+        return autoencoder, encoder
+
+    def _build_classifier(self):
+        from tensorflow.keras.layers import Dense, Input, BatchNormalization, Activation, Dropout
+        from tensorflow.keras.models import Model
+        from tensorflow.keras.optimizers import Adam
+
+        # Create a classifier model on top of the learned features
+        inputs = Input(shape=(self.encoding_dim,))
+        x = inputs
+
+        # You can customize the architecture of your classifier here
+        x = Dense(128)(x)
+        x = BatchNormalization()(x)
+        x = Activation('relu')(x)
+        x = Dropout(0.5)(x)
+
+        x = Dense(64)(x)
+        x = BatchNormalization()(x)
+        x = Activation('relu')(x)
+        x = Dropout(0.5)(x)
+
+        # Output layer for classification
+        outputs = Dense(self.num_classes, activation='softmax')(x)  # Adjust num_classes for your specific problem
+
+        # Create the classifier model
+        classifier = Model(inputs, outputs)
+
+        # Compile the classifier model
+        classifier.compile(optimizer=Adam(learning_rate=self.learning_rate), 
+                           loss='sparse_categorical_crossentropy',  # Use 'sparse_categorical_crossentropy' for integer labels
+                           metrics=['accuracy'])  # Add desired metrics
+
+        return classifier
+
+    def fit(self, X, y=None):
+        # Initialize a list to store the trained classifiers
+        classifiers = []
+
+        # Initialize StratifiedKFold cross-validator with cv=5
+        cv = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=42)
+
+        for train_index, val_index in cv.split(X, y):
+            X_train_fold, X_val_fold = X[train_index], X[val_index]
+            y_train_fold, y_val_fold = y[train_index], y[val_index]
+
+            # Split the data into a portion for pre-training the DAE and a portion for classification
+            X_pretrain, X_classifier, y_pretrain, y_classifier = train_test_split(X_train_fold, y_train_fold, 
+                                        test_size=0.2, random_state=42)
+
+            self.input_dim = X_pretrain.shape[1]
+            X_pretrain_noisy = self._add_noise(X_pretrain)
+            X_classifier_noisy = self._add_noise(X_classifier)
+
+            # Pre-train the DAE
+            reduce_lr = ReduceLROnPlateau(monitor='val_mse', factor=0.90, patience=5, min_lr=1e-5)
+            early_stopping = EarlyStopping(monitor='val_mse', patience=25, mode='min', restore_best_weights=True)
+            callbacks = [early_stopping, reduce_lr]
+            self.callbacks = callbacks
+            self.autoencoder, self.encoder = self._build_model()
+            self.autoencoder.fit(X_pretrain_noisy, X_pretrain, epochs=self.ae_epochs, batch_size=self.batch_size,
+                                shuffle=True, callbacks=self.callbacks, 
+                                validation_data=(X_classifier_noisy, X_classifier))
+
+            # Store the trained encoder
+            self.encoders.append(self.encoder)
+
+            # Extract features using the pre-trained encoder
+            X_pretrain_features = self.encoder.predict(X_pretrain)
+            X_classifier_features = self.encoder.predict(X_classifier)
+
+            # Build and train a classifier on top of the learned features
+            # Using sparse_categorical_crossentropy. Hence do not need to do one-hot encoding of y
+            if not y is None:
+                self.modeltype, multi_label = analyze_problem_type_array(y)
+                if self.modeltype == 'Multi_Classification':
+                    self.num_classes = len(np.unique(y))
+                    #y_pretrain = to_categorical(y_pretrain, num_classes=self.num_classes)
+                else:
+                    self.num_classes = 2
+                    #y_pretrain = copy.deepcopy(y_pretrain)
+            
+            self.classifier = self._build_classifier()
+            reduce_lr = ReduceLROnPlateau(monitor='val_accuracy', factor=0.90, patience=5, min_lr=1e-5)
+            early_stopping = EarlyStopping(monitor='val_accuracy', patience=25, mode='max', restore_best_weights=True)
+            callbacks = [early_stopping]
+            self.callbacks = callbacks
+            self.classifier.fit(X_pretrain_features, y_pretrain, epochs=self.classifier_epochs,
+                                batch_size=self.batch_size, shuffle=True, callbacks=self.callbacks,
+                                validation_data=(X_classifier_features, y_classifier))
+
+            # Append the trained classifier to the list
+            classifiers.append(self.classifier)
+
+        # Store the trained classifiers in the instance variable
+        self.classifiers = classifiers
+
+        return self
+
+    def predict(self, X):
+        # Predict using the classifiers
+        if self.modeltype != 'Regression':
+            predictions = []
+            for classifier in self.classifiers:
+                predictions.append(classifier.predict(self.transform(X)))
+            # Aggregate predictions by taking the mode (most common prediction)
+            predictions = np.array(predictions)
+            mean_probs = np.mean(predictions, axis=0) 
+            aggregated_predictions = np.argmax(mean_probs, axis=1) 
+        else:
+            predictions = []
+            for classifier in self.classifiers:
+                predictions.append(classifier.predict(self.transform(X)).flatten())
+            # Aggregate predictions by taking the mean
+            aggregated_predictions = np.mean(predictions, axis=0)
+        return aggregated_predictions
+
+    def predict_proba(self, X):
+        # Predict using the classifiers
+        if self.modeltype == 'Multi_Classification':
+            probabilities = []
+            for classifier in self.classifiers:
+                probabilities.append(classifier.predict(self.transform(X)))
+            # Aggregate probabilities by taking the mean
+            predictions = np.array(probabilities)
+            aggregated_probabilities = np.mean(predictions, axis=0)
+        elif self.modeltype == 'Binary_Classification':
+            probabilities = []
+            for classifier in self.classifiers:
+                probabilities.append(classifier.predict(self.transform(X)))
+            # Aggregate probabilities by taking the mean
+            predictions = np.array(probabilities)
+            aggregated_probabilities = np.mean(predictions, axis=0)
+            # Convert to binary probabilities
+            aggregated_probabilities = np.concatenate([1 - aggregated_probabilities, aggregated_probabilities], axis=1)
+        else:
+            aggregated_probabilities = None
+        return aggregated_probabilities
+
+    def transform(self, X, y=None):
+        transformed_X = []
+        for encoder in self.encoders:
+            # Extract features using the pre-trained encoder
+            transformed_X_fold = encoder.predict(X)
+            transformed_X.append(transformed_X_fold)
+        
+        # Get the mean of the transformed data from all encoders
+        return np.mean(transformed_X, axis=0)
+##########################################################################
+import copy
+from sklearn.metrics import mean_squared_error
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from tensorflow.keras.callbacks import LearningRateScheduler, ReduceLROnPlateau
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.layers import Input, Dense, BatchNormalization, Activation, Dropout
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.regularizers import l1_l2
+from tensorflow.keras.metrics import Metric
+from tensorflow.keras.optimizers import Adam
+######################################################################################
+from tensorflow.keras.callbacks import LearningRateScheduler, ReduceLROnPlateau
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, Callback
+from sklearn.base import BaseEstimator, TransformerMixin
+
+## This is the class DAEFeatureExtractor(BaseEstimator, TransformerMixin):
+##### here is the transformer code #####
+class DenoisingAutoEncoder2(BaseEstimator, TransformerMixin):
+    def __init__(self, activation='relu', dropout_rate=0.2, 
+                 batch_size=64, latent_dim=10,
+                noise_type='gaussian', noise_factor=0.1,
+                 epochs=100, learning_rate=0.001,
+                validation_split=0.2,
+                callbacks=None,
+                verbose=0):
+        self.activation = activation
+        self.dropout_rate = dropout_rate
+        self.learning_rate = learning_rate
+        self.batch_size = batch_size
+        self.latent_dim = latent_dim
+        self.noise_type = noise_type
+        self.noise_factor = noise_factor
+        self.epochs = epochs
+        self.validation_split = validation_split
+        self.callbacks = callbacks
+        self.verbose=verbose
+        self.num_hidden_layers = 1
+        self.model = None
+        self.encoder = None
+
+    def _build_dae_model(self, latent_dim, input_dim, num_samples, learning_rate,
+                   batch_size=32, dropout_rate=0.1, activation='relu', 
+                   num_hidden_layers=2, verbose=0):
+
+        # Define activation and regularization
+        initial_lr=0.1
+        dropout_rate = dropout_rate
+        l1_reg = 0.1*initial_lr
+        l2_reg = 0.1*initial_lr
+        regularization = l1_l2(l1=l1_reg, l2=l2_reg)
+        
+        # Setup for a denoising autoencoder
+        last_layer_activation = 'linear'  # Use 'linear' for continuous input data
+        layer_sizes = [min(128, input_dim) // (2 ** i) for i in range(num_hidden_layers)]
+
+        if verbose:
+            print(modeltype, last_layer_activation)
+            print(f"Number of hidden layers: {num_hidden_layers}")
+            print(f"Neurons in each layer: {layer_sizes}")
+
+        # Encoder architecture
+        encoder_inputs = Input(shape=(input_dim,))
+        encoded = encoder_inputs
+        for neurons_per_layer in layer_sizes:
+            encoded = Dense(neurons_per_layer, activation=activation, 
+                            kernel_regularizer=regularization)(encoded)
+            encoded = BatchNormalization()(encoded)
+            encoded = Dropout(dropout_rate)(encoded)
+        #latent_dim = max(layer_sizes[-1] // 2, 2)  # Ensure latent dimension is at least 2
+        latent_layer = Dense(latent_dim, activation=activation)(encoded)
+        encoder = Model(encoder_inputs, latent_layer, name='encoder')
+
+        # Decoder architecture (mirrored)
+        decoder_inputs = Input(shape=(latent_dim,))
+        decoded = decoder_inputs
+        for neurons_per_layer in reversed(layer_sizes):
+            decoded = Dense(neurons_per_layer, activation=activation)(decoded)
+            decoded = BatchNormalization()(decoded)
+            decoded = Dropout(dropout_rate)(decoded)
+        x_decoded_mean = Dense(input_dim, activation=last_layer_activation)(decoded) 
+        decoder = Model(decoder_inputs, x_decoded_mean, name='decoder')
+
+        # Autoencoder = Encoder + Decoder
+        autoencoder = Model(encoder_inputs, decoder(encoder(encoder_inputs)), name='autoencoder')
+        autoencoder.compile(optimizer=Adam(learning_rate=learning_rate), loss='mse', metrics=['mse'])
+
+        return autoencoder, encoder
+
+    def fit(self, X, y=None):
+        ### It is assumed that the data is scaled before it is sent in here ###
+        reduce_lr = ReduceLROnPlateau(monitor='val_mse', factor=0.90, patience=5, min_lr=0.0001)
+        early_stopping = EarlyStopping(monitor='val_mse', patience=5, restore_best_weights=True)
+        callbacks = [early_stopping]
+
+        ###### Add noise to the training data ################
+        if self.noise_type == 'gaussian':
+            X_noisy = X + self.noise_factor * np.random.normal(size=X.shape)
+        elif self.noise_type == 'dropout':
+            dropout_mask = np.random.binomial(1, 1 - self.noise_factor, X.shape)
+            X_noisy = X * dropout_mask
+        else:
+            raise ValueError("Invalid noise_type. Expected 'gaussian' or 'dropout'.")
+        self.input_dim = X.shape[1]
+        self.num_hidden_layers = max(2, self.input_dim // 20)
+
+        model, encoder = self._build_dae_model(latent_dim=self.latent_dim, input_dim=self.input_dim, 
+                                num_samples=X.shape[0], learning_rate=self.learning_rate,
+                                batch_size=self.batch_size, dropout_rate=self.dropout_rate, 
+                                activation=self.activation, 
+                                num_hidden_layers=self.num_hidden_layers,
+                                verbose=self.verbose)
+
+        history = model.fit(X_noisy, X, epochs=self.epochs,
+                                             validation_split=self.validation_split,
+                                             callbacks=callbacks)
+        self.history = history
+        self.model = model
+        self.encoder = encoder
+
+        return self
+
+    def transform(self, X, y=None):
+        # Extract the encoded representation
+        return self.encoder.predict(X)
+
+def dae2_hyperparam_selection(dae, X_train, y_train):
+    if X_train.max().max() > 1.0:
+        print('    defining a pipeline with MinMaxScaler and DAE')
+        pipeline = Pipeline([
+            ('scaler', MinMaxScaler()),
+            ('feature_extractor', dae),
+        ])
+    else:
+        print('    defining a pipeline with DAE')
+        pipeline = Pipeline([
+            ('feature_extractor', dae),
+        ])
+
+    #### This is for DEAFeatureExtractor #####
+    param_grid = {
+        #'feature_extractor__activation': ['relu', 'selu'],
+        #'feature_extractor__dropout_rate': [0.2, 0.3],
+        'feature_extractor__batch_size': [16, 32, 64],
+        'feature_extractor__latent_dim': [5, 10, 15],
+        #'feature_extractor__noise_type': ['gaussian', 'dropout'],
+        #'feature_extractor__noise_factor': [0.1, 0.2],
+        'feature_extractor__epochs': [3],
+        #'feature_extractor__learning_rate': [0.001, 0.01],    
+        #'feature_extractor__validation_split': [0.2],
+        #'feature_extractor__verbose': [0],
+    }
+
+    # Setup grid search
+    grid_search = GridSearchCV(pipeline, param_grid, scoring='neg_mean_squared_error', 
+                               cv=3, n_jobs=-1,verbose=1)
+
+    # Fit the grid search to the data
+    grid_search.fit(X_train, y_train)
+
+    return grid_search
+############################################################################

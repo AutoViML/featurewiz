@@ -22,6 +22,8 @@ from .featurewiz import split_data_n_ways, FE_concatenate_multiple_columns
 from .featurewiz import FE_discretize_numeric_variables, reduce_mem_usage
 from .ml_models import simple_XGBoost_model, simple_LightGBM_model, complex_XGBoost_model
 from .ml_models import complex_LightGBM_model,data_transform, get_class_weights
+from .ml_models import IterativeBinaryClassifier, IterativeDoubleClassifier, IterativeDoubleClassifier_XGB
+from .ml_models import IterativeClassifier, IterativeForwardClassifier, IterativeBackwardClassifier
 from .my_encoders import My_LabelEncoder, Groupby_Aggregator, My_LabelEncoder_Pipe, Ranking_Aggregator, DateTime_Transformer
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe, FE_create_time_series_features, Binning_Transformer
 from .my_encoders import Column_Names_Transformer, FE_convert_all_object_columns_to_numeric, Numeric_Transformer
@@ -34,13 +36,13 @@ from .featurewiz import FE_transform_numeric_columns_to_bins, FE_create_interact
 from .stacking_models import Stacking_Classifier, Blending_Regressor, Stacking_Regressor, stacking_models_list
 from .stacking_models import StackingClassifier_Multi, analyze_problem_type_array
 from .stacking_models import DenoisingAutoEncoder, VariationalAutoEncoder
-from .stacking_models import GAN, GANAugmenter
+from .stacking_models import GAN, GANAugmenter, get_class_distribution, SupervisedDenoisingAutoEncoder
 from .featurewiz import EDA_binning_numeric_column_displaying_bins, FE_calculate_duration_from_timestamp
 from .featurewiz import FE_convert_mixed_datatypes_to_string, FE_drop_rows_with_infinity
 from .featurewiz import EDA_find_remove_columns_with_infinity, FE_split_list_into_columns
 from .featurewiz import EDA_remove_special_chars, FE_remove_commas_in_numerics
 from .featurewiz import EDA_randomly_select_rows_from_dataframe, remove_duplicate_cols_in_dataset
-from .featurewiz import cross_val_model_predictions, get_class_distribution
+from .featurewiz import cross_val_model_predictions
 from .featurewiz import FeatureWiz
 ################################################################################
 if __name__ == "__main__":
