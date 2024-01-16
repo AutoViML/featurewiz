@@ -1394,15 +1394,16 @@ def FE_perform_recursive_xgboost(train, target, model_type, multi_label_type,
                     objective = 'multi:softmax'
                     try:
                         ### This is in case target is a list ###
-                        num_class  =  train[target].nunique()[0]
+                        num_class  =  int(np.max(np.unique(train[target]))+1)
                     except:
                         ### This is in case target is a string ###
-                        num_class  =  train[target].nunique()
+                        num_class  =  int(np.max(train[target].unique())+1)
                     params = {'objective': objective, 
                                     "silent":True, "verbosity": 0,   'min_child_weight': 0.5, 'num_class': num_class}
             ############################################################################################################
             ######### This is where we find out whether to use single or multi-label for xgboost #######################
             ############################################################################################################
+            
             if multi_label_type:
                 if model_type == 'Regression':
                     clf = XGBRegressor(n_jobs=-1, n_estimators=100, max_depth=4, random_state=99)
@@ -2680,7 +2681,7 @@ def FE_create_interaction_vars(df, intxn_vars):
 ################################################################################
 def FE_create_interaction_vars_train(df, intxn_vars):
     """
-    This handy function creates interaction variables among pairs of numeric vars you send in.
+    This handy function creates interaction variables among pairs of categorical vars you send in.
     Your input must be a dataframe and a list of tuples. Each tuple must contain a pair of variables.
     All variables must be numeric. Double check your input before sending them in.
     """
@@ -3056,10 +3057,11 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         If inputs are not in the expected format or if invalid parameters are provided.
     """
 
-    def __init__(self, corr_limit=0.90, verbose=0, feature_engg='', category_encoders='', 
+    def __init__(self, corr_limit=0.90, verbose=0, feature_engg='', 
+                    auto_encoders=[], category_encoders='', ae_options={},
                  add_missing=False, dask_xgboost_flag=False, nrows=None, 
                  skip_sulov=False, skip_xgboost=False, transform_target=False, 
-                 scalers=None, imbalanced=False, ae_options={}):
+                 scalers=None, imbalanced=False, **kwargs):
         """
         Initialize the FeatureWiz class with the given parameters. 
         """
@@ -3080,6 +3082,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         elif isinstance(scalers, str):
             self.scalers = scalers.lower()
         self.imbalanced=imbalanced
+        self.auto_encoders = self._parse_auto_encoders(auto_encoders)
         self.ae_options = ae_options
         self._initialize_other_attributes()
 
@@ -3119,6 +3122,23 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         ###### let us find approved encoders, if not send 'auto' ###
         return encoders
 
+    def _parse_auto_encoders(self, encoders):
+        approved_encoders = {
+            'dae', 'dae_add', 'vae', 'vae_add', 'gan',
+        }
+        #### This is complicated logic ### be careful changing it!
+        if isinstance(encoders, str):
+            if encoders == '':
+                encoders = []
+            else:
+                ### first create a list and then check for validity of each one ###
+                encoders = [encoders]
+                encoders = [e for e in encoders if e in approved_encoders]
+        if isinstance(encoders, list):
+                encoders = [e for e in encoders if e in approved_encoders]
+        #### just return them ###
+        return encoders
+
     def _initialize_other_attributes(self):
         self.model_type = ''
         self.grouper = None
@@ -3131,6 +3151,8 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self.targets = None
         ### setting autoencoder to None ###
         self.ae = None
+        self.interaction_flag = False
+        self.poly_feature_adder = None
         encoders_dict = {
                         'OneHotEncoder': 'onehot',
                         'OrdinalEncoder': 'ordinal',
@@ -3169,8 +3191,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         #print('    %s given as encoders...' %encoders)
         #### This is complicated logic. Be careful before changing it! 
         self.category_encoders = encoders
-        feature_generators = ['interactions', 'groupby', 'target', 'dae', 'vae', 'dae_add',
-                             'vae_add', 'gan']
+        feature_generators = ['interactions', 'groupby', 'target', 'poly2', 'poly3']
         feature_gen = []
         if self.feature_engg:
             print('    Warning: Too many features will be generated since feature engg specified')
@@ -3209,25 +3230,25 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         
         ### all Auto Encoders need their features to be scaled - MinMax works best!
         try:
-            if 'dae' in self.feature_gen or 'dae_add' in self.feature_gen:
+            if 'dae' in self.auto_encoders or 'dae_add' in self.auto_encoders:
                 self.ae = DenoisingAutoEncoder(**self.ae_options)
                 ### Even if user gives input on scalers, then use this as it is the best\
                 print('Since Auto Encoders are selected for feature extraction,')
                 self.scalers='minmax'
                 self.skip_xgboost = True
-                if 'dae' in self.feature_gen:
+                if 'dae' in self.auto_encoders:
                     print('    SULOV is skipped...')
                     self.skip_sulov = True
-            elif 'vae' in self.feature_gen or 'vae_add' in self.feature_gen:
+            elif 'vae' in self.auto_encoders or 'vae_add' in self.auto_encoders:
                 self.ae = VariationalAutoEncoder(**self.ae_options)
                 ### Even if user gives input on scalers, then use this as it is the best
                 print('Since Auto Encoders are selected for feature extraction,')
                 self.scalers='minmax'
                 self.skip_xgboost = True
-                if 'vae' in self.feature_gen:
+                if 'vae' in self.auto_encoders:
                     print('    SULOV is skipped...')
                     self.skip_sulov = True
-            elif 'gan' in self.feature_gen:
+            elif 'gan' in self.auto_encoders:
                 print('Since Auto Encoders are selected for feature extraction,')
                 self.ae = GANAugmenter(**self.ae_options)
                 #self.ae = GANAugmenter(gan_model=None, input_dim=None, 
@@ -3280,24 +3301,6 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         ######################################################################################
         X_sel = copy.deepcopy(X)
         print('Loaded input data. Shape = %s' %(X_sel.shape,))
-        ##### Now we set up the hyper params for DAE if it is selected ########
-        if 'dae' in self.feature_gen or 'dae_add' in self.feature_gen:
-            if not self.ae_options:
-                # Perform Hyperparam selection only when DAE_DICTO is empty ###
-                import time
-                start_time = time.time()
-                print('Performing hyper param selection for DAE. Will take approx. %s seconds' %(27*3))
-                grid_search = dae_hyperparam_selection(self.ae, X_sel, y)
-                best_model = grid_search.best_estimator_
-                best_model = best_model.named_steps['feature_extractor']
-                ## Print the best parameters
-                print('    time taken for DAE hyper param selection = %0.0f seconds' %(time.time()-start_time))
-                print(grid_search.best_params_)
-                # Assuming best_model is the best estimator from GridSearchCV
-                # Update the epochs parameter of the feature_extractor
-                new_epochs = 150  # Set the desired number of epochs
-                best_model.epochs = 100
-                self.ae = best_model
         ##### This where we find the features  to modify ######################
         preds = [x for x in list(X_sel) if x not in self.targets]
         ###   This is where we sort the columns to make sure that the order of columns doesn't matter in selection ###########
@@ -3341,6 +3344,17 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
 
                 if np.where('interactions' in self.feature_gen,True, False).tolist():
                     X = FE_create_interaction_vars_train(X, self.catvars)
+            #### This is where we add polynomial features to data set #####
+            if np.where('poly2' in self.feature_gen,True, False).tolist() or np.where('poly3' in self.feature_gen,True, False).tolist():
+                if len(self.numvars) > 1:
+                    # Transform the training and test data
+                    X = self.poly_feature_adder.transform(X)
+            else:
+                ### If there is no poly but at least have interaction_only, then do this!
+                if self.interaction_flag:
+                    if len(self.numvars) > 1:
+                        # Transform the training and test data
+                        X = self.poly_feature_adder.transform(X)
 
             ### this is only for test data ######
             print('#### Starting lazytransform for test data ####')
@@ -3351,7 +3365,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             #### This is where you transform using the Denoising Auto Encoder
             if not self.ae is None:
                 #### It is okay if y is None ########
-                if not 'gan' in self.feature_gen:
+                if not 'gan' in self.auto_encoders:
                     ### This is for VAE and DAE #####
                     X_sel_ae = self.ae.transform(X_sel)
                 else:
@@ -3364,7 +3378,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                     ### Since this results in a higher dimension you need to create new columns ##
                     new_vars = ['ae_feature_'+str(x+1) for x in range(X_sel_ae.shape[1])]
                     X_sel_ae = pd.DataFrame(X_sel_ae, columns=new_vars, index=X_index)
-                    if 'dae_add' in self.feature_gen or 'vae_add' in self.feature_gen:
+                    if 'dae_add' in self.auto_encoders or 'vae_add' in self.auto_encoders:
                         ### Only if add is specified do you add the features to X
                         ## Since this results in a higher dimension you need to create new columns ##
                         old_vars = list(X_sel)
@@ -3428,8 +3442,39 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                         self.combovars = combovars
                     else:
                         print('No interactions created for categorical vars since number less than 2')
+                    ### Set the interaction flag anyway since X may have numeric vars!
+                    self.interaction_flag = True
                 else:
                     print('No interactions created for categorical vars since no interactions feature engg specified')
+
+                ##################  This is where we add Polynomial interactions ###########
+                if np.where('poly2' in self.feature_gen,True, False).tolist(): 
+                    if self.interaction_flag:
+                        self.interaction_flag = False ### Interaction only will be set to false
+                    if len(self.numvars) > 1:
+                        # Create the transformer
+                        poly_feature_adder = PolyFeatureAdder(degree=2, interaction_only=self.interaction_flag)
+                        # Transform the training and test data
+                        X_sel = poly_feature_adder.fit_transform(X_sel)
+                        self.poly_feature_adder = poly_feature_adder
+                elif np.where('poly3' in self.feature_gen,True, False).tolist():
+                    if self.interaction_flag:
+                        self.interaction_flag = False ### Interaction only will be set to false
+                    if len(self.numvars) > 1:
+                        # Fit to the training data
+                        poly_feature_adder = PolyFeatureAdder(degree=3, interaction_only=self.interaction_flag)
+                        # Transform the training and test data
+                        X_sel = poly_feature_adder.fit_transform(X_sel)
+                        self.poly_feature_adder = poly_feature_adder
+                else:
+                    ### If there is no Poly, then you need to create interaction_only variables!
+                    if self.interaction_flag:
+                        poly_feature_adder = PolyFeatureAdder(degree=2, interaction_only=self.interaction_flag)
+                        # Transform the training and test data
+                        X_sel = poly_feature_adder.fit_transform(X_sel)
+                        self.poly_feature_adder = poly_feature_adder
+                    print('No polynomial vars created since no flag set or less than 2 numeric vars in dataset')
+
             ##### Now put a dataframe together of transformed X and y  #### 
             X_sel.index = X_index
 
@@ -3452,12 +3497,29 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
 
             ## Fit DAE transformer to the data. This method trains the autoencoder model.
             if not self.ae is None:
+                ##### Now we set up the hyper params for DAE if it is selected ########
+                if 'dae' in self.auto_encoders or 'dae_add' in self.auto_encoders:
+                    if not self.ae_options:
+                        # Perform Hyperparam selection only when DAE_DICTO is empty ###
+                        start_time = time.time()
+                        print('Performing hyper param selection for DAE. Will take approx. %s seconds' %(27*3))
+                        grid_search = dae_hyperparam_selection(self.ae, X_sel, y)
+                        best_model = grid_search.best_estimator_
+                        best_model = best_model.named_steps['feature_extractor']
+                        ## Print the best parameters
+                        print('    time taken for DAE hyper param selection = %0.0f seconds' %(time.time()-start_time))
+                        print(grid_search.best_params_)
+                        # Assuming best_model is the best estimator from GridSearchCV
+                        # Update the epochs parameter of the feature_extractor
+                        new_epochs = 150  # Set the desired number of epochs
+                        best_model.epochs = 100
+                        self.ae = best_model
                 ### since you cannot fit model before transforming data, leave it here ###
                 self.ae.fit(X_sel, y_sel)
-                if 'gan' in self.feature_gen:
+                if 'gan' in self.auto_encoders:
                     print('Fitting and transforming a GAN for each class...')
                     X_sel_ae, y_sel = self.ae.transform(X_sel, y_sel)
-                elif ('dae' in self.feature_gen) | ('dae_add' in self.feature_gen):
+                elif ('dae' in self.auto_encoders) | ('dae_add' in self.auto_encoders):
                     print('Fitting and transforming an Auto Encoder for dataset...')
                     X_sel_ae = self.ae.transform(X_sel)
                 else:
@@ -3468,7 +3530,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                     print('Auto encoder is erroring. Using existing features shape: %s' %(X_sel.shape,))
                 else:
                     ### You need to check for both 'vae' and 'vae_add': this does both!!
-                    if [y for y in self.feature_gen if 'dae' in y] or [y for y in self.feature_gen if 'vae' in y]:
+                    if [y for y in self.auto_encoders if 'dae' in y] or [y for y in self.auto_encoders if 'vae' in y]:
                         new_vars = ['ae_feature_'+str(x+1) for x in range(X_sel_ae.shape[1])]
                         ## Since this results in a higher dimension you need to create new columns ##
                         X_sel_ae = pd.DataFrame(X_sel_ae, columns=new_vars, index=X_index)
@@ -3482,7 +3544,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                         y_index = X_sel_ae.index
                         y_sel = pd.DataFrame(y_sel, columns=self.targets, index=y_index)
                     #### Don't change this next line since it applies new rules to above! ###
-                    if 'dae_add' in self.feature_gen or 'vae_add' in self.feature_gen:
+                    if 'dae_add' in self.auto_encoders or 'vae_add' in self.auto_encoders:
                         ## Since this results in a higher dimension you need to create new columns ##
                         old_vars = list(X_sel)
                         X_sel = pd.concat([X_sel, X_sel_ae], axis=1)
@@ -3531,6 +3593,44 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             print('Recursive XGBoost selected %d features...' %len(self.features))
             return X_sel[self.features], y_sel
 ###################################################################################################
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.preprocessing import PolynomialFeatures
+import pandas as pd
+import copy
+from sklearn import __version__ as sklearn_version
+class PolyFeatureAdder(BaseEstimator, TransformerMixin):
+    def __init__(self, degree=2, interaction_only=False, include_bias=False):
+        self.poly = PolynomialFeatures(degree=degree, interaction_only=interaction_only, 
+                                       include_bias=include_bias)
+        self.feature_names = None
+
+    def fit(self, X, y=None):
+        # We only want numeric columns for polynomial features
+        self.numeric_cols = X.select_dtypes(include='number').columns
+        self.poly.fit(X[self.numeric_cols])
+        # Check sklearn version
+        if sklearn_version >= '1.0':  # Since get_feature_names_out was added in version 1.0
+            self.feature_names = self.poly.get_feature_names_out(self.numeric_cols)
+        else:
+            self.feature_names = self.poly.get_feature_names(self.numeric_cols)
+        return self
+
+    def transform(self, X):
+        # Check if X is a pandas DataFrame
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError("Input X for Polynomial features must be a pandas DataFrame.")
+        X = copy.deepcopy(X)
+        X_index = X.index
+
+        # Apply polynomial transformation
+        poly_features = self.poly.transform(X[self.numeric_cols])
+        df_poly = pd.DataFrame(poly_features, columns=self.feature_names, index=X_index)
+
+        # Drop original columns and join the new features
+        X_transformed = X.drop(self.numeric_cols, axis=1).join(df_poly, rsuffix='_extra')
+
+        return X_transformed
+##############################################################################################
 def EDA_remove_special_chars(df):
     """
     This function removes special chars from column names and returns a df with new column names.

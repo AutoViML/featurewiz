@@ -156,12 +156,20 @@ def data_transform(X_train, Y_train, X_test="", Y_test="", modeltype='Classifica
     # fit the scaler to the entire train and transform the test set
     scaler.fit(X_train_encoded)
     # transform training set
-    X_train_scaled = pd.DataFrame(scaler.transform(X_train_encoded), 
-        columns=X_train_encoded.columns, index=X_train_encoded.index)
+    if isinstance(X_train_encoded, np.ndarray):
+        X_train_scaled = pd.DataFrame(scaler.transform(X_train_encoded))
+    else:
+        X_train_scaled = pd.DataFrame(scaler.transform(X_train_encoded), 
+            columns=X_train_encoded.columns, index=X_train_encoded.index)
+
     # transform test set
     if not isinstance(X_test_encoded, str):
-        X_test_scaled = pd.DataFrame(scaler.transform(X_test_encoded), 
-            columns=X_test_encoded.columns, index=X_test_encoded.index)
+        if isinstance(X_test_encoded, np.ndarray):
+            X_test_scaled = pd.DataFrame(scaler.transform(X_test_encoded), 
+                )
+        else:
+            X_test_scaled = pd.DataFrame(scaler.transform(X_test_encoded), 
+                columns=X_test_encoded.columns, index=X_test_encoded.index)
     else:
         X_test_scaled = ""
 
@@ -1840,13 +1848,24 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.base import clone
 
-class IterativeBinaryClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, base_classifier=XGBClassifier()):
-        self.base_classifier = base_classifier
+class IterativeBestClassifier(BaseEstimator, ClassifierMixin):
+    """
+    This is the best classifier for Binary and Multi-Classification problems.
+    It iteratively divides classes into one-vs-rest and trains multiple classifiers.
+    It especially does best with BlaggingClassifier(n_estimators=200).
+    XGB, LGBM, CatBoost could also be great base_estimators.
+    """
+    def __init__(self, base_estimator=XGBClassifier(n_estimators=100,
+                    random_state=99)):
+        self.base_estimator = base_estimator
         self.classifiers = []
         self.classes_ = []
 
     def fit(self, X, y):
+        if not isinstance(X, np.ndarray):
+            X = X.values
+        if not isinstance(y, np.ndarray):
+            y = y.values
         self.classifiers = []
         unique_classes = sorted(np.unique(y))
         self.classes_ = unique_classes
@@ -1854,7 +1873,7 @@ class IterativeBinaryClassifier(BaseEstimator, ClassifierMixin):
         for class_label in unique_classes:
             binary_y_train = np.where(y == class_label, 1, 0)  # 1 for the current class, 0 for the rest
 
-            clf = clone(self.base_classifier)
+            clf = clone(self.base_estimator)
             clf.fit(X, binary_y_train)
 
             self.classifiers.append(clf)
@@ -1863,7 +1882,7 @@ class IterativeBinaryClassifier(BaseEstimator, ClassifierMixin):
 
     def predict(self, X):
         # Initialize a DataFrame to store probability scores for each class
-        prob_scores = pd.DataFrame(index=X.index, columns=self.classes_)
+        prob_scores = pd.DataFrame( columns=self.classes_)
 
         for class_label, clf in zip(self.classes_, self.classifiers):
             # Store the probability of the positive class (class_label)
@@ -1876,7 +1895,7 @@ class IterativeBinaryClassifier(BaseEstimator, ClassifierMixin):
 
     def predict_proba(self, X):
         # Initialize a DataFrame to store probability scores for each class
-        prob_scores = pd.DataFrame(index=X.index, columns=self.classes_)
+        prob_scores = pd.DataFrame( columns=self.classes_)
 
         for class_label, clf in zip(self.classes_, self.classifiers):
             # Store the probability of the positive class (class_label)
@@ -1894,13 +1913,15 @@ from sklearn.base import clone
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 class IterativeDoubleClassifier(BaseEstimator, ClassifierMixin):
     """
-    ### The IterativeDoubleClassifier is best for Multi-class problems with default RFC Settings!
-    ### The Double Classifier provides very high ROC_AUC but low bal_accuracy for Multi-Class
+    ### The IterativeDoubleClassifier is best for Binary and Multi-class problems!
+    ###  It trains two classisifers for each binary classification problem (one-vs-rest)
+    ### It is best with BlaggingClassifier(n_estimators=200) and RandomForestClassifier(n_estimators=100)
+    ### Both models' inferences are combined using weights to produce predictions.
     """
-    def __init__(self, base_classifier1=None, 
-        base_classifier2=None, weights=None):
-        self.base_classifier1 = base_classifier1
-        self.base_classifier2 = base_classifier2
+    def __init__(self, base_estimator1=None, 
+        base_estimator2=None, weights=None):
+        self.base_estimator1 = base_estimator1
+        self.base_estimator2 = base_estimator2
         self.weights = weights if weights else {1: 0.5, 2: 0.5}  # Default to equal weighting if none provided
 
         self.classifiers1 = []
@@ -1908,14 +1929,18 @@ class IterativeDoubleClassifier(BaseEstimator, ClassifierMixin):
         self.classes_ = []
 
     def fit(self, X, y):
-        if self.base_classifier1 is None:
+        if not isinstance(X, np.ndarray):
+            X = X.values
+        if not isinstance(y, np.ndarray):
+            y = y.values
+        if self.base_estimator1 is None:
             class_weights_dict_corrected = get_class_weights(y)
-            self.base_classifier1 = RandomForestClassifier(class_weight=class_weights_dict_corrected,
+            self.base_estimator1 = RandomForestClassifier(n_estimators=100,#class_weight=class_weights_dict_corrected,
                              random_state=42)
-        if self.base_classifier2 is None:
+        if self.base_estimator2 is None:
             class_weights_dict_corrected = get_class_weights(y)
-            #self.base_classifier2 = RandomForestClassifier(class_weight=class_weights_dict_corrected, random_state=42)
-            self.base_classifier2 = LinearDiscriminantAnalysis()
+            #self.base_estimator2 = RandomForestClassifier(class_weight=class_weights_dict_corrected, random_state=42)
+            self.base_estimator2 = LinearDiscriminantAnalysis()
         #### No start training the models ####
         self.classifiers1 = []
         self.classifiers2 = []
@@ -1925,11 +1950,11 @@ class IterativeDoubleClassifier(BaseEstimator, ClassifierMixin):
         for class_label in unique_classes:
             binary_y_train = np.where(y == class_label, 1, 0)  # 1 for the current class, 0 for the rest
 
-            clf1 = clone(self.base_classifier1)
+            clf1 = clone(self.base_estimator1)
             clf1.fit(X, binary_y_train)
             self.classifiers1.append(clf1)
 
-            clf2 = clone(self.base_classifier2)
+            clf2 = clone(self.base_estimator2)
             clf2.fit(X, binary_y_train)
             self.classifiers2.append(clf2)
 
@@ -1938,12 +1963,12 @@ class IterativeDoubleClassifier(BaseEstimator, ClassifierMixin):
     def predict(self, X):
         combined_probs = self.predict_proba(X)
         # Convert combined_probs to a DataFrame with class labels as columns
-        prob_df = pd.DataFrame(combined_probs, index=X.index, columns=self.classes_)
+        prob_df = pd.DataFrame(combined_probs,  columns=self.classes_)
         final_predictions = prob_df.idxmax(axis=1)
         return final_predictions
 
     def predict_proba(self, X):
-        prob_scores = pd.DataFrame(0, index=X.index, columns=self.classes_)
+        prob_scores = pd.DataFrame(  columns=self.classes_)
 
         for class_label, (clf1, clf2) in zip(self.classes_, zip(self.classifiers1, self.classifiers2)):
             prob1 = clf1.predict_proba(X)[:, 1]
@@ -1953,98 +1978,37 @@ class IterativeDoubleClassifier(BaseEstimator, ClassifierMixin):
 
         normalized_probs = prob_scores.div(prob_scores.sum(axis=1), axis=0)
         return normalized_probs.values
-####################################################################
-from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.base import clone
-class IterativeDoubleClassifier_XGB(BaseEstimator, ClassifierMixin):
 
-    def __init__(self, base_classifier1=None, 
-        base_classifier2=None, 
-        weights=None):
-        self.base_classifier1 = base_classifier1
-        self.base_classifier2 = base_classifier2
-        self.weights = weights if weights else {1: 0.5, 2: 0.5}  # Default to equal weighting if none provided
-
-        self.classifiers1 = []
-        self.classifiers2 = []
-        self.classes_ = []
-
-    def fit(self, X, y):
-        if self.base_classifier1 is None:
-            class_weights_dict_corrected = get_class_weights(y)
-            self.base_classifier1 = XGBClassifier(n_estimators=100, eta=0.01, 
-                                class_weight=class_weights_dict_corrected,
-                             random_state=42)
-        if self.base_classifier2 is None:
-            class_weights_dict_corrected = get_class_weights(y)
-            self.base_classifier2 = XGBClassifier(n_estimators=100, eta=0.01, 
-                            class_weight=class_weights_dict_corrected,
-                             random_state=42)
-        self.classifiers1 = []
-        self.classifiers2 = []
-        unique_classes = sorted(np.unique(y))
-        self.classes_ = unique_classes
-
-        for class_label in unique_classes:
-            binary_y_train = np.where(y == class_label, 1, 0)
-
-            clf1 = clone(self.base_classifier1)
-            clf1.fit(X, binary_y_train)
-            self.classifiers1.append(clf1)
-
-            clf2 = clone(self.base_classifier2)
-            clf2.fit(X, binary_y_train)
-            self.classifiers2.append(clf2)
-
-        return self
-
-    def predict_proba(self, X):
-        # Initialize a DataFrame to store the weighted sum of probabilities for each class
-        combined_probs = pd.DataFrame(0, index=X.index, columns=self.classes_)
-
-        for class_label, (clf1, clf2) in zip(self.classes_, zip(self.classifiers1, self.classifiers2)):
-            prob1 = clf1.predict_proba(X)[:, 1]
-            prob2 = clf2.predict_proba(X)[:, 1]
-            weighted_prob = prob1 * self.weights[1] + prob2 * self.weights[2]
-            combined_probs[class_label] = weighted_prob
-
-        # Normalize probabilities
-        normalized_probs = combined_probs.div(combined_probs.sum(axis=1), axis=0)
-        return normalized_probs
-
-    def predict(self, X):
-        prob_scores = self.predict_proba(X)
-        max_prob_indices = np.argmax(prob_scores.values, axis=1)
-        final_predictions = [self.classes_[index] for index in max_prob_indices]
-        return final_predictions
 ######################################################################################
 class IterativeForwardClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, early_classifier=None, 
-                 late_classifier=None, 
-                 late_params=None, threshold=None):
-        self.early_classifier = early_classifier
-        self.late_classifier = late_classifier
+    def __init__(self, early_estimator=None, 
+                 late_estimator=None, 
+                 grid_params=None, threshold=None):
+        self.early_estimator = early_estimator
+        self.late_estimator = late_estimator
         self.threshold = threshold
         self.classifiers = []
         self.classes_ = []
-        self.late_params = late_params
+        self.grid_params = grid_params
 
     def fit(self, X, y):
+        if not isinstance(X, np.ndarray):
+            X = X.values
+        if not isinstance(y, np.ndarray):
+            y = y.values
         self.classifiers = []
         unique_classes = sorted(np.unique(y), key=lambda x: -np.sum(y == x))
         self.classes_ = unique_classes
         iteration = 1
         for class_label in unique_classes:
             binary_y_train = np.where(y == class_label, 1, 0)
-            if self.early_classifier is None:
+            if self.early_estimator is None:
                 class_weights_dict_corrected = get_class_weights(binary_y_train)
-                self.early_classifier = RandomForestClassifier(class_weight=class_weights_dict_corrected, random_state=42)
-                self.early_classifier = LinearDiscriminantAnalysis()
-            if self.late_classifier is None:
+                self.early_estimator = RandomForestClassifier(class_weight=class_weights_dict_corrected, random_state=42)
+                self.early_estimator = LinearDiscriminantAnalysis()
+            if self.late_estimator is None:
                 class_weights_dict_corrected = get_class_weights(binary_y_train)
-                self.late_classifier = RandomForestClassifier(class_weight=class_weights_dict_corrected,
+                self.late_estimator = RandomForestClassifier(class_weight=class_weights_dict_corrected,
                                  random_state=42)
             current_class_size = np.sum(binary_y_train)
             print('Current class size = %s' %current_class_size)
@@ -2056,44 +2020,51 @@ class IterativeForwardClassifier(BaseEstimator, ClassifierMixin):
             print('Current threshold = %s' %dynamic_threshold)
             print('Forward Iteration %s:' % iteration)
             if current_class_size <= dynamic_threshold:
-                classifier_string = str(self.late_classifier).split("(")[0]
+                classifier_string = str(self.late_estimator).split("(")[0]
                 print(classifier_string, "used as Late classifier")
-                if self.late_params:  # If hyperparameters are provided
-                    if classifier_string in ['SVC', 'NuSVC', 'GaussianNB']:
+                if self.grid_params:  # If hyperparameters are provided
+                    if classifier_string in ['SVC', 'NuSVC', 'GaussianNB','LinearDiscriminantAnalysis']:
                         print('    Using RandomizedSearchCV')
                         ### don't use different kernels = just use one sigmoid or rbf
-                        randomized_search = RandomizedSearchCV(self.late_classifier, 
-                                            param_distributions=self.late_params, 
-                                            n_iter=15, cv=3, n_jobs=-1)
+                        randomized_search = RandomizedSearchCV(self.late_estimator, 
+                                            param_distributions=self.grid_params, 
+                                            n_iter=10, cv=3, n_jobs=-1)
                         randomized_search.fit(X, binary_y_train)
                         clf = randomized_search.best_estimator_
                     else:
                         print('    Using GridSearchCV')
-                        grid_search = GridSearchCV(self.late_classifier, self.late_params, 
+                        grid_search = GridSearchCV(self.late_estimator, self.grid_params, 
                                         cv=3, n_jobs=-1)
                         grid_search.fit(X, binary_y_train)
                         clf = grid_search.best_estimator_
                 else:
-                    clf = clone(self.late_classifier)
-                    clf.fit(X, binary_y_train)
+                    clf = clone(self.late_estimator)
+                    try:
+                        clf.fit(X, binary_y_train)
+                        self.classifiers.append(clf)
+                    except Exception as e:
+                        print('model erroring due to %s. Continuing...' %e)
             else:
-                print(str(self.early_classifier).split("(")[0], "used as Early classifier")
-                clf = clone(self.early_classifier)
-                clf.fit(X, binary_y_train)
+                print(str(self.early_estimator).split("(")[0], "used as Early classifier")
+                clf = clone(self.early_estimator)
+                try:
+                    clf.fit(X, binary_y_train)
+                    self.classifiers.append(clf)
+                except Exception as e:
+                    print('model erroring due to %s. Continuing...' %e)
                 
-            self.classifiers.append(clf)
             iteration += 1 
             
             # Filter out the samples classified as the current class for the next iteration
             rest_indices = np.where(clf.predict(X) == 0)[0]
             if len(rest_indices) == 0:
                 break
-            X, y = X.iloc[rest_indices], y.iloc[rest_indices]
+            X, y = X[rest_indices], y[rest_indices]
 
         return self
 
     def predict(self, X):
-        prob_scores = pd.DataFrame(index=X.index, columns=self.classes_)
+        prob_scores = pd.DataFrame(columns=self.classes_)
 
         for class_label, clf in zip(self.classes_, self.classifiers):
             try:
@@ -2105,7 +2076,7 @@ class IterativeForwardClassifier(BaseEstimator, ClassifierMixin):
         return final_predictions
 
     def predict_proba(self, X):
-        prob_scores = pd.DataFrame(index=X.index, columns=self.classes_)
+        prob_scores = pd.DataFrame( columns=self.classes_)
 
         for class_label, clf in zip(self.classes_, self.classifiers):
             try:
@@ -2122,17 +2093,21 @@ from sklearn.base import clone
 import pandas as pd
 
 class IterativeBackwardClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, early_classifier=None, 
-                 late_classifier=None, 
-                 late_params=None, threshold=1000):
-        self.early_classifier = early_classifier
-        self.late_classifier = late_classifier
+    def __init__(self, early_estimator=None, 
+                 late_estimator=None, 
+                 grid_params=None, threshold=None):
+        self.early_estimator = early_estimator
+        self.late_estimator = late_estimator
         self.threshold = threshold
         self.classifiers = []
         self.classes_ = []
-        self.late_params = late_params
+        self.grid_params = grid_params
 
     def fit(self, X, y):
+        if not isinstance(X, np.ndarray):
+            X = X.values
+        if not isinstance(y, np.ndarray):
+            y = y.values
         self.classifiers = []
         # Sort classes by frequency in ascending order
         unique_classes = sorted(np.unique(y), key=lambda x: np.sum(y == x))
@@ -2141,41 +2116,44 @@ class IterativeBackwardClassifier(BaseEstimator, ClassifierMixin):
 
         for class_label in unique_classes:
             binary_y_train = np.where(y == class_label, 1, 0)
-            if self.early_classifier is None:
+            if self.early_estimator is None:
                 class_weights_dict_corrected = get_class_weights(binary_y_train)
-                #self.early_classifier = RandomForestClassifier(class_weight=class_weights_dict_corrected, random_state=42)
-                self.early_classifier = LinearDiscriminantAnalysis()
-            if self.late_classifier is None:
+                #self.early_estimator = RandomForestClassifier(class_weight=class_weights_dict_corrected, random_state=42)
+                self.early_estimator = LinearDiscriminantAnalysis()
+            if self.late_estimator is None:
                 class_weights_dict_corrected = get_class_weights(binary_y_train)
-                self.late_classifier = RandomForestClassifier(class_weight=class_weights_dict_corrected,
+                self.late_estimator = RandomForestClassifier(class_weight=class_weights_dict_corrected,
                                  random_state=42)
             current_class_size = np.sum(binary_y_train)
             print('Current class size = %s' %current_class_size)
             # Dynamic threshold: e.g., 50% of the current class size
-            dynamic_threshold = max(100, current_class_size * 0.5)  # Ensuring a minimum threshold
+            if self.threshold is None:
+                dynamic_threshold = max(100, current_class_size * 0.5)  # Ensuring a minimum threshold
+            else:
+                dynamic_threshold =  copy.deepcopy(self.threshold)
             print('Current threshold = %s' %dynamic_threshold)
             print('Backward Iteration %s:' % iteration)
             if current_class_size <= dynamic_threshold:
-                classifier_string = str(self.late_classifier).split("(")[0]
+                classifier_string = str(self.late_estimator).split("(")[0]
                 print(classifier_string, "used as Late classifier")
-                if self.late_params:
-                    if classifier_string in ['SVC', 'NuSVC', 'GaussianNB']:
+                if self.grid_params:
+                    if classifier_string in ['SVC', 'NuSVC', 'GaussianNB','LinearDiscriminantAnalysis']:
                         print('    Using RandomizedSearchCV')
-                        randomized_search = RandomizedSearchCV(self.late_classifier, 
-                                            param_distributions=self.late_params, n_iter=15, cv=3, n_jobs=-1)
+                        randomized_search = RandomizedSearchCV(self.late_estimator, 
+                                            param_distributions=self.grid_params, n_iter=10, cv=3, n_jobs=-1)
                         randomized_search.fit(X, binary_y_train)
                         clf = randomized_search.best_estimator_
                     else:
                         print('    Using GridSearchCV')
-                        grid_search = GridSearchCV(self.late_classifier, self.late_params, cv=3)
+                        grid_search = GridSearchCV(self.late_estimator, self.grid_params, cv=3, n_jobs=-1)
                         grid_search.fit(X, binary_y_train)
                         clf = grid_search.best_estimator_
                 else:
-                    clf = clone(self.late_classifier)
+                    clf = clone(self.late_estimator)
                     clf.fit(X, binary_y_train)
             else:
-                print(str(self.early_classifier).split("(")[0], "used as Early classifier")
-                clf = clone(self.early_classifier)
+                print(str(self.early_estimator).split("(")[0], "used as Early classifier")
+                clf = clone(self.early_estimator)
                 clf.fit(X, binary_y_train)
                 
             self.classifiers.append(clf)
@@ -2185,12 +2163,12 @@ class IterativeBackwardClassifier(BaseEstimator, ClassifierMixin):
             rest_indices = np.where(clf.predict(X) == 0)[0]
             if len(rest_indices) == 0:
                 break
-            X, y = X.iloc[rest_indices], y.iloc[rest_indices]
+            X, y = X[rest_indices], y[rest_indices]
 
         return self
 
     def predict(self, X):
-        prob_scores = pd.DataFrame(index=X.index, columns=self.classes_)
+        prob_scores = pd.DataFrame( columns=self.classes_)
 
         for class_label, clf in zip(self.classes_, self.classifiers):
             try:
@@ -2202,7 +2180,7 @@ class IterativeBackwardClassifier(BaseEstimator, ClassifierMixin):
         return final_predictions
 
     def predict_proba(self, X):
-        prob_scores = pd.DataFrame(index=X.index, columns=self.classes_)
+        prob_scores = pd.DataFrame(columns=self.classes_)
 
         for class_label, clf in zip(self.classes_, self.classifiers):
             try:
@@ -2217,24 +2195,34 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 import numpy as np
 import pandas as pd
 
-class IterativeClassifier(BaseEstimator, ClassifierMixin):
+class IterativeSearchClassifier(BaseEstimator, ClassifierMixin):
+    """
+    IterativeSearchClassifier uses two classifiers: one to go Forward from majority to minority classes.
+      The other goes Backward from minority to majority classes.
+      Bot can use grid search params to search for best params to train these models.
+      Both models are combined finally to produce inferences.
+    """
     def __init__(self, 
-        early_classifier=None, late_classifier=None, 
-        late_params=None, threshold=1000):
-        self.early_classifier = early_classifier
-        self.late_classifier = late_classifier
-        self.late_params = late_params
+        base_estimator1=None, base_estimator2=None, 
+        grid_params=None, threshold=None):
+        self.base_estimator1 = base_estimator1
+        self.base_estimator2 = base_estimator2
+        self.grid_params = grid_params
         self.threshold = threshold
         self.forward_classifier = IterativeForwardClassifier(
-            early_classifier=early_classifier, late_classifier=late_classifier, 
-            late_params=late_params, threshold=threshold
+            early_estimator=base_estimator1, late_estimator=base_estimator2, 
+            grid_params=grid_params, threshold=threshold
         )
         self.backward_classifier = IterativeBackwardClassifier(
-            early_classifier=early_classifier, late_classifier=late_classifier, 
-            late_params=late_params, threshold=threshold
+            early_estimator=base_estimator1, late_estimator=base_estimator2, 
+            grid_params=grid_params, threshold=threshold
         )
 
     def fit(self, X, y):
+        if not isinstance(X, np.ndarray):
+            X = X.values
+        if not isinstance(y, np.ndarray):
+            y = y.values
         self.forward_classifier.fit(X, y)
         self.backward_classifier.fit(X, y)
         return self

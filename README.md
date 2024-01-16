@@ -1,5 +1,5 @@
 # featurewiz
-`featurewiz` is the best feature selection library for boosting your machine learning performance with minimal effort and maximum relevance using the famous MRMR algorithm.
+🔥 FeatureWiz, the ultimate feature selection library is powered by the renowned Minimum Redundancy Maximum Relevance (MRMR) algorithm. Learn more about it below.
 
 ![banner](images/featurewiz_logos.png)
 
@@ -8,7 +8,7 @@
 <li><a href="#Latest">Latest updates</a></li>
 <li><a href="#citation">Citation</a></li>
 <li><a href="#highlights">Hightlights</a></li>
-<li><a href="#internals">Internals</a></li>
+<li><a href="#workings">Workings</a></li>
 <li><a href="#usage">Usage</a></li>
 <li><a href="#tips">Tips for using featurewiz</a></li>
 <li><a href="#install">How to install featurewiz</a></li>
@@ -30,41 +30,50 @@ If you use featurewiz in your research project or paper, please use the followin
 "Seshadri, Ram (2020). GitHub - AutoViML/featurewiz: Use advanced feature engineering strategies and select the best features from your data set fast with a single line of code. source code: https://github.com/AutoViML/featurewiz"</p>
 <b>Current citations for featurewiz</b>
 
-[Google Scholar](https://scholar.google.com/scholar?hl=en&as_sdt=0%2C31&q=featurewiz&btnG=)
+[Google Scholar citations for featurewiz](https://scholar.google.com/scholar?hl=en&as_sdt=0%2C31&q=featurewiz&btnG=)
 
 ## Highlights
-<ol>`featurewiz` stands out as a versatile and powerful tool for feature selection and engineering, capable of significantly enhancing model performance through intelligent feature transformation and selection techniques. Its unique methods like SULOV and recursive XGBoost, combined with advanced feature engineering options, make it a valuable addition to any data scientist's toolkit:
-</ol>
-<b>Best Feature Selection Algorithm</b>
-<li>It provides one of the best automatic feature selection algorithms (Minimum Redundancy Maximum Relevance (MRMR) algorithm) as described by wikipedia in this page: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR selection has been found to be more powerful than the maximum relevance feature selection"</a> such as Boruta.</li>
-<br>
-<b>Advanced Feature Engineering Options</b>
+`featurewiz` is the best feature selection library for boosting your machine learning performance with minimal effort and maximum relevance using the famous MRMR algorithm.
+
+### What Makes FeatureWiz Stand Out? 🔍
+✔️ Automatically select the most relevant features without specifying a number 
+🚀 Fast and user-friendly, perfect for data scientists at all levels 
+🎯 Provides a built-in categorical-to-numeric encoder 
+📚 Well-documented with plenty of examples 
+📝 Actively maintained and regularly updated 
+
+### Simple tips for success using featurewiz 💡
+📈 First create additional features using the feature engg module 
+🌐 Compare featurewiz against other feature selection methods for best performance
+⚖️ Avoid overfitting by cross-validating your results as shown <a href="https://github.com/AutoViML/featurewiz/blob/main/examples/cross_validate.py">here</a>
+🎯 Try adding auto-encoders for additional features that may help boost performance
+
+### Feature Engineering
+Create new features effortlessly with a single line of code. featurewiz enables you to generate hundreds of interaction, group-by, or target-encoded features, eliminating the need for expert-level skills. 
+
+### What is MRMR?
+featurewiz provides one of the best automatic feature selection algorithms, MRMR, described by wikipedia in this page <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection"> as follows: "The MRMR feature selection algorithm has been found to be more powerful than the maximum relevance feature selection algorithm"</a> Boruta.
+
+### How does MRMR feature selection work?🔍 
+After creating new features, featurewiz uses the MRMR algorithm to answer crucial questions: Which features are important? Are they redundant or multi-correlated? Does your model suffer from or benefit from these new features? To answer these questions, two more steps are needed: ⚙️ SULOV Algorithm: The "Searching for Uncorrelated List of Variables" method ensures you're left with the most relevant, non-redundant features. ⚙️ Recursive XGBoost: featurewiz leverages XGBoost to repeatedly identify the best features among the selected variables after SULOV. 
+
+### Advanced Feature Engineering Options
+
 featurewiz extends beyond traditional feature selection by including powerful feature engineering capabilities such as:
 <li>Auto Encoders, including Denoising Auto Encoders (DAEs) Variational Auto Encoders (VAEs), and GANs (Generative Adversarial Networks) for additional feature extraction, especially on imbalanced datasets.</li>
 <li>A variety of category encoders like HashingEncoder, SumEncoder, PolynomialEncoder, BackwardDifferenceEncoder, OneHotEncoder, HelmertEncoder, OrdinalEncoder, and BaseNEncoder.</li>
 <li>The ability to add interaction features (e.g., x1x2, x2x3, x1^2), group by features, and target encoding</li>
-<br>
-<b>SULOV Method for Feature Selection</b>
-<li>SULOV stands for "Searching for Uncorrelated List Of Variables". It selects features that are uncorrelated with each other but have high correlation with the target variable, based on the Minimum Redundancy Maximum Relevance (mRMR) principle. This method effectively reduces redundancy in features while retaining those with high relevance to the target.</li>
-<br>
-<b>Recursive XGBoost Method</b>
-<li>After applying the SULOV method, featurewiz employs a recursive approach using XGBoost's feature importance. This process is repeated multiple times on subsets of data, combining and deduplicating selected features to identify the most impactful ones.</li>
-<br>
-<b>Comprehensive Encoding and Transformation</b>
-<li>featurewiz allows for extensive customization in how features are encoded and transformed, making it highly adaptable to various types of data.</li>
-<li>The ability to combine multiple encoding and transformation methods enhances its flexibility and effectiveness in feature engineering.</li>
-<br>
-<b>Used by PhD's and Researchers  and actively maintained</b>
-<li>featurewiz is used by researchers and PhD data scientists around the world: there are 64 citations for featurewiz since its release:</li>
 
-[Google Scholar](https://scholar.google.com/scholar?hl=en&as_sdt=0%2C31&q=featurewiz&btnG=) 
-<li>It's efficient in handling large datasets, making it suitable for a wide range of applications from small to big data scenarios.</li>
-<li>It is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>.</li>
-<li>It is actively maintained, and it is regularly updated with <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">new features and bug fixes</a>.</li>
+### Examples and Updates
+- featurewiz is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>
+- featurewiz is actively maintained, and it is regularly updated with <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">new features and bug fixes</a>
 
-## Internals
-### featurewiz - Transform Your Data Science Workflow using two modules:
+## Workings
+`featurewiz` has two major modules to transform your Data Science workflow:<p>
 <b>1. Feature Engineering Module</b>
+
+![old_feature_engg](images/feature_engg_old.jpg)
+
 <li>Advanced Feature Creation: use Deep Learning based Auto Encoders and GAN's to extract features to add to your data. These powerful capabilities will help you in solving your toughest problems.</li>
 <li>Options for Enhancement: Use "interactions", "groupby", or "target" flags to enable advanced feature engineering techniques.</li>
 <li>Kaggle-Ready: Designed to meet the high standards of feature engineering required in competitive data science, like Kaggle.</li>
@@ -78,8 +87,8 @@ featurewiz extends beyond traditional feature selection by including powerful fe
 <li>Addressing Key Questions: Helps interpret new features, assess their importance, and evaluate the model's performance with these features.</li>
 <li>Optimal Feature Subset: Uses Recursive XGBoost in combination with SULOV to identify the most critical features, reducing overfitting and improving model interpretability.</li>
 
-#### Chart Comparison:
-Minimal Optimal (MRMR - featurewiz) vs. All-Relevant (Boruta): Understand how featurewiz's MRMR approach differs from other methods like Boruta for comprehensive feature selection. The SULOV algorithm is based on the Minimum-Redundancy-Maximum-Relevance (MRMR) <a href="https://towardsdatascience.com/mrmr-explained-exactly-how-you-wished-someone-explained-to-you-9cf4ed27458b">algorithm explained in this article</a> as one of the best feature selection methods.
+#### Comparing featurewiz to Boruta:
+Featurewiz uses what is known as a `Minimal Optimal` algorithm while Boruta uses an `All-Relevant` algorithm. To understand how featurewiz's MRMR approach differs Boruta for comprehensive feature selection you need to see the chart below. It shows how the SULOV algorithm performs <a href="https://towardsdatascience.com/mrmr-explained-exactly-how-you-wished-someone-explained-to-you-9cf4ed27458b">MRMR feature selection</a> which provides a smaller feature set compared to Boruta. Additionally, Boruta contains redundant features (highly correlated features) which will hamper model performance while featurewiz doesn't.
 
 ![Learn More About MRMR](images/MRMR.png)
 
@@ -202,12 +211,13 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
     feature_engg : str or list, default=''
         Specifies the feature engineering methods to apply, such as 'interactions', 'groupby', 
         and 'target'. 
-<b>Update</b>: Five new options have been added recently to `feature_engg` (starting in version 0.5.0): `dae`, `vae`, `dae_add`, `vae_add` and `gan`. These are auto encoders that can extract the most important patterns in your data and add them as extra features to your data using neural networks. Try them for your toughest ML problems!
+
+    auto_encoders : str or list, default=''
+        Five new options have been added recently to `auto_encoders` (starting in version 0.5.0): `dae`, `vae`, `dae_add`, `vae_add` and `gan`. These are deep learning auto encoders (using tensorflow and keras) that can extract the most important patterns in your data and either replace your features or add them as extra features to your data. Try them for your toughest ML problems!
 
     ae_options : dict, default={}
         You can provide a dictionary for tuning auto encoders above. Supported auto encoders include 'dae', 
-        'vae', and 'gan'. You must use the help function to see how to send a dict to each auto encoder. You can also check out this example:
-[Auto Encoder demo notebook](https://github.com/AutoViML/featurewiz/blob/main/examples/Featurewiz_with_AutoEncoder_Demo.ipynb)
+        'vae', and 'gan'. You must use the `help` function to see how to send a dict to each auto encoder. You can also check out this <a href="https://github.com/AutoViML/featurewiz/blob/main/examples/Featurewiz_with_AutoEncoder_Demo.ipynb">Auto Encoder demo notebook</a>
 
     category_encoders : str or list, default=''
         Encoders for handling categorical variables. Supported encoders include 'onehot', 
