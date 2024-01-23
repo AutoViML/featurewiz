@@ -61,6 +61,7 @@ After creating new features, featurewiz uses the MRMR algorithm to answer crucia
 
 featurewiz extends beyond traditional feature selection by including powerful feature engineering capabilities such as:
 <li>Auto Encoders, including Denoising Auto Encoders (DAEs) Variational Auto Encoders (VAEs), and GANs (Generative Adversarial Networks) for additional feature extraction, especially on imbalanced datasets.</li>
+<a href="https://github.com/AutoViML/featurewiz"><img src="https://i.ibb.co/sJsKphR/VAE-model-flowchart.png" alt="VAE-model-flowchart" border="0"></a>)
 <li>A variety of category encoders like HashingEncoder, SumEncoder, PolynomialEncoder, BackwardDifferenceEncoder, OneHotEncoder, HelmertEncoder, OrdinalEncoder, and BaseNEncoder.</li>
 <li>The ability to add interaction features (e.g., x1x2, x2x3, x1^2), group by features, and target encoding</li>
 
