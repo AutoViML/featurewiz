@@ -37,6 +37,7 @@ setuptools.setup(
         "scipy<1.11.0",
         "Pillow>=9.0.0",
         "lazytransform>=1.10",
+        "tensorflow>=2.5",
         "numexpr>=2.7.3"
     ],
     classifiers=[
