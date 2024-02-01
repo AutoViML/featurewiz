@@ -22,7 +22,7 @@
 </ul>
 
 ## Latest
-`featurewiz` 5.0 version is out! It contains brand new Deep Learning Auto Encoders to enrich your data for the toughest imbalanced and multi-class datasets. If you are looking for the latest and greatest updates about our library, check out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a>.
+`featurewiz` 5.0 version is out! It contains brand new Deep Learning Auto Encoders to enrich your data for the toughest imbalanced and multi-class datasets. In addition, it has multiple brand-new Classifiers built for imbalanced and multi-class problems such as the `IterativeDoubleClassifier` and The `BlaggingClassifier`. If you are looking for the latest and greatest updates about our library, check out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a>.
 <br>
 
 ## Citation

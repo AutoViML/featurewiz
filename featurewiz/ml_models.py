@@ -1850,10 +1850,56 @@ from sklearn.base import clone
 
 class IterativeBestClassifier(BaseEstimator, ClassifierMixin):
     """
-    This is the best classifier for Binary and Multi-Classification problems.
-    It iteratively divides classes into one-vs-rest and trains multiple classifiers.
-    It especially does best with BlaggingClassifier(n_estimators=200).
-    XGB, LGBM, CatBoost could also be great base_estimators.
+    A custom classifier for binary and multi-class classification problems
+    that employs an iterative one-vs-rest approach. For each class in the dataset,
+    a separate classifier is trained to distinguish that particular class from all other classes.
+    This class is particularly effective when used with ensemble methods like BlaggingClassifier
+    or gradient boosting algorithms such as XGBClassifier, LGBMClassifier, and CatBoostClassifier.
+
+    Parameters:
+    -----------
+    base_estimator : estimator object (default=XGBClassifier(n_estimators=100, random_state=99))
+        The base estimator from which the IterativeBestClassifier is built. This is the model
+        that will be trained on each one-vs-rest classification task. It should be a classifier
+        that supports the `fit` and `predict_proba` methods.
+
+    Attributes:
+    -----------
+    classifiers : list of estimator objects
+        The collection of one-vs-rest classifiers trained during the fitting process. Each classifier
+        in this list is an instance of the `base_estimator` trained to distinguish one class from the rest.
+
+    classes_ : array of shape (n_classes,)
+        The classes labels.
+
+    Methods:
+    --------
+    fit(X, y):
+        Fit the IterativeBestClassifier to the training data. The method trains a separate classifier
+        for each class in `y`, using `X` as the training data.
+
+    predict(X):
+        Perform classification on samples in `X`. For each sample, the method returns the class label
+        that has the highest probability score across all one-vs-rest classifiers.
+
+    predict_proba(X):
+        Return probability estimates for all classes for each sample in `X`. The probability
+        of each class is computed as the normalized output of the corresponding one-vs-rest classifier.
+
+    Example:
+    --------
+    >>> from xgboost import XGBClassifier
+    >>> from sklearn.datasets import make_classification
+    >>> X, y = make_classification(n_samples=1000, n_features=20, n_informative=2, n_redundant=10, n_classes=3)
+    >>> clf = IterativeBestClassifier(base_estimator=XGBClassifier(n_estimators=100, random_state=99))
+    >>> clf.fit(X, y)
+    >>> print(clf.predict(X[:5]))
+
+    Notes:
+    ------
+    The effectiveness of the IterativeBestClassifier depends heavily on the choice of `base_estimator`.
+    It's recommended to experiment with different base estimators and their hyperparameters to achieve
+    optimal performance.
     """
     def __init__(self, base_estimator=XGBClassifier(n_estimators=100,
                     random_state=99)):
@@ -1913,10 +1959,68 @@ from sklearn.base import clone
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 class IterativeDoubleClassifier(BaseEstimator, ClassifierMixin):
     """
-    ### The IterativeDoubleClassifier is best for Binary and Multi-class problems!
-    ###  It trains two classisifers for each binary classification problem (one-vs-rest)
-    ### It is best with BlaggingClassifier(n_estimators=200) and RandomForestClassifier(n_estimators=100)
-    ### Both models' inferences are combined using weights to produce predictions.
+    A classifier designed for binary and multi-class classification problems,
+    employing a unique approach by training two separate classifiers for each one-vs-rest
+    binary classification task. The predictions from these two classifiers are then
+    combined using specified weights to produce the final prediction for each class.
+
+    This approach allows for a more nuanced decision boundary, potentially leading to
+    improved performance on complex datasets. It is particularly effective when used
+    with a combination of models like BlaggingClassifier and RandomForestClassifier
+    for one classifier, and potentially simpler linear models like LinearDiscriminantAnalysis
+    for the other, allowing for a blend of model complexities and perspectives.
+
+    Parameters:
+    -----------
+    base_estimator1 : estimator object, optional (default=None)
+        The first base estimator from which the classifier is built. If not provided,
+        a default RandomForestClassifier is used.
+
+    base_estimator2 : estimator object, optional (default=None)
+        The second base estimator. If not provided, a default LinearDiscriminantAnalysis
+        is used.
+
+    weights : dict, optional (default={1: 0.5, 2: 0.5})
+        A dictionary specifying the weights for combining the predictions from
+        `base_estimator1` and `base_estimator2`. Default is equal weighting.
+
+    Attributes:
+    -----------
+    classifiers1 : list of estimator objects
+        The list of first set of one-vs-rest classifiers trained during the fitting process.
+
+    classifiers2 : list of estimator objects
+        The list of second set of one-vs-rest classifiers trained during the fitting process.
+
+    classes_ : array of shape (n_classes,)
+        The class labels.
+
+    Methods:
+    --------
+    fit(X, y):
+        Fit the IterativeDoubleClassifier to the training data by training both
+        `base_estimator1` and `base_estimator2` for each class in a one-vs-rest fashion.
+
+    predict(X):
+        Predict class labels for samples in `X` by combining the predictions from both sets
+        of classifiers based on the specified weights.
+
+    predict_proba(X):
+        Predict class probabilities for samples in `X` by combining the prediction probabilities
+        from both sets of classifiers based on the specified weights, and normalizing them.
+
+    Example:
+    --------
+    >>> from sklearn.datasets import make_classification
+    >>> X, y = make_classification(n_samples=1000, n_features=20, n_classes=3)
+    >>> clf = IterativeDoubleClassifier()
+    >>> clf.fit(X, y)
+    >>> print(clf.predict(X[:5]))
+
+    Note:
+    -----
+    The effectiveness of this classifier is contingent on the complementary nature of the two
+    base estimators and the appropriateness of the weights assigned to their predictions.
     """
     def __init__(self, base_estimator1=None, 
         base_estimator2=None, weights=None):
@@ -2197,10 +2301,68 @@ import pandas as pd
 
 class IterativeSearchClassifier(BaseEstimator, ClassifierMixin):
     """
-    IterativeSearchClassifier uses two classifiers: one to go Forward from majority to minority classes.
-      The other goes Backward from minority to majority classes.
-      Bot can use grid search params to search for best params to train these models.
-      Both models are combined finally to produce inferences.
+    A classifier that integrates two distinct approaches for classification: a forward pass from
+    majority to minority classes and a backward pass from minority to majority classes. It is designed
+    to balance class representation and performance across varied class distributions, making it suitable
+    for imbalanced datasets.
+
+    The classifier employs two base estimators, one for each pass, and optionally uses grid search
+    parameters to optimize their configurations. The final predictions are derived by combining the
+    inferences from both the forward and backward classifiers, potentially using a simple voting or
+    averaging scheme.
+
+    Parameters:
+    -----------
+    base_estimator1 : estimator object, optional
+        The base estimator used for the forward pass. If not provided, a default will be used
+        based on the implementation of `IterativeForwardClassifier`.
+
+    base_estimator2 : estimator object, optional
+        The base estimator used for the backward pass. If not provided, a default will be used
+        based on the implementation of `IterativeBackwardClassifier`.
+
+    grid_params : dict or list of dictionaries, optional
+        The parameters to use for grid search optimization of the base estimators.
+
+    threshold : float, optional
+        A threshold used to determine a decision boundary, potentially used by both the
+        forward and backward classifiers.
+
+    Attributes:
+    -----------
+    forward_classifier : IterativeForwardClassifier object
+        The classifier instance performing the forward pass.
+
+    backward_classifier : IterativeBackwardClassifier object
+        The classifier instance performing the backward pass.
+
+    Methods:
+    --------
+    fit(X, y):
+        Fit the IterativeSearchClassifier to the training data by fitting both the forward and
+        backward classifiers.
+
+    predict(X):
+        Predict class labels for samples in `X` by averaging the predictions from both the
+        forward and backward classifiers.
+
+    predict_proba(X):
+        Predict class probabilities for samples in `X` by averaging the prediction probabilities
+        from both the forward and backward classifiers, potentially with weights.
+
+    Example:
+    --------
+    >>> from sklearn.datasets import make_classification
+    >>> X, y = make_classification(n_samples=1000, n_features=20, n_classes=3, weights=[0.1, 0.2, 0.7])
+    >>> clf = IterativeSearchClassifier()
+    >>> clf.fit(X, y)
+    >>> print(clf.predict(X[:5]))
+
+    Note:
+    -----
+    The effectiveness of this classifier can be influenced by the choice of base estimators, the
+    quality of grid search parameters, and the method used to combine the predictions from the
+    forward and backward passes.
     """
     def __init__(self, 
         base_estimator1=None, base_estimator2=None, 
@@ -2247,5 +2409,202 @@ class IterativeSearchClassifier(BaseEstimator, ClassifierMixin):
         final_probas = forward_probas * forward_weight + backward_probas * backward_weight
         return final_probas
 #######################################################################
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.svm import LinearSVC
+from sklearn.preprocessing import StandardScaler, LabelBinarizer, MinMaxScaler, RobustScaler
+from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.pipeline import Pipeline
+
+class MultiClassSVM(BaseEstimator, ClassifierMixin):
+    """
+    A unique multi-class classifier built upon the One-Class SVM, designed to handle multi-class
+    problems by training a separate One-Class SVM for each class. This approach treats
+    each class as an independent binary classification problem, distinguishing instances of a
+    single class from all others. The classifier supports hyperparameter tuning for each One-Class
+    SVM using grid search.
+
+    Parameters:
+    -----------
+    param_grid : dict or list of dictionaries, optional
+        Example: 
+            param_grid = {
+            'svc__C': [0.01, 0.1, 1, 10],
+            'svc__max_iter': [1000, 5000]
+            }
+
+    scaling : default 'minmax'
+        MinMaxScaler() is the default. If you want to use StandardScaler, specify "std".
+        If you want to use RobustScaler, specify scaling="robust".
+        If scaling=None or scaling=False, then no Scaler will be used.
+
+    Attributes:
+    -----------
+    models : dict
+        A dictionary where keys are class indices and values are the trained One-Class SVM
+        models corresponding to each class.
+
+    label_binarizer : LabelBinarizer object
+        Used to binarize the class labels and later invert the binary predictions back to
+        multi-class labels.
+
+    Methods:
+    --------
+    fit(X, y):
+        Fit the MultiClassSVM to the training data by training a separate One-Class SVM for
+        each class with optional hyperparameter tuning.
+
+    predict(X):
+        Predict class labels for samples in `X` by evaluating each sample with all One-Class
+        SVM models and assigning the class label based on the combined predictions.
+
+    predict_proba(X):
+        Estimate class probabilities for samples in `X` by normalizing the decision function
+        scores from each One-Class SVM model.
+
+    Example:
+    --------
+    >>> from sklearn.datasets import make_classification
+    >>> X, y = make_classification(n_samples=1000, n_features=20, n_classes=3)
+    >>> clf = MultiClassSVM(param_grid=param_grid, scaling="minmax")
+    >>> clf.fit(X, y)
+    >>> print(clf.predict(X[:5]))
+
+    Note:
+    -----
+    The effectiveness of this classifier relies on the suitability of the One-Class SVM for
+    the given data and the chosen hyperparameters. Fine-tuning the `param_grid` and interpreting
+    the probabilistic outputs can be crucial for achieving optimal performance.
+    """
+    def __init__(self, param_grid=None, scaling="minmax"):
+        if scaling:
+            if scaling == "std":
+                self.scaler = StandardScaler()
+            elif scaling == 'minmax':
+                self.scaler = MinMaxScaler()
+            elif scaling == 'robust':
+                self.scaler = RobustScaler()
+            else:
+                self.scaler = None
+        # Define the parameter grid for the pipeline
+        self.param_grid = param_grid if param_grid is not None else {
+            'svc__C': [0.0001, 0.001, 0.01, 0.1, 1, 10],
+            'svc__max_iter': [1000, 5000, 10000]
+        }
+
+        self.models = {}
+        self.label_binarizer = LabelBinarizer()
+
+    def fit(self, X, y):
+        self.label_binarizer.fit(y)
+        y_bin = self.label_binarizer.transform(y)
+
+        if y_bin.ndim == 1:
+            y_bin = y_bin[:, np.newaxis]
+
+        classes = self.label_binarizer.classes_
+
+        # Define the pipeline
+        if self.scaler:
+            pipeline = Pipeline([
+                ('scaler', self.scaler),
+                ('svc', LinearSVC(dual=False, penalty='l2', loss='squared_hinge', random_state=42))
+            ])
+            scaler = self.scaler.fit(X)
+        else:
+            #### No scaling will be done #######
+            pipeline = Pipeline([
+                ('svc', LinearSVC(dual=False, penalty='l2', loss='squared_hinge', random_state=42))
+            ])
+            scaler = None
+
+        ### Now perform model pipeline training ####################
+        if len(classes) == 2 and y_bin.shape[1] == 1:  # Binary classification
+            # Perform grid search on the pipeline
+            grid_search = GridSearchCV(pipeline, self.param_grid, cv=5, scoring='accuracy')
+            grid_search.fit(X, y_bin.ravel())
+
+            # Retrieve the best pipeline from grid search
+            best_pipeline = grid_search.best_estimator_
+
+            # Calibrate the best model from the pipeline
+            calibrated_svc = CalibratedClassifierCV(best_pipeline.named_steps['svc'], cv='prefit', method='sigmoid')
+            if self.scaler:
+                calibrated_svc.fit(best_pipeline.named_steps['scaler'].transform(X), y_bin.ravel())
+            else:
+                calibrated_svc.fit(X, y_bin.ravel())
+
+            # Store the calibrated_svc for both classes
+            if self.scaler:
+                self.models[0] = (best_pipeline.named_steps['scaler'], calibrated_svc)  # Negative class
+                self.models[1] = (best_pipeline.named_steps['scaler'], calibrated_svc)  # Positive class
+            else:
+                self.models[0] = (None, calibrated_svc)  # Negative class
+                self.models[1] = (None, calibrated_svc)  # Positive class
+
+        else:  # Multiclass classification
+            for i, class_label in enumerate(classes):
+                # Perform grid search on the pipeline
+                grid_search = GridSearchCV(pipeline, self.param_grid, cv=5, scoring='balanced_accuracy')
+                grid_search.fit(X, y_bin[:, i])
+
+                # Retrieve the best pipeline from grid search
+                best_pipeline = grid_search.best_estimator_
+
+                # Calibrate the best model from the pipeline
+                calibrated_svc = CalibratedClassifierCV(best_pipeline.named_steps['svc'], cv='prefit', method='sigmoid')
+                if self.scaler:
+                    calibrated_svc.fit(best_pipeline.named_steps['scaler'].transform(X), y_bin[:, i])
+                else:
+                    calibrated_svc.fit(X, y_bin[:, i])
+
+                # Store the calibrated_svc for the current class
+                if self.scaler:
+                    self.models[class_label] = (best_pipeline.named_steps['scaler'], calibrated_svc)
+                else:
+                    self.models[class_label] = (None, calibrated_svc)
+
+        return self
+
+    def predict_proba(self, X):
+        class_probabilities = np.zeros((X.shape[0], len(self.models)))
+
+        for i, model in self.models.items():
+            if self.scaler:
+                scaler, calibrated_svc = model
+                X_scaled = scaler.transform(X)
+            else:
+                _, calibrated_svc = model
+                X_scaled = copy.deepcopy(X)
+
+            probabilities = calibrated_svc.predict_proba(X_scaled)[:, 1]
+            class_probabilities[:, i] = probabilities
+
+        # Normalize the scores to obtain probabilities
+        y_proba = (class_probabilities - class_probabilities.min(axis=1)[:, np.newaxis]) / (class_probabilities.max(axis=1)[:, np.newaxis] - class_probabilities.min(axis=1)[:, np.newaxis])
+        sums = np.expand_dims(np.sum(y_proba,axis=1), axis=1)
+        arr = np.hstack([y_proba, sums])
+        result = arr / arr[:, -1:]
+        class_probabilities = result[:,:-1]
+        return class_probabilities
+
+    def predict(self, X):
+        # Get the probability estimates for all classes
+        class_probabilities = self.predict_proba(X)
+        
+        # For binary classification, class_probabilities will have 2 columns, and we're interested in the second one
+        if len(self.models) == 2 and class_probabilities.shape[1] == 2:
+            predicted_class_indices = class_probabilities[:, 1] >= 0.5
+            predicted_classes = predicted_class_indices.astype(int)
+        else:  # For multiclass, pick the class with the highest probability
+            predicted_class_indices = np.argmax(class_probabilities, axis=1)
+            # Convert class indices back to original class labels - Don't do this since it doesn't work!
+            #predicted_classes = self.label_binarizer.inverse_transform(predicted_class_indices.reshape(-1, 1))
+            predicted_classes = predicted_class_indices[:]
+
+        return predicted_classes
+
+    
+####################################################################################
 
 

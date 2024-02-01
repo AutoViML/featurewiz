@@ -21,7 +21,7 @@ from .featurewiz import FE_kmeans_resampler, FE_find_and_cap_outliers, EDA_find_
 from .featurewiz import split_data_n_ways, FE_concatenate_multiple_columns
 from .featurewiz import FE_discretize_numeric_variables, reduce_mem_usage
 from .ml_models import simple_XGBoost_model, simple_LightGBM_model, complex_XGBoost_model
-from .ml_models import complex_LightGBM_model,data_transform, get_class_weights
+from .ml_models import complex_LightGBM_model,data_transform, get_class_weights, MultiClassSVM
 from .ml_models import IterativeBestClassifier, IterativeDoubleClassifier, IterativeSearchClassifier
 from .my_encoders import My_LabelEncoder, Groupby_Aggregator, My_LabelEncoder_Pipe, Ranking_Aggregator, DateTime_Transformer
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe, FE_create_time_series_features, Binning_Transformer
@@ -42,6 +42,7 @@ from .featurewiz import EDA_find_remove_columns_with_infinity, FE_split_list_int
 from .featurewiz import EDA_remove_special_chars, FE_remove_commas_in_numerics
 from .featurewiz import EDA_randomly_select_rows_from_dataframe, remove_duplicate_cols_in_dataset
 from .featurewiz import cross_val_model_predictions
+from .blagging import BlaggingClassifier
 from .featurewiz import FeatureWiz
 ################################################################################
 if __name__ == "__main__":
@@ -50,9 +51,9 @@ else:
     module_type = 'Imported'
 version_number = __version__
 print("""%s featurewiz %s. Use the following syntax:
-    >>> wiz = FeatureWiz(feature_engg = '', nrows=None, transform_target=True, scalers="std",
-        		category_encoders="auto", add_missing=False, verbose=0. imbalanced=False,
-        		ae_options={})
+    >>> wiz = FeatureWiz(feature_engg = '', nrows=None, transform_target=True,
+        		category_encoders="auto", auto_encoders='VAE', ae_options={},
+        		add_missing=False, imbalanced=False, verbose=0)
     >>> X_train_selected, y_train = wiz.fit_transform(X_train, y_train)
     >>> X_test_selected = wiz.transform(X_test)
     >>> selected_features = wiz.features

@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="featurewiz",
-    version="0.5.4",
+    version="0.5.5",
     author="Ram Seshadri",
     author_email="rsesha2001@yahoo.com",
     description="Select Best Features from your data set - any size - now with XGBoost!",
@@ -36,7 +36,7 @@ setuptools.setup(
         "fsspec>=0.3.3",
         "scipy<1.11.0",
         "Pillow>=9.0.0",
-        "lazytransform>=1.10",
+        "lazytransform>=1.14",
         "tensorflow>=2.5",
         "numexpr>=2.7.3"
     ],
