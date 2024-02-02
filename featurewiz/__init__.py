@@ -33,9 +33,9 @@ from lazytransform import print_regression_model_stats, YTransformer, print_sulo
 from .sulov_method import FE_remove_variables_using_SULOV_method
 from .featurewiz import FE_transform_numeric_columns_to_bins, FE_create_interaction_vars
 from .stacking_models import Stacking_Classifier, Blending_Regressor, Stacking_Regressor, stacking_models_list
-from .stacking_models import StackingClassifier_Multi, analyze_problem_type_array
-from .stacking_models import DenoisingAutoEncoder, VariationalAutoEncoder
-from .stacking_models import GAN, GANAugmenter, get_class_distribution
+from .stacking_models import StackingClassifier_Multi, analyze_problem_type_array, get_class_distribution
+from .auto_encoders import DenoisingAutoEncoder, VariationalAutoEncoder, CNNAutoEncoder
+from .auto_encoders import GAN, GANAugmenter
 from .featurewiz import EDA_binning_numeric_column_displaying_bins, FE_calculate_duration_from_timestamp
 from .featurewiz import FE_convert_mixed_datatypes_to_string, FE_drop_rows_with_infinity
 from .featurewiz import EDA_find_remove_columns_with_infinity, FE_split_list_into_columns

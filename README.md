@@ -22,7 +22,7 @@
 </ul>
 
 ## Latest
-`featurewiz` 5.0 version is out! It contains brand new Deep Learning Auto Encoders to enrich your data for the toughest imbalanced and multi-class datasets. In addition, it has multiple brand-new Classifiers built for imbalanced and multi-class problems such as the `IterativeDoubleClassifier` and The `BlaggingClassifier`. If you are looking for the latest and greatest updates about our library, check out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a>.
+`featurewiz` 5.0 version is out! It contains brand new Deep Learning Auto Encoders to enrich your data for the toughest imbalanced and multi-class datasets. In addition, it has multiple brand-new Classifiers built for imbalanced and multi-class problems such as the `IterativeDoubleClassifier` and the `BlaggingClassifier`. If you are looking for the latest and greatest updates about our library, check out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a>.
 <br>
 
 ## Citation
@@ -60,10 +60,10 @@ After creating new features, featurewiz uses the MRMR algorithm to answer crucia
 ### Advanced Feature Engineering Options
 
 featurewiz extends beyond traditional feature selection by including powerful feature engineering capabilities such as:
-<li>Auto Encoders, including Denoising Auto Encoders (DAEs) Variational Auto Encoders (VAEs), and GANs (Generative Adversarial Networks) for additional feature extraction, especially on imbalanced datasets.</li>
+<li>Auto Encoders, including Denoising Auto Encoders (DAEs) Variational Auto Encoders (VAEs), CNN's (Convolutional Nueral Networks) and GAN's (Generative Adversarial Networks) for additional feature extraction, especially on imbalanced datasets.</li>
 <a href="https://github.com/AutoViML/featurewiz"><img src="https://i.ibb.co/sJsKphR/VAE-model-flowchart.png" alt="VAE-model-flowchart" border="0"></a>
 <li>A variety of category encoders like HashingEncoder, SumEncoder, PolynomialEncoder, BackwardDifferenceEncoder, OneHotEncoder, HelmertEncoder, OrdinalEncoder, and BaseNEncoder.</li>
-<li>The ability to add interaction features (e.g., x1x2, x2x3, x1^2), group by features, and target encoding</li>
+<li>The ability to add interaction features (e.g., x1x2, x2x3, x1^2), polynomial (X**2, X**3) and group by features, and target encoding</li>
 
 ### Examples and Updates
 - featurewiz is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>
@@ -214,7 +214,7 @@ You don't have to tell Featurewiz whether it is a Regression or Classification p
         and 'target'. 
 
     auto_encoders : str or list, default=''
-        Five new options have been added recently to `auto_encoders` (starting in version 0.5.0): `dae`, `vae`, `dae_add`, `vae_add` and `gan`. These are deep learning auto encoders (using tensorflow and keras) that can extract the most important patterns in your data and either replace your features or add them as extra features to your data. Try them for your toughest ML problems!
+        Five new options have been added recently to `auto_encoders` (starting in version 0.5.0): `DAE`, `VAE`, `DAE_ADD`, `VAE_ADD`, `CNN`, `CNN_ADD` and `GAN`. These are deep learning auto encoders (using tensorflow and keras) that can extract the most important patterns in your data and either replace your features or add them as extra features to your data. Try them for your toughest ML problems! See the notebooks folder for examples.
 
     ae_options : dict, default={}
         You can provide a dictionary for tuning auto encoders above. Supported auto encoders include 'dae', 

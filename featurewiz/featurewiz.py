@@ -46,8 +46,9 @@ from .ml_models import analyze_problem_type, get_sample_weight_array, check_if_G
 from .my_encoders import Groupby_Aggregator, My_LabelEncoder_Pipe, My_LabelEncoder
 from .my_encoders import Rare_Class_Combiner, Rare_Class_Combiner_Pipe, FE_create_time_series_features
 from .my_encoders import Column_Names_Transformer
-from .stacking_models import DenoisingAutoEncoder, VariationalAutoEncoder, GANAugmenter, GAN
-from .stacking_models import dae_hyperparam_selection, get_class_distribution
+from .auto_encoders import DenoisingAutoEncoder, VariationalAutoEncoder, GANAugmenter, GAN
+from .auto_encoders import dae_hyperparam_selection, vae_hyperparam_selection, CNNAutoEncoder
+from .stacking_models import get_class_distribution
 
 from . import settings
 settings.init()
@@ -3124,7 +3125,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
 
     def _parse_auto_encoders(self, encoders):
         approved_encoders = {
-            'dae', 'dae_add', 'vae', 'vae_add', 'gan',
+            'dae', 'dae_add', 'vae', 'vae_add', 'cnn', 'cnn_add', 'gan',
         }
         #### This is complicated logic ### be careful changing it!
         if isinstance(encoders, str):
@@ -3132,10 +3133,10 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                 encoders = []
             else:
                 ### first create a list and then check for validity of each one ###
-                encoders = [encoders]
+                encoders = [encoders.lower()]
                 encoders = [e for e in encoders if e in approved_encoders]
         if isinstance(encoders, list):
-                encoders = [e for e in encoders if e in approved_encoders]
+                encoders = [e.lower() for e in encoders if e in approved_encoders]
         #### just return them ###
         return encoders
 
@@ -3237,7 +3238,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                 self.scalers='minmax'
                 self.skip_xgboost = True
                 if 'dae' in self.auto_encoders:
-                    print('    SULOV is skipped...')
+                    print('    SULOV is skipped since auto-encoders is given...')
                     self.skip_sulov = True
             elif 'vae' in self.auto_encoders or 'vae_add' in self.auto_encoders:
                 self.ae = VariationalAutoEncoder(**self.ae_options)
@@ -3246,22 +3247,28 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                 self.scalers='minmax'
                 self.skip_xgboost = True
                 if 'vae' in self.auto_encoders:
-                    print('    SULOV is skipped...')
+                    print('    SULOV is skipped since auto-encoders is given...')
+                    self.skip_sulov = True
+            elif 'cnn' in self.auto_encoders or 'cnn_add' in self.auto_encoders:
+                self.ae = CNNAutoEncoder(**self.ae_options)
+                ### Even if user gives input on scalers, then use this as it is the best
+                print('Since Auto Encoders are selected for feature extraction,')
+                self.scalers='minmax'
+                self.skip_xgboost = True
+                if 'cnn' in self.auto_encoders:
+                    print('    SULOV is skipped since auto-encoders is given...')
                     self.skip_sulov = True
             elif 'gan' in self.auto_encoders:
                 print('Since Auto Encoders are selected for feature extraction,')
                 self.ae = GANAugmenter(**self.ae_options)
-                #self.ae = GANAugmenter(gan_model=None, input_dim=None, 
-                #            embedding_dim=100, epochs=10, 
-                #            num_synthetic_samples=1000)
                 ### If user does not give input on scalers, then use one of your own
                 self.scalers='minmax'
                 self.skip_xgboost = True
-                print('    SULOV is skipped...')
+                print('    SULOV is skipped since auto-encoders is given...')
                 self.skip_sulov = True
             ### print the options for Auto Encoder if available ##
             if self.ae:
-                print('    Recursive XGBoost is skipped...')
+                print('    Recursive XGBoost is also skipped...')
                 print('%s\n    AE dictionary given: %s' %(self.ae,
                                          self.ae_options.items()))
         except Exception as e:
@@ -3366,7 +3373,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             if not self.ae is None:
                 #### It is okay if y is None ########
                 if not 'gan' in self.auto_encoders:
-                    ### This is for VAE and DAE #####
+                    ### This is for VAE, CNN and DAE #####
                     X_sel_ae = self.ae.transform(X_sel)
                 else:
                     ### if it is GAN just return the dataframe as it is
@@ -3378,7 +3385,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                     ### Since this results in a higher dimension you need to create new columns ##
                     new_vars = ['ae_feature_'+str(x+1) for x in range(X_sel_ae.shape[1])]
                     X_sel_ae = pd.DataFrame(X_sel_ae, columns=new_vars, index=X_index)
-                    if 'dae_add' in self.auto_encoders or 'vae_add' in self.auto_encoders:
+                    if 'dae_add' in self.auto_encoders or 'vae_add' in self.auto_encoders or 'cnn_add' in self.auto_encoders:
                         ### Only if add is specified do you add the features to X
                         ## Since this results in a higher dimension you need to create new columns ##
                         old_vars = list(X_sel)
@@ -3495,42 +3502,60 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                     print('y is not formatted correctly: check your input y and try again.')
                     return self
 
-            ## Fit DAE transformer to the data. This method trains the autoencoder model.
+            ## Fit DAE or VAE transformer to the data. This method trains the autoencoder model.
+            new_epochs = 150  # Set the desired number of epochs
             if not self.ae is None:
                 ##### Now we set up the hyper params for DAE if it is selected ########
-                if 'dae' in self.auto_encoders or 'dae_add' in self.auto_encoders:
+                if 'dae' in self.auto_encoders or 'dae_add' in self.auto_encoders or 'vae' in self.auto_encoders or 'vae_add' in self.auto_encoders:
                     if not self.ae_options:
-                        # Perform Hyperparam selection only when DAE_DICTO is empty ###
+                        # Perform Hyperparam selection only when ae_options is empty ###
                         start_time = time.time()
-                        print('Performing hyper param selection for DAE. Will take approx. %s seconds' %(27*3))
-                        grid_search = dae_hyperparam_selection(self.ae, X_sel, y)
+                        print('Performing hyper param selection for DAE. Will take approx. %s seconds' %(27*4))
+                        if 'dae' in self.auto_encoders or 'dae_add' in self.auto_encoders:
+                            grid_search = dae_hyperparam_selection(self.ae, X_sel, y_sel)
+                        elif 'vae' in self.auto_encoders or 'vae_add' in self.auto_encoders:
+                            grid_search = vae_hyperparam_selection(self.ae, X_sel, y_sel)
                         best_model = grid_search.best_estimator_
                         best_model = best_model.named_steps['feature_extractor']
                         ## Print the best parameters
-                        print('    time taken for DAE hyper param selection = %0.0f seconds' %(time.time()-start_time))
+                        print('    time taken for hyper param selection = %0.0f seconds' %(time.time()-start_time))
                         print(grid_search.best_params_)
                         # Assuming best_model is the best estimator from GridSearchCV
                         # Update the epochs parameter of the feature_extractor
-                        new_epochs = 150  # Set the desired number of epochs
-                        best_model.epochs = 100
+                        best_model.epochs = new_epochs
                         self.ae = best_model
+                    else:
+                        print('    No hyperparam selection since ae_options is given')
+                else:
+                    print('    No hyperparam selection since GAN or CNN is selected for auto_encoders...')
                 ### since you cannot fit model before transforming data, leave it here ###
-                self.ae.fit(X_sel, y_sel)
                 if 'gan' in self.auto_encoders:
                     print('Fitting and transforming a GAN for each class...')
+                    #### You must fit separately and then transform. Otherwise, you get errors in transform.
+                    self.ae.fit(X_sel, y_sel)
                     X_sel_ae, y_sel = self.ae.transform(X_sel, y_sel)
                 elif ('dae' in self.auto_encoders) | ('dae_add' in self.auto_encoders):
-                    print('Fitting and transforming an Auto Encoder for dataset...')
+                    print('Fitting and transforming DenoisingAutoEncoder for dataset...')
+                    self.ae.fit(X_sel)
                     X_sel_ae = self.ae.transform(X_sel)
-                else:
+                elif ('cnn' in self.auto_encoders) | ('cnn_add' in self.auto_encoders):
+                    print('Fitting and transforming CNNAutoEncoder for dataset...')
+                    X_sel_ae = self.ae.fit_transform(X_sel)
+                elif ('vae' in self.auto_encoders) | ('vae_add' in self.auto_encoders):
+                    #### You need X and y for Variational Auto Encoders training #####
                     print('Fitting and transforming an Auto Encoder for dataset...')
+                    self.ae.fit(X_sel, y_sel)
                     X_sel_ae = self.ae.transform(X_sel, y_sel)
                 #### After transforming X_sel, you need to figure out whether to add it or not ####
                 if np.all(np.isnan(X_sel_ae)):
-                    print('Auto encoder is erroring. Using existing features shape: %s' %(X_sel.shape,))
+                    print('Auto encoder is erroring. Using existing features: %s' %(X_sel.shape,))
                 else:
                     ### You need to check for both 'vae' and 'vae_add': this does both!!
                     if [y for y in self.auto_encoders if 'dae' in y] or [y for y in self.auto_encoders if 'vae' in y]:
+                        new_vars = ['ae_feature_'+str(x+1) for x in range(X_sel_ae.shape[1])]
+                        ## Since this results in a higher dimension you need to create new columns ##
+                        X_sel_ae = pd.DataFrame(X_sel_ae, columns=new_vars, index=X_index)
+                    elif [y for y in self.auto_encoders if 'cnn' in y] :
                         new_vars = ['ae_feature_'+str(x+1) for x in range(X_sel_ae.shape[1])]
                         ## Since this results in a higher dimension you need to create new columns ##
                         X_sel_ae = pd.DataFrame(X_sel_ae, columns=new_vars, index=X_index)
@@ -3544,7 +3569,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                         y_index = X_sel_ae.index
                         y_sel = pd.DataFrame(y_sel, columns=self.targets, index=y_index)
                     #### Don't change this next line since it applies new rules to above! ###
-                    if 'dae_add' in self.auto_encoders or 'vae_add' in self.auto_encoders:
+                    if 'dae_add' in self.auto_encoders or 'vae_add' in self.auto_encoders or 'cnn_add' in self.auto_encoders:
                         ## Since this results in a higher dimension you need to create new columns ##
                         old_vars = list(X_sel)
                         X_sel = pd.concat([X_sel, X_sel_ae], axis=1)
