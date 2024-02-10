@@ -792,45 +792,6 @@ def get_sample_weight_array(y_train):
     wt_array = wt_array.values
     return wt_array
 ###############################################################################
-from collections import OrderedDict
-from collections import Counter
-from sklearn.utils.class_weight import compute_class_weight
-import copy
-def get_class_weights(y_input):    
-    ### get_class_weights has lower ROC_AUC but higher F1 scores than get_class_distribution
-    y_input = copy.deepcopy(y_input)
-    if isinstance(y_input, np.ndarray):
-        class_weights = compute_class_weight('balanced', classes=np.unique(y_input), y=y_input.reshape(-1))
-    elif isinstance(y_input, pd.Series):
-        class_weights = compute_class_weight('balanced', classes=np.unique(y_input.values), y=y_input.values.reshape(-1))
-    elif isinstance(y_input, pd.DataFrame):
-        ### if it is a dataframe, return only if it s one column dataframe ##
-        y_input = y_input.iloc[:,0]
-        class_weights = compute_class_weight('balanced', classes=np.unique(y_input.values), y=y_input.values.reshape(-1))
-    else:
-        ### if you cannot detect the type or if it is a multi-column dataframe, ignore it
-        return None
-    classes = np.unique(y_input)
-    xp = Counter(y_input)    
-    if len(class_weights[(class_weights < 1)]) > 0:
-        ### if the weights are less than 1, then divide them until the lowest weight is 1.
-        class_weights = class_weights/min(class_weights)
-    else:
-        class_weights = (class_weights)
-    ### This is the best version that returns correct weights ###   
-    class_weights = class_weights.astype(int)
-    class_weights[(class_weights<1)]=1
-    class_weights_dict_corrected = dict(zip(classes,class_weights))
-    return class_weights_dict_corrected
-##################################################################################
-from collections import OrderedDict
-def get_scale_pos_weight(y_input):
-    class_weighted_rows = get_class_weights(y_input)
-    rare_class = find_rare_class(y_input)
-    rare_class_weight = class_weighted_rows[rare_class]
-    print('    For class %s, weight = %s' %(rare_class, rare_class_weight))
-    return rare_class_weight
-############################################################################################
 def xgboost_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y, params, 
                     cpu_params, early_stopping_params={}):
     early_stopping = 10
@@ -2038,11 +1999,11 @@ class IterativeDoubleClassifier(BaseEstimator, ClassifierMixin):
         if not isinstance(y, np.ndarray):
             y = y.values
         if self.base_estimator1 is None:
-            class_weights_dict_corrected = get_class_weights(y)
+            class_weights_dict_corrected = get_class_distribution(y)
             self.base_estimator1 = RandomForestClassifier(n_estimators=100,#class_weight=class_weights_dict_corrected,
                              random_state=42)
         if self.base_estimator2 is None:
-            class_weights_dict_corrected = get_class_weights(y)
+            class_weights_dict_corrected = get_class_distribution(y)
             #self.base_estimator2 = RandomForestClassifier(class_weight=class_weights_dict_corrected, random_state=42)
             self.base_estimator2 = LinearDiscriminantAnalysis()
         #### No start training the models ####
@@ -2107,11 +2068,11 @@ class IterativeForwardClassifier(BaseEstimator, ClassifierMixin):
         for class_label in unique_classes:
             binary_y_train = np.where(y == class_label, 1, 0)
             if self.early_estimator is None:
-                class_weights_dict_corrected = get_class_weights(binary_y_train)
+                class_weights_dict_corrected = get_class_distribution(binary_y_train)
                 self.early_estimator = RandomForestClassifier(class_weight=class_weights_dict_corrected, random_state=42)
                 self.early_estimator = LinearDiscriminantAnalysis()
             if self.late_estimator is None:
-                class_weights_dict_corrected = get_class_weights(binary_y_train)
+                class_weights_dict_corrected = get_class_distribution(binary_y_train)
                 self.late_estimator = RandomForestClassifier(class_weight=class_weights_dict_corrected,
                                  random_state=42)
             current_class_size = np.sum(binary_y_train)
@@ -2221,11 +2182,11 @@ class IterativeBackwardClassifier(BaseEstimator, ClassifierMixin):
         for class_label in unique_classes:
             binary_y_train = np.where(y == class_label, 1, 0)
             if self.early_estimator is None:
-                class_weights_dict_corrected = get_class_weights(binary_y_train)
+                class_weights_dict_corrected = get_class_distribution(binary_y_train)
                 #self.early_estimator = RandomForestClassifier(class_weight=class_weights_dict_corrected, random_state=42)
                 self.early_estimator = LinearDiscriminantAnalysis()
             if self.late_estimator is None:
-                class_weights_dict_corrected = get_class_weights(binary_y_train)
+                class_weights_dict_corrected = get_class_distribution(binary_y_train)
                 self.late_estimator = RandomForestClassifier(class_weight=class_weights_dict_corrected,
                                  random_state=42)
             current_class_size = np.sum(binary_y_train)
