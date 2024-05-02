@@ -995,7 +995,7 @@ def featurewiz(dataname, target, corr_limit=0.8, verbose=0, sep=",", header=0,
                 ### since y_train is dask df and data_tuple.X_train is a pandas df, you can't merge them.
                 y_test = y_test.compute()  ### remember you first have to convert them to a pandas df
             data2 = pd.concat([data_tuple.X_test, y_test], axis=1)
-            dataname = data1.append(data2)
+            dataname = pd.concat([data1, data2])
             ### Sometimes there are duplicate values in index when you append. So just remove duplicates here
             dataname = dataname[~dataname.index.duplicated()]
             dataname = dataname.reindex(train_index)
