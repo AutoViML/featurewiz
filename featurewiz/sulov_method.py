@@ -201,7 +201,7 @@ def FE_remove_variables_using_SULOV_method(df, numvars, modeltype, target,
                     print('    Following (%d) vars selected: %s' %(len(final_list),final_list))
         ##############    D R A W   C O R R E L A T I O N   N E T W O R K ##################
         selected = copy.deepcopy(final_list)
-        if verbose:
+        if verbose and len(selected) <= 1000:
             try:
                 import networkx as nx
                 #### Now start building the graph ###################
