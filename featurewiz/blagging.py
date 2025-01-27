@@ -34,13 +34,24 @@ from sklearn.utils import check_random_state, check_X_y, check_array, column_or_
 from sklearn.utils.random import sample_without_replacement
 from sklearn.utils.validation import has_fit_parameter, check_is_fitted
 #from sklearn.utils.fixes import bincount
-from sklearn.utils.metaestimators import if_delegate_has_method
+#from sklearn.utils.metaestimators import if_delegate_has_method
+from sklearn.utils.metaestimators import available_if
 from sklearn.utils.multiclass import check_classification_targets
 from numpy.core.multiarray import bincount
 
 from sklearn.ensemble._base import BaseEnsemble, _partition_estimators
 
-
+def _estimator_has(attr):
+    """Check if we can delegate a method to the underlying estimator.
+    First, we check the first fitted estimator if available, otherwise we
+    check the unfitted estimator.
+    """
+    return lambda self: (
+        hasattr(self.estimator_, attr)
+        if hasattr(self, "estimator_")
+        else hasattr(self.estimator, attr)
+    )
+    
 __all__ = ["BlaggingClassifier",
                # TEF: No regressor has been implemented, though it would be
                # easy to do.
@@ -686,7 +697,8 @@ class BlaggingClassifier(BaseBagging, ClassifierMixin):
         else:
             return np.log(self.predict_proba(X))
 
-    @if_delegate_has_method(delegate='base_estimator')
+#    @if_delegate_has_method(delegate='base_estimator')
+    @available_if(_estimator_has("decision_function"))
     def decision_function(self, X):
         """Average of the decision functions of the base classifiers.
 
