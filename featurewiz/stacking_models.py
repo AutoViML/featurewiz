@@ -509,7 +509,6 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, classification_report
 from sklearn.utils import class_weight
-from imblearn.over_sampling import ADASYN
 from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin, ClassifierMixin
 from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
 from xgboost import XGBClassifier, XGBRegressor
@@ -582,7 +581,7 @@ def train_evaluate_adasyn(X_train, y_train, X_test, y_test, final_estimator,
                     n_neighbors, sampling_strategy, class_weights_dict):
     # ADASYN resampling
     adasyn = ADASYN(n_neighbors=n_neighbors, sampling_strategy=sampling_strategy, random_state=42)
-    X_resampled, y_resampled = adasyn.fit_resample(X_train, y_train)
+    X_resampled, y_resampled = X_train, y_train
 
     # Simplified base estimators for the stacking classifier
     base_estimators = [
@@ -613,7 +612,7 @@ def train_evaluate_adasyn(X_train, y_train, X_test, y_test, final_estimator,
     # Evaluating the classifier
     accuracy_resampled = accuracy_score(y_test, y_pred_resampled)
     f1_score_resampled = f1_score(y_test, y_pred_resampled, average='macro')
-    print(f"ADASYN Parameters - n_neighbors: {n_neighbors}, sampling_strategy: {sampling_strategy}")
+    #print(f"ADASYN Parameters - n_neighbors: {n_neighbors}, sampling_strategy: {sampling_strategy}")
     print('F1 score macro = ', f1_score_resampled)
     print(classification_report(y_test, y_pred_resampled))
     return stacking_classifier, f1_score_resampled
@@ -642,7 +641,7 @@ class StackingClassifier_Multi(BaseEstimator, ClassifierMixin):
         print('    Train data: ', X_train.shape, ', Validation data: ', X_val.shape)
 
         # Parameters to try for ADASYN
-        n_neighbors_options = [5, 10]
+        n_neighbors = 5
         ### do not use dictionary for multi-class since it doesn't work
         ### do not try it because I have tried multiple things and they don't work
         sampling_strategy = 'auto'
@@ -652,32 +651,15 @@ class StackingClassifier_Multi(BaseEstimator, ClassifierMixin):
         f1_score_final = 0
         model_final = None
         print('Model results on Validation data:')
-        try:
-            for n_neighbors in n_neighbors_options:
-                if np.unique(y_val).min() > n_neighbors:
-                    n_neighbors = np.int(np.unique(y_val).min()-1)
-                model_temp, f1_score_temp = train_evaluate_adasyn(X_train, y_train, X_val, y_val,
-                                        final_estimator=self.final_estimator,
-                                        n_neighbors=n_neighbors, sampling_strategy=sampling_strategy, 
-                                        class_weights_dict=class_weights_dict)
-                if f1_score_temp > f1_score_final:
-                    best_neighbors = n_neighbors
-                    f1_score_final = copy.deepcopy(f1_score_temp)
-                    model_final = copy.deepcopy(model_temp)
-        except:
-            ### if it fails for any reason, just try auto and the smallest size of n_neighbors
-            model_temp, f1_score_temp = train_evaluate_adasyn(X_train, y_train, X_val, y_val,
-                                        final_estimator=self.final_estimator,
-                                        n_neighbors=3, sampling_strategy='auto', 
-                                        class_weights_dict=class_weights_dict)
-            f1_score_final = copy.deepcopy(f1_score_temp)
-            model_final = copy.deepcopy(model_temp)
+        model_temp, f1_score_temp = train_evaluate_adasyn(X_train, y_train, X_val, y_val,
+                                final_estimator=self.final_estimator,
+                                n_neighbors=n_neighbors, sampling_strategy=sampling_strategy, 
+                                class_weights_dict=class_weights_dict)
+        f1_score_final = copy.deepcopy(f1_score_temp)
+        model_final = copy.deepcopy(model_temp)
             
-        print('best neighbors for ADASYN selected = ', best_neighbors)
         ### training the final model on full X and y before sending it out
-        adasyn = ADASYN(n_neighbors=best_neighbors, 
-            sampling_strategy=sampling_strategy, random_state=42)
-        X_resampled, y_resampled = adasyn.fit_resample(X, y)
+        X_resampled, y_resampled = X, y
         model_final.fit(X_resampled, y_resampled)
         self.final_model = model_final
         return self
