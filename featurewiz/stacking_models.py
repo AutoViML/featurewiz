@@ -580,7 +580,7 @@ def analyze_problem_type_array(y_train, verbose=0) :
 def train_evaluate_adasyn(X_train, y_train, X_test, y_test, final_estimator,
                     n_neighbors, sampling_strategy, class_weights_dict):
     # ADASYN resampling
-    adasyn = ADASYN(n_neighbors=n_neighbors, sampling_strategy=sampling_strategy, random_state=42)
+    #adasyn = ADASYN(n_neighbors=n_neighbors, sampling_strategy=sampling_strategy, random_state=42)
     X_resampled, y_resampled = X_train, y_train
 
     # Simplified base estimators for the stacking classifier

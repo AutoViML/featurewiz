@@ -20,3 +20,4 @@ Pillow>=9.0.0
 tqdm>=4.61.1
 numexpr>=2.7.3
 tensorflow>=2.5.2
+lazytransform>=1.17
