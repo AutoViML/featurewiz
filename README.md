@@ -21,14 +21,13 @@
 <li><a href="#disclaimer">Disclaimer</a></li>
 </ul>
 
-## Update (Jan 2025)
+## Latest Update (Jan 2025)
 <ol>
-<li><b>featurewiz is now upgraded to version 0.6 </b>which means it now runs on Python 3.12 or greater and also pandas 2.0 - this is a huge upgrade to those working in Colab, Kaggle and other latest kernels. Please make sure you check the `requirements.txt` file to know which versions are recommended.</li>
+<li><b>featurewiz is now upgraded to version 0.6</b>
+Anything above this version now runs on Python 3.12 or greater and also runs on pandas 2.0.
+- this is a huge upgrade to those working in Colab, Kaggle and other latest kernels. 
+- Please make sure you check the `requirements.txt` file to know which versions are recommended.</li>
 </ol>
-
-## Latest
-`featurewiz` 5.0 version is out! It contains brand new Deep Learning Auto Encoders to enrich your data for the toughest imbalanced and multi-class datasets. In addition, it has multiple brand-new Classifiers built for imbalanced and multi-class problems such as the `IterativeDoubleClassifier` and the `BlaggingClassifier`. If you are looking for the latest and greatest updates about our library, check out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a>.
-<br>
 
 ## Citation
 If you use featurewiz in your research project or paper, please use the following format for citations:<p>
@@ -42,10 +41,10 @@ If you use featurewiz in your research project or paper, please use the followin
 
 ### What Makes FeatureWiz Stand Out? 🔍
 ✔️ Automatically select the most relevant features without specifying a number 
-🚀 Fast and user-friendly, perfect for data scientists at all levels 
-🎯 Provides a built-in categorical-to-numeric encoder 
-📚 Well-documented with plenty of examples 
-📝 Actively maintained and regularly updated 
+🚀 Provides the fastest and best implementation of the MRMR algorithm
+🎯 Provides a built-in transformer (lazytransform library) that converts all features to numeric
+📚 Includes deep learning models such as Variational Auto Encoders to capture complex interactions in your data
+📝 Provides feature engineering in addition to feature selection - all with one single API call!
 
 ### Simple tips for success using featurewiz 💡
 📈 First create additional features using the feature engg module 
@@ -54,21 +53,31 @@ If you use featurewiz in your research project or paper, please use the followin
 🎯 Try adding auto-encoders for additional features that may help boost performance
 
 ### Feature Engineering
-Create new features effortlessly with a single line of code. featurewiz enables you to generate hundreds of interaction, group-by, or target-encoded features, eliminating the need for expert-level skills. 
+Create new features effortlessly with a single line of code! featurewiz enables you to generate hundreds of interaction, group-by, target-encoded features and higher order features, eliminating the need for expert-level knowledge to create your own features. Now you can create even deep learning based features such as Variational Auto Encoders to capture complex interactions hidden among your features. See the  <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">latest</a> page for more information on this amazing feature.
 
 ### What is MRMR?
-featurewiz provides one of the best automatic feature selection algorithms, MRMR, described by wikipedia in this page <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection"> as follows: "The MRMR feature selection algorithm has been found to be more powerful than the maximum relevance feature selection algorithm"</a> Boruta.
+featurewiz provides one of the best automatic feature selection algorithms, MRMR, as described by wikipedia in this page as follows: <a href="https://en.wikipedia.org/wiki/Minimum_redundancy_feature_selection">"The MRMR feature selection algorithm has been found to be more powerful than other feature selection algorithms such as Boruta"</a>.  
+
+In addition, other researchers have compared <a href="https://github.com/smazzanti/mrmr/blob/15cb0983a3e53114bbab94a9629e404c1d42f5d8/notebooks/mnist.ipynb">MRMR against multiple feature selection algorithms</a> and found MRMR to be the best.
+
+![feature_mrmr](images/featurewiz_mrmr.png)
 
 ### How does MRMR feature selection work?🔍 
-After creating new features, featurewiz uses the MRMR algorithm to answer crucial questions: Which features are important? Are they redundant or multi-correlated? Does your model suffer from or benefit from these new features? To answer these questions, two more steps are needed: ⚙️ SULOV Algorithm: The "Searching for Uncorrelated List of Variables" method ensures you're left with the most relevant, non-redundant features. ⚙️ Recursive XGBoost: featurewiz leverages XGBoost to repeatedly identify the best features among the selected variables after SULOV. 
+After creating new features, featurewiz uses the MRMR algorithm to answer crucial questions: Which features are important? Are they redundant or mutually-correlated? Will your model suffer from or benefit from adding all features? To answer these questions, featurewiz uses two crucial steps in MRMR: 
+
+⚙️ The SULOV Algorithm: SULOV means "Searching for Uncorrelated List of Variables". It is a fast algorithm that removes mutually correlated features so that you're left with only the most non-redundant (un-correlated) features. It uses the Mutual Information Score to accomplish this feat.
+
+⚙️ Recursive XGBoost: Second, featurewiz uses XGBoost's feature importance scores by selecting smaller and smaller feature sets repeatedly to identify the most relevant features for your task among all the variables remaining after SULOV algorithm. 
 
 ### Advanced Feature Engineering Options
 
-featurewiz extends beyond traditional feature selection by including powerful feature engineering capabilities such as:
-<li>Auto Encoders, including Denoising Auto Encoders (DAEs) Variational Auto Encoders (VAEs), CNN's (Convolutional Nueral Networks) and GAN's (Generative Adversarial Networks) for additional feature extraction, especially on imbalanced datasets.</li>
-<a href="https://github.com/AutoViML/featurewiz"><img src="https://i.ibb.co/sJsKphR/VAE-model-flowchart.png" alt="VAE-model-flowchart" border="0"></a>
+featurewiz extends traditional feature selection to the realm of deep learning using <b>Auto Encoders</b>, including Denoising Auto Encoders (DAEs), Variational Auto Encoders (VAEs), CNN's (Convolutional Neural Networks) and GAN's (Generative Adversarial Networks) for additional feature extraction, especially on imbalanced datasets. Just set the 'feature_engg' flag to 'VAE_add' or 'DAE_add' to create these additional features.
+
+<a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md"><img src="https://i.ibb.co/sJsKphR/VAE-model-flowchart.png" alt="VAE-model-flowchart" border="0"></a>
+
+In addition, we include:
 <li>A variety of category encoders like HashingEncoder, SumEncoder, PolynomialEncoder, BackwardDifferenceEncoder, OneHotEncoder, HelmertEncoder, OrdinalEncoder, and BaseNEncoder.</li>
-<li>The ability to add interaction features (e.g., x1x2, x2x3, x1^2), polynomial (X**2, X**3) and group by features, and target encoding</li>
+<li>The ability to add interaction features (e.g., x1x2, x2x3, x1^2), polynomial (X**2, X**3) and group by features, and target encoding features.</li>
 
 ### Examples and Updates
 - featurewiz is well-documented, and it comes with a number of <a href="https://github.com/AutoViML/featurewiz/tree/main/examples">examples</a>
@@ -94,7 +103,9 @@ featurewiz extends beyond traditional feature selection by including powerful fe
 <li>Optimal Feature Subset: Uses Recursive XGBoost in combination with SULOV to identify the most critical features, reducing overfitting and improving model interpretability.</li>
 
 #### Comparing featurewiz to Boruta:
-Featurewiz uses what is known as a `Minimal Optimal` algorithm while Boruta uses an `All-Relevant` algorithm. To understand how featurewiz's MRMR approach differs Boruta for comprehensive feature selection you need to see the chart below. It shows how the SULOV algorithm performs <a href="https://towardsdatascience.com/mrmr-explained-exactly-how-you-wished-someone-explained-to-you-9cf4ed27458b">MRMR feature selection</a> which provides a smaller feature set compared to Boruta. Additionally, Boruta contains redundant features (highly correlated features) which will hamper model performance while featurewiz doesn't.
+Featurewiz uses what is known as a `Minimal Optimal` algorithm such as MRMR while Boruta uses an `All-Relevant` approach. To understand how featurewiz's MRMR approach differs Boruta's 'All-Relevant' approach for best feature selection you need to study the chart below. It shows how the SULOV algorithm performs <a href="https://towardsdatascience.com/mrmr-explained-exactly-how-you-wished-someone-explained-to-you-9cf4ed27458b">MRMR feature selection</a> which provides a smaller feature set compared to Boruta which uses a bigger feature set. 
+
+One of the weaknesses of Boruta is that it contains redundant features (highly correlated features) which will hamper model performance while featurewiz doesn't.
 
 ![Learn More About MRMR](images/MRMR.png)
 
@@ -106,8 +117,8 @@ Transform your feature engineering and selection process with featurewiz - the t
 <ol>
 <li>Find all the pairs of highly correlated variables exceeding a correlation threshold (say absolute(0.7)).</li>
 <li>Then find their MIS score (Mutual Information Score) to the target variable. MIS is a non-parametric scoring method. So its suitable for all kinds of variables and target.</li>
-<li>Now take each pair of correlated variables, then knock off the one with the lower MIS score.</li>
-<li>What’s left is the ones with the highest Information scores and least correlation with each other.</li>
+<li>Now take each pair of correlated variables (using Pearson coefficient higher than the threshold above), and then eliminate the feature with the lower MIS score from the pair. Do this repeatedly with each pair until no feature pair is left to analyze.</li>
+<li>What’s left after this step are the features with the highest Information score and the least Pearson correlation with each other.</li>
 </ol>
 
 ![sulov](images/SULOV.jpg)

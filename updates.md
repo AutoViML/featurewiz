@@ -1,10 +1,12 @@
-# featurewiz latest updates
-This is the main page where we will post the latest updates to the featurewiz library. Make sure you upgrade your featurewiz library everytime you run to take advantage of new features. There are new updates almost every week!
+# featurewiz latest updates page
+This is the main page where we will post the latest updates to the featurewiz library. Make sure you bookmark this page and upgrade your featurewiz library before you run it. There are new updates almost every week to featurewiz!
 
 ### Update (Jan 2024): Introducing BlaggingClassifier, built to handle imbalanced distributions! 
 Featurewiz now introduces The BlaggingClassifier one of the best classifiers ever, built by # Original Author: Gilles Louppe and Licensed in BSD 3 clause with Adaptations by Tom E Fawcett. This is an amazing classifier that everyone must try for their best imbalanced and multi-class problems. Don't just take our word for it, try it out yourself and see!
 
-In addition, featurewiz introduces three additional classifiers built for multi-class and binary classification problems. They are: The IterativeBestClassifier, IterativeDoubleClassifier and IterativeSearchClassifier. You can read more about how they work in their docstrings. Try them out and see.
+## Jan 2024 update
+`featurewiz` 5.0 version is out! It contains brand new Deep Learning Auto Encoders to enrich your data for the toughest imbalanced and multi-class datasets. In addition, it has multiple brand-new Classifiers built for imbalanced and multi-class problems such as the `IterativeDoubleClassifier` and the `BlaggingClassifier`. If you are looking for the latest and greatest updates about our library, check out our <a href="https://github.com/AutoViML/featurewiz/blob/main/updates.md">updates page</a>.
+<br>
 
 ![IterativeBest](https://i.ibb.co/R2w7WR6/Iterative-Best-Design.png)
 

@@ -3520,6 +3520,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
                 X_sel = X_sel.drop(self.cols_zero_variance, axis=1)
                 df = df.drop(self.cols_zero_variance, axis=1)
             self.numvars = X_sel.columns.tolist()
+            
             if not self.skip_sulov:
                 self.numvars = FE_remove_variables_using_SULOV_method(df, self.numvars, self.model_type, self.targets,
                                      self.corr_limit, self.verbose, self.dask_xgboost_flag)

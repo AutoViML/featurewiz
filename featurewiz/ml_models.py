@@ -600,9 +600,11 @@ def xgbm_model_fit(random_search_flag, x_train, y_train, x_test, y_test, modelty
             'class_weight':[None, 'balanced'],
                 }
     #####   Set the params for GPU and CPU here ###
-    tree_method = 'hist'
+    #tree_method = 'hist'
+    tree_method = 'exact'
     if check_if_GPU_exists():
-        tree_method = 'gpu_hist'
+        #tree_method = 'gpu_hist'
+        tree_method = 'approx'
     ######   This is where we set the default parameters ###########
     if modeltype == 'Regression':
         objective = 'reg:squarederror' 
@@ -805,10 +807,12 @@ def xgboost_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y,
         try:
             if modeltype == 'Regression':
                 if log_y:
-                    model.fit(x_train, np.log(y_train), early_stopping_rounds=early_stopping, eval_metric=['rmse'],
+                    model.fit(x_train, np.log(y_train), early_stopping_rounds=early_stopping, 
+                        #eval_metric=['rmse'],
                             eval_set=[(x_test, np.log(y_test))], verbose=0)
                 else:
-                    model.fit(x_train, y_train, early_stopping_rounds=early_stopping, eval_metric=['rmse'],
+                    model.fit(x_train, y_train, early_stopping_rounds=early_stopping, 
+                        #eval_metric=['rmse'],
                             eval_set=[(x_test, y_test)], verbose=0)
             else:
                 if modeltype == 'Binary_Classification':
@@ -817,7 +821,8 @@ def xgboost_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y,
                 else:
                     objective='multi:softprob'
                     eval_metric = 'auc'
-                model.fit(x_train, y_train, early_stopping_rounds=early_stopping, eval_metric = eval_metric,
+                model.fit(x_train, y_train, early_stopping_rounds=early_stopping, 
+                    #eval_metric = eval_metric,
                                 eval_set=[(x_test, y_test)], verbose=0)
         except:
             print('GPU is present but not turned on. Please restart after that. Currently using CPU...')
@@ -842,13 +847,16 @@ def xgboost_model_fit(model, x_train, y_train, x_test, y_test, modeltype, log_y,
                 model = model.set_params(**cpu_params)
             if modeltype == 'Regression':
                 if log_y:
-                    model.fit(x_train, np.log(y_train), early_stopping_rounds=6, eval_metric=['rmse'],
+                    model.fit(x_train, np.log(y_train), early_stopping_rounds=6, 
+                        #eval_metric=['rmse'],
                             eval_set=[(x_test, np.log(y_test))], verbose=0)
                 else:
-                    model.fit(x_train, y_train, early_stopping_rounds=6, eval_metric=['rmse'],
+                    model.fit(x_train, y_train, early_stopping_rounds=6, 
+                        #eval_metric=['rmse'],
                             eval_set=[(x_test, y_test)], verbose=0)
             else:
-                model.fit(x_train, y_train, early_stopping_rounds=6,eval_metric=eval_metric,
+                model.fit(x_train, y_train, early_stopping_rounds=6,
+                    #eval_metric=eval_metric,
                                 eval_set=[(x_test, y_test)], verbose=0)
     return model
 #################################################################################
@@ -939,17 +947,19 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
     #####   Set the Scoring Parameters here based on each model and preferences of user ###
     cpu_params = {}
     param = {}
-    tree_method = 'hist'
+    #tree_method = 'hist'
+    tree_method = 'exact'
     if GPU_exists:
-        tree_method = 'gpu_hist'
-    cpu_params['tree_method'] = 'hist'
+        #tree_method = 'gpu_hist'
+        tree_method = 'approx'
+    cpu_params['tree_method'] = tree_method
     cpu_params['gpu_id'] = 0
-    cpu_params['updater'] = 'grow_colmaker'
+    #cpu_params['updater'] = 'grow_colmaker'
     cpu_params['predictor'] = 'cpu_predictor'
     if GPU_exists:
-        param['tree_method'] = 'gpu_hist'
+        param['tree_method'] = tree_method
         param['gpu_id'] = 0
-        param['updater'] = 'grow_gpu_hist' #'prune'
+        #param['updater'] = 'grow_gpu_hist' #'prune'
         param['predictor'] = 'gpu_predictor'
         print('    Hyper Param Tuning XGBoost with GPU parameters. This will take time. Please be patient...')
     else:
@@ -973,7 +983,7 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
                           subsample=0.7,
                           random_state=99,
                           objective='reg:squarederror',
-          	              eval_metric='rmse',
+          	              #eval_metric='rmse',
                           verbosity = 0,
                           n_jobs=-1,
                           tree_method=tree_method,
@@ -1057,7 +1067,7 @@ def simple_XGBoost_model(X_train, y_train, X_test, log_y=False, GPU_flag=False,
 
     #### Don't move this. It has to be done after you transform Y_valid to numeric ########
     early_stopping_params={"early_stopping_rounds":5,
-                "eval_metric" : eval_metric, 
+                #"eval_metric" : eval_metric, 
                 "eval_set" : [[X_valid, Y_valid]]
                }
     gbm_model = xgboost_model_fit(model, X_train, Y_train, X_valid, Y_valid, modeltype,
